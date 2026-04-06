@@ -22,21 +22,41 @@ export function ProjectList({ projects }: ProjectListProps) {
 
   return (
     <section>
-      <div>
-        <h1>Projects</h1>
-        <button onClick={handleNewProject}>New Project</button>
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-gray-900">Projects</h2>
+        <button
+          onClick={handleNewProject}
+          className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 transition-colors"
+        >
+          New Project
+        </button>
       </div>
 
       {projects.length === 0 ? (
-        <p>No projects yet. Create one to get started.</p>
+        <div className="mt-8 flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 py-16 text-center">
+          <p className="text-gray-500">No projects yet. Create one to get started.</p>
+          <button
+            onClick={handleNewProject}
+            className="mt-4 rounded-lg bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 transition-colors"
+          >
+            Create your first project
+          </button>
+        </div>
       ) : (
-        <ul>
+        <ul className="mt-4 grid gap-3">
           {projects.map((project) => (
             <li key={project.id}>
-              <button onClick={() => router.push(`/dashboard/${project.id}`)}>
-                <span>{project.name}</span>
-                {project.description && <span>{project.description}</span>}
-                <time dateTime={project.created_at}>
+              <button
+                onClick={() => router.push(`/dashboard/${project.id}`)}
+                className="flex w-full items-center justify-between rounded-xl border border-gray-200 bg-white p-5 text-left shadow-sm hover:shadow-md hover:border-gray-300 transition-all"
+              >
+                <div>
+                  <span className="text-base font-medium text-gray-900">{project.name}</span>
+                  {project.description && (
+                    <span className="mt-1 block text-sm text-gray-500">{project.description}</span>
+                  )}
+                </div>
+                <time dateTime={project.created_at} className="shrink-0 text-sm text-gray-400">
                   {new Date(project.created_at).toLocaleDateString('en-US', {
                     month: 'short',
                     day: 'numeric',

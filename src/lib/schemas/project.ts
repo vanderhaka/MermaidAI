@@ -10,6 +10,7 @@ export const updateProjectSchema = z
     name: z.string().trim().min(1).max(100).optional(),
     description: z.string().nullable().optional(),
   })
-  .refine((data) => data.name !== undefined || data.description !== undefined, {
-    message: 'At least one field must be provided',
-  })
+  .refine(
+    (data) => data.name !== undefined || data.description !== undefined,
+    'At least one field must be provided',
+  )

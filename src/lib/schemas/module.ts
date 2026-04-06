@@ -19,6 +19,4 @@ export const updateModuleSchema = z
     exit_points: z.array(z.string()),
   })
   .partial()
-  .refine((data) => Object.keys(data).length > 0, {
-    message: 'At least one field must be provided',
-  })
+  .refine((data) => Object.keys(data).length > 0, 'At least one field must be provided')

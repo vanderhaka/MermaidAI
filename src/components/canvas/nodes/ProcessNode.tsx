@@ -2,15 +2,17 @@
 
 import { useState } from 'react'
 import { Handle, Position } from '@xyflow/react'
-import type { NodeProps } from '@xyflow/react'
+import type { Node, NodeProps } from '@xyflow/react'
 
 type ProcessNodeData = {
   label: string
   pseudocode?: string
 }
 
-export default function ProcessNode({ data }: NodeProps) {
-  const { label, pseudocode } = data as ProcessNodeData
+type ProcessNodeType = Node<ProcessNodeData, 'process'>
+
+export default function ProcessNode({ data }: NodeProps<ProcessNodeType>) {
+  const { label, pseudocode } = data
   const [expanded, setExpanded] = useState(false)
 
   return (

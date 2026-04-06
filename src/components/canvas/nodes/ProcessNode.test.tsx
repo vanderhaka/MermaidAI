@@ -19,7 +19,7 @@ const defaultProps = {
     label: 'Validate Input',
     pseudocode: 'if input is valid\n  process data\nelse\n  return error',
   },
-  type: 'process',
+  type: 'process' as const,
   draggable: true,
   dragging: false,
   zIndex: 0,

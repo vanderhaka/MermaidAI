@@ -18,7 +18,7 @@ import ModuleCardNode from '@/components/canvas/nodes/ModuleCardNode'
 
 const baseProps = {
   id: 'node-1',
-  type: 'moduleCard' as const,
+  type: 'module_card' as const,
   data: {
     name: 'Auth Module',
     description: 'Handles user authentication',

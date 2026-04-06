@@ -4,6 +4,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // Mock server-only (no-op in test)
 vi.mock('server-only', () => ({}))
 
+const mockGetAuthUserId = vi.fn()
+vi.mock('@/lib/auth', () => ({ getAuthUserId: mockGetAuthUserId }))
+
 // Mock Supabase server client
 const mockInsert = vi.fn()
 const mockSelect = vi.fn()
@@ -18,9 +21,7 @@ const mockFrom = vi.fn(() => ({
 }))
 
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: vi.fn().mockResolvedValue({
-    from: mockFrom,
-  }),
+  createClient: vi.fn(() => ({ from: mockFrom })),
 }))
 
 const validInput = {
@@ -44,6 +45,7 @@ const dbRow = {
 describe('connectModules', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetAuthUserId.mockResolvedValue('test-user-id')
     mockFrom.mockReturnValue({ insert: mockInsert, select: mockSelect, delete: mockDelete })
     mockInsert.mockReturnValue({ select: mockSelect })
     mockSelect.mockReturnValue({ single: mockSingle })
@@ -138,6 +140,7 @@ describe('connectModules', () => {
 describe('disconnectModules', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetAuthUserId.mockResolvedValue('test-user-id')
     mockFrom.mockReturnValue({ insert: mockInsert, select: mockSelect, delete: mockDelete })
     mockDelete.mockReturnValue({ eq: mockEq })
   })

@@ -1,6 +1,9 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
+const mockGetAuthUserId = vi.fn()
+vi.mock('@/lib/auth', () => ({ getAuthUserId: mockGetAuthUserId }))
+
 const mockEq = vi.fn()
 const mockSingle = vi.fn()
 const mockSelect = vi.fn(() => ({ eq: mockEq, single: mockSingle }))
@@ -15,7 +18,7 @@ const mockFrom = vi.fn(() => ({
 }))
 
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: vi.fn(() => Promise.resolve({ from: mockFrom })),
+  createClient: vi.fn(() => ({ from: mockFrom })),
 }))
 
 vi.mock('server-only', () => ({}))
@@ -23,6 +26,7 @@ vi.mock('server-only', () => ({}))
 describe('getGraphForModule', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetAuthUserId.mockResolvedValue('test-user-id')
     mockFrom.mockReturnValue({
       select: mockSelect,
       insert: mockInsert,
@@ -62,7 +66,6 @@ describe('getGraphForModule', () => {
       },
     ]
 
-    // First call (flow_nodes) returns nodes, second call (flow_edges) returns edges
     mockEq
       .mockResolvedValueOnce({ data: nodes, error: null })
       .mockResolvedValueOnce({ data: edges, error: null })
@@ -115,6 +118,7 @@ describe('getGraphForModule', () => {
 describe('addNode', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetAuthUserId.mockResolvedValue('test-user-id')
     mockFrom.mockReturnValue({
       select: mockSelect,
       insert: mockInsert,
@@ -211,6 +215,7 @@ describe('addNode', () => {
 describe('updateNode', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetAuthUserId.mockResolvedValue('test-user-id')
     mockFrom.mockReturnValue({
       select: mockSelect,
       insert: mockInsert,
@@ -275,6 +280,7 @@ describe('updateNode', () => {
 describe('removeNode', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetAuthUserId.mockResolvedValue('test-user-id')
     mockFrom.mockReturnValue({
       select: mockSelect,
       insert: mockInsert,
@@ -317,6 +323,7 @@ describe('removeNode', () => {
 describe('addEdge', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetAuthUserId.mockResolvedValue('test-user-id')
     mockFrom.mockReturnValue({
       select: mockSelect,
       insert: mockInsert,
@@ -399,6 +406,7 @@ describe('addEdge', () => {
 describe('removeEdge', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetAuthUserId.mockResolvedValue('test-user-id')
     mockFrom.mockReturnValue({
       select: mockSelect,
       insert: mockInsert,

@@ -4,6 +4,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // Mock server-only (no-op in test)
 vi.mock('server-only', () => ({}))
 
+const mockGetAuthUserId = vi.fn()
+vi.mock('@/lib/auth', () => ({ getAuthUserId: mockGetAuthUserId }))
+
 // Mock Supabase server client
 const mockInsert = vi.fn()
 const mockUpdate = vi.fn()
@@ -25,14 +28,13 @@ mockSelect.mockReturnValue({ single: mockSingle, eq: mockEq })
 mockEq.mockReturnValue({ single: mockSingle })
 
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: vi.fn().mockResolvedValue({
-    from: mockFrom,
-  }),
+  createClient: vi.fn(() => ({ from: mockFrom })),
 }))
 
 describe('createModule', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetAuthUserId.mockResolvedValue('test-user-id')
     mockFrom.mockReturnValue({
       insert: mockInsert,
       update: mockUpdate,
@@ -90,10 +92,7 @@ describe('createModule', () => {
       },
     })
 
-    // Verify it called from('modules')
     expect(mockFrom).toHaveBeenCalledWith('modules')
-
-    // Verify the insert mapped position to position_x/position_y
     expect(mockInsert).toHaveBeenCalledWith({
       project_id: '550e8400-e29b-41d4-a716-446655440000',
       name: 'Auth Module',
@@ -119,7 +118,6 @@ describe('createModule', () => {
       error: expect.stringContaining('Validation failed'),
     })
 
-    // Should not call Supabase
     expect(mockFrom).not.toHaveBeenCalled()
   })
 
@@ -176,7 +174,6 @@ describe('createModule', () => {
       }),
     })
 
-    // Verify defaults were passed to insert
     expect(mockInsert).toHaveBeenCalledWith(
       expect.objectContaining({
         entry_points: [],
@@ -189,6 +186,7 @@ describe('createModule', () => {
 describe('updateModule', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetAuthUserId.mockResolvedValue('test-user-id')
     mockFrom.mockReturnValue({
       insert: mockInsert,
       update: mockUpdate,
@@ -317,6 +315,7 @@ describe('updateModule', () => {
 describe('deleteModule', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetAuthUserId.mockResolvedValue('test-user-id')
     mockFrom.mockReturnValue({
       insert: mockInsert,
       update: mockUpdate,
@@ -355,6 +354,7 @@ describe('deleteModule', () => {
 describe('listModulesByProject', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetAuthUserId.mockResolvedValue('test-user-id')
     mockFrom.mockReturnValue({
       insert: mockInsert,
       update: mockUpdate,
@@ -473,6 +473,7 @@ describe('listModulesByProject', () => {
 describe('getModuleById', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetAuthUserId.mockResolvedValue('test-user-id')
     mockFrom.mockReturnValue({
       insert: mockInsert,
       update: mockUpdate,

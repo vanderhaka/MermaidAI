@@ -9,11 +9,25 @@ vi.mock('@xyflow/react', () => ({
   Position: { Top: 'top', Bottom: 'bottom', Left: 'left', Right: 'right' },
 }))
 
+import type { NodeProps } from '@xyflow/react'
 import StartNode from '@/components/canvas/nodes/StartNode'
 import EndNode from '@/components/canvas/nodes/EndNode'
 
 describe('StartNode', () => {
-  const defaultProps = { data: { label: 'Start' }, id: 'start-1' }
+  const defaultProps = {
+    id: 'start-1',
+    data: { label: 'Start' },
+    type: 'start' as const,
+    draggable: true,
+    dragging: false,
+    zIndex: 0,
+    selectable: true,
+    deletable: true,
+    selected: false,
+    isConnectable: true,
+    positionAbsoluteX: 0,
+    positionAbsoluteY: 0,
+  } satisfies NodeProps
 
   it('renders the label', () => {
     render(<StartNode {...defaultProps} />)
@@ -38,7 +52,20 @@ describe('StartNode', () => {
 })
 
 describe('EndNode', () => {
-  const defaultProps = { data: { label: 'End' }, id: 'end-1' }
+  const defaultProps = {
+    id: 'end-1',
+    data: { label: 'End' },
+    type: 'end' as const,
+    draggable: true,
+    dragging: false,
+    zIndex: 0,
+    selectable: true,
+    deletable: true,
+    selected: false,
+    isConnectable: true,
+    positionAbsoluteX: 0,
+    positionAbsoluteY: 0,
+  } satisfies NodeProps
 
   it('renders the label', () => {
     render(<EndNode {...defaultProps} />)

@@ -1,5 +1,3 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
-
 import type { GraphOperation } from '@/types/chat'
 import { createModule, updateModule, deleteModule } from '@/lib/services/module-service'
 import { connectModules } from '@/lib/services/module-connection-service'
@@ -17,7 +15,7 @@ export type ExecutionResult = {
   error?: string
 }
 
-async function executeOne(op: GraphOperation, _supabase: SupabaseClient): Promise<OperationResult> {
+async function executeOne(op: GraphOperation): Promise<OperationResult> {
   switch (op.type) {
     case 'create_module': {
       const result = await createModule(op.payload)
@@ -110,14 +108,11 @@ async function executeOne(op: GraphOperation, _supabase: SupabaseClient): Promis
   }
 }
 
-export async function executeOperations(
-  operations: GraphOperation[],
-  supabase: SupabaseClient,
-): Promise<ExecutionResult> {
+export async function executeOperations(operations: GraphOperation[]): Promise<ExecutionResult> {
   const results: OperationResult[] = []
 
   for (const op of operations) {
-    const result = await executeOne(op, supabase)
+    const result = await executeOne(op)
     results.push(result)
   }
 

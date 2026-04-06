@@ -88,7 +88,7 @@ describe('llm-client', () => {
       const { callLLM } = await import('@/lib/services/llm-client')
 
       const systemPrompt = 'You are an expert flowchart designer.'
-      const messages = [
+      const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [
         { role: 'user', content: 'Create a login flow' },
         { role: 'assistant', content: 'Sure, here is a login flow.' },
         { role: 'user', content: 'Add error handling' },

@@ -2,6 +2,7 @@
 
 import 'server-only'
 
+import { getAuthUserId } from '@/lib/auth'
 import { createFlowEdgeSchema } from '@/lib/schemas/flow-edge'
 import { createFlowNodeSchema } from '@/lib/schemas/flow-node'
 import { createClient } from '@/lib/supabase/server'
@@ -15,11 +16,16 @@ export type ModuleGraph = {
 }
 
 export async function getGraphForModule(moduleId: string): Promise<ServiceResult<ModuleGraph>> {
-  const supabase = await createClient()
+  const userId = await getAuthUserId()
+  if (!userId) return { success: false, error: 'Not authenticated' }
+
+  const supabase = createClient()
 
   const { data: nodes, error: nodesError } = await supabase
     .from('flow_nodes')
-    .select()
+    .select(
+      'id, module_id, label, node_type, position_x, position_y, pseudocode, color, created_at, updated_at',
+    )
     .eq('module_id', moduleId)
 
   if (nodesError) {
@@ -28,7 +34,7 @@ export async function getGraphForModule(moduleId: string): Promise<ServiceResult
 
   const { data: edges, error: edgesError } = await supabase
     .from('flow_edges')
-    .select()
+    .select('id, module_id, source_node_id, target_node_id, label, condition, created_at')
     .eq('module_id', moduleId)
 
   if (edgesError) {
@@ -50,8 +56,18 @@ export async function addNode(input: Record<string, unknown>): Promise<ServiceRe
     return { success: false, error: `Validation failed: ${parsed.error.issues[0].message}` }
   }
 
-  const supabase = await createClient()
-  const { data, error } = await supabase.from('flow_nodes').insert(parsed.data).select().single()
+  const userId = await getAuthUserId()
+  if (!userId) return { success: false, error: 'Not authenticated' }
+
+  const supabase = createClient()
+
+  const { data, error } = await supabase
+    .from('flow_nodes')
+    .insert(parsed.data)
+    .select(
+      'id, module_id, label, node_type, position_x, position_y, pseudocode, color, created_at, updated_at',
+    )
+    .single()
 
   if (error) {
     return { success: false, error: error.message }
@@ -72,13 +88,18 @@ export async function updateNode(
     dbFields.position_y = position.y
   }
 
-  const supabase = await createClient()
+  const userId = await getAuthUserId()
+  if (!userId) return { success: false, error: 'Not authenticated' }
+
+  const supabase = createClient()
 
   const { data: updated, error } = await supabase
     .from('flow_nodes')
     .update(dbFields)
     .eq('id', id)
-    .select()
+    .select(
+      'id, module_id, label, node_type, position_x, position_y, pseudocode, color, created_at, updated_at',
+    )
     .single()
 
   if (error) {
@@ -89,7 +110,10 @@ export async function updateNode(
 }
 
 export async function removeNode(id: string): Promise<ServiceResult<null>> {
-  const supabase = await createClient()
+  const userId = await getAuthUserId()
+  if (!userId) return { success: false, error: 'Not authenticated' }
+
+  const supabase = createClient()
 
   const { error } = await supabase.from('flow_nodes').delete().eq('id', id)
 
@@ -106,8 +130,16 @@ export async function addEdge(input: Record<string, unknown>): Promise<ServiceRe
     return { success: false, error: `Validation failed: ${parsed.error.issues[0].message}` }
   }
 
-  const supabase = await createClient()
-  const { data, error } = await supabase.from('flow_edges').insert(parsed.data).select().single()
+  const userId = await getAuthUserId()
+  if (!userId) return { success: false, error: 'Not authenticated' }
+
+  const supabase = createClient()
+
+  const { data, error } = await supabase
+    .from('flow_edges')
+    .insert(parsed.data)
+    .select('id, module_id, source_node_id, target_node_id, label, condition, created_at')
+    .single()
 
   if (error) {
     return { success: false, error: error.message }
@@ -117,7 +149,10 @@ export async function addEdge(input: Record<string, unknown>): Promise<ServiceRe
 }
 
 export async function removeEdge(id: string): Promise<ServiceResult<null>> {
-  const supabase = await createClient()
+  const userId = await getAuthUserId()
+  if (!userId) return { success: false, error: 'Not authenticated' }
+
+  const supabase = createClient()
 
   const { error } = await supabase.from('flow_edges').delete().eq('id', id)
 

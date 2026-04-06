@@ -1,14 +1,16 @@
 'use client'
 
 import { Handle, Position } from '@xyflow/react'
-import type { NodeProps } from '@xyflow/react'
+import type { Node, NodeProps } from '@xyflow/react'
 
 type DecisionNodeData = {
   label: string
 }
 
-export default function DecisionNode({ data }: NodeProps) {
-  const { label } = data as DecisionNodeData
+type DecisionNodeType = Node<DecisionNodeData, 'decision'>
+
+export default function DecisionNode({ data }: NodeProps<DecisionNodeType>) {
+  const { label } = data
 
   return (
     <div

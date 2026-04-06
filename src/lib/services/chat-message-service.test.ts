@@ -4,6 +4,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // Mock server-only (no-op in test)
 vi.mock('server-only', () => ({}))
 
+const { mockGetAuthUserId } = vi.hoisted(() => ({
+  mockGetAuthUserId: vi.fn(),
+}))
+vi.mock('@/lib/auth', () => ({ getAuthUserId: mockGetAuthUserId }))
+
 import { addChatMessage, listChatMessages } from '@/lib/services/chat-message-service'
 
 const mockSingle = vi.fn()
@@ -17,12 +22,13 @@ const mockFrom = vi.fn(() => ({
 }))
 
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: vi.fn(() => Promise.resolve({ from: mockFrom })),
+  createClient: vi.fn(() => ({ from: mockFrom })),
 }))
 
 describe('addChatMessage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetAuthUserId.mockResolvedValue('test-user-id')
   })
 
   it('inserts a chat message and returns it', async () => {
@@ -71,6 +77,7 @@ describe('addChatMessage', () => {
 describe('listChatMessages', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetAuthUserId.mockResolvedValue('test-user-id')
   })
 
   it('returns messages ordered by created_at ascending', async () => {

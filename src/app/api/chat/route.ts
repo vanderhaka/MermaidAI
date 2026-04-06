@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
+import { auth } from '@clerk/nextjs/server'
 import { z } from 'zod'
+import type Anthropic from '@anthropic-ai/sdk'
 
-import { createClient } from '@/lib/supabase/server'
 import { buildSystemPrompt } from '@/lib/services/prompt-builder'
 import { callLLM } from '@/lib/services/llm-client'
 import { parseLLMResponse } from '@/lib/services/llm-response-parser'
@@ -23,7 +24,7 @@ const chatRequestSchema = z.object({
   history: z
     .array(
       z.object({
-        role: z.string(),
+        role: z.enum(['user', 'assistant']),
         content: z.string(),
       }),
     )
@@ -32,6 +33,11 @@ const chatRequestSchema = z.object({
 })
 
 export async function POST(request: Request) {
+  const { userId } = await auth()
+  if (!userId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   let body: unknown
   try {
     body = await request.json()
@@ -49,23 +55,16 @@ export async function POST(request: Request) {
 
   const { projectId, message, mode, context, history } = parsed.data
 
-  const supabase = await createClient()
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
-
-  if (authError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
   let llmStream: ReadableStream<string>
   try {
     const systemPrompt = buildSystemPrompt(mode as PromptMode, {
       projectName: context.projectName,
     })
 
-    const messages = [...history, { role: 'user', content: message }]
+    const messages: Anthropic.MessageParam[] = [
+      ...history,
+      { role: 'user' as const, content: message },
+    ]
 
     llmStream = await callLLM(systemPrompt, messages)
   } catch (err) {
@@ -74,30 +73,18 @@ export async function POST(request: Request) {
   }
 
   let fullText = ''
+  const encoder = new TextEncoder()
 
-  const transformedStream = new ReadableStream({
-    async start(controller) {
-      const reader = llmStream.getReader()
-      const encoder = new TextEncoder()
-
-      try {
-        while (true) {
-          const { value, done } = await reader.read()
-          if (done) break
-          fullText += value
-          controller.enqueue(encoder.encode(value))
-        }
-        controller.close()
-      } catch (err) {
-        controller.error(err)
-        return
-      }
-
-      // Post-stream processing: parse, execute ops, persist messages
+  const transform = new TransformStream<string, Uint8Array>({
+    transform(chunk, controller) {
+      fullText += chunk
+      controller.enqueue(encoder.encode(chunk))
+    },
+    async flush() {
       const { message: parsedMessage, operations } = parseLLMResponse(fullText)
 
       if (operations.length > 0) {
-        await executeOperations(operations, supabase)
+        await executeOperations(operations)
       }
 
       await addChatMessage({
@@ -114,12 +101,13 @@ export async function POST(request: Request) {
     },
   })
 
-  return new Response(transformedStream, {
+  llmStream.pipeThrough(transform)
+
+  return new Response(transform.readable, {
     status: 200,
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
     },
   })
 }

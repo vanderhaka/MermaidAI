@@ -1,11 +1,12 @@
+'use client'
+
 import { Handle, Position } from '@xyflow/react'
+import type { Node, NodeProps } from '@xyflow/react'
 
-type StartNodeProps = {
-  data: { label: string }
-  id: string
-}
+type StartNodeData = { label: string }
+type StartNodeType = Node<StartNodeData, 'start'>
 
-export default function StartNode({ data }: StartNodeProps) {
+export default function StartNode({ data }: NodeProps<StartNodeType>) {
   return (
     <div
       data-shape="circle"

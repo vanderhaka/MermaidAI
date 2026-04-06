@@ -1,11 +1,13 @@
 'use client'
 
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath } from '@xyflow/react'
-import type { EdgeProps } from '@xyflow/react'
+import type { Edge, EdgeProps } from '@xyflow/react'
 
 type ConditionEdgeData = {
   label?: string | null
 }
+
+type ConditionEdgeType = Edge<ConditionEdgeData, 'condition'>
 
 export default function ConditionEdge({
   id,
@@ -16,8 +18,8 @@ export default function ConditionEdge({
   sourcePosition,
   targetPosition,
   data,
-}: EdgeProps) {
-  const { label } = (data as ConditionEdgeData) ?? {}
+}: EdgeProps<ConditionEdgeType>) {
+  const { label } = data ?? {}
 
   const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,

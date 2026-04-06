@@ -3,10 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // --- Mocks ---
 
-const mockGetUser = vi.fn()
-const mockSupabase = { auth: { getUser: mockGetUser } }
-vi.mock('@/lib/supabase/server', () => ({
-  createClient: vi.fn(() => Promise.resolve(mockSupabase)),
+const mockAuth = vi.fn()
+vi.mock('@clerk/nextjs/server', () => ({
+  auth: () => mockAuth(),
 }))
 
 const mockCallLLM = vi.fn()
@@ -90,10 +89,7 @@ describe('POST /api/chat', () => {
     vi.clearAllMocks()
 
     // Default: authenticated user
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: 'user-1', email: 'test@example.com' } },
-      error: null,
-    })
+    mockAuth.mockResolvedValue({ userId: 'user-1' })
 
     // Default: prompt builder returns a system prompt
     mockBuildSystemPrompt.mockReturnValue('You are a helpful assistant.')
@@ -177,10 +173,7 @@ describe('POST /api/chat', () => {
   // --- Auth ---
 
   it('returns 401 when user is not authenticated', async () => {
-    mockGetUser.mockResolvedValue({
-      data: { user: null },
-      error: { message: 'Not authenticated' },
-    })
+    mockAuth.mockResolvedValue({ userId: null })
 
     const { POST } = await import('@/app/api/chat/route')
     const response = await POST(makeRequest(validBody()))
@@ -208,7 +201,6 @@ describe('POST /api/chat', () => {
     const response = await POST(makeRequest(validBody()))
     const text = await readStreamToString(response)
 
-    // The stream should contain the text chunks
     expect(text).toContain('chunk1')
     expect(text).toContain('chunk2')
     expect(text).toContain('chunk3')
@@ -263,14 +255,11 @@ describe('POST /api/chat', () => {
     const { POST } = await import('@/app/api/chat/route')
     const response = await POST(makeRequest(validBody()))
 
-    // Consume the entire stream to trigger post-stream processing
     await readStreamToString(response)
-
-    // Give micro-task queue a chance to flush
     await new Promise((r) => setTimeout(r, 50))
 
     expect(mockParseLLMResponse).toHaveBeenCalledWith('Some response')
-    expect(mockExecuteOperations).toHaveBeenCalledWith(ops, mockSupabase)
+    expect(mockExecuteOperations).toHaveBeenCalledWith(ops)
   })
 
   it('skips executeOperations when no operations are parsed', async () => {

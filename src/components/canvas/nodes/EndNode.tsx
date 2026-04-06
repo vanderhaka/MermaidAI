@@ -1,11 +1,12 @@
+'use client'
+
 import { Handle, Position } from '@xyflow/react'
+import type { Node, NodeProps } from '@xyflow/react'
 
-type EndNodeProps = {
-  data: { label: string }
-  id: string
-}
+type EndNodeData = { label: string }
+type EndNodeType = Node<EndNodeData, 'end'>
 
-export default function EndNode({ data }: EndNodeProps) {
+export default function EndNode({ data }: NodeProps<EndNodeType>) {
   return (
     <div
       data-shape="circle"

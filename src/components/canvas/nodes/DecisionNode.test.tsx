@@ -15,7 +15,7 @@ import DecisionNode from '@/components/canvas/nodes/DecisionNode'
 const defaultProps = {
   id: 'decision-1',
   data: { label: 'Is Valid?' },
-  type: 'decision',
+  type: 'decision' as const,
   draggable: true,
   dragging: false,
   zIndex: 0,

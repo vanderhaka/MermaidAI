@@ -40,7 +40,7 @@ describe('EntryNode', () => {
   const props = {
     ...baseNodeProps,
     id: 'entry-1',
-    type: 'entry',
+    type: 'entry' as const,
     data: { label: 'Start Here' },
   } satisfies NodeProps
 
@@ -73,7 +73,7 @@ describe('ExitNode', () => {
   const props = {
     ...baseNodeProps,
     id: 'exit-1',
-    type: 'exit',
+    type: 'exit' as const,
     data: { label: 'End Here' },
   } satisfies NodeProps
 

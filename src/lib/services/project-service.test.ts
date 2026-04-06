@@ -1,5 +1,15 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+// Mock server-only and next/cache (no-op in test)
+vi.mock('server-only', () => ({}))
+vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
+
+const { mockGetAuthUserId } = vi.hoisted(() => ({
+  mockGetAuthUserId: vi.fn(),
+}))
+vi.mock('@/lib/auth', () => ({ getAuthUserId: mockGetAuthUserId }))
+
 import {
   createProject,
   getProjectById,
@@ -10,15 +20,17 @@ import {
 
 const mockSingle = vi.fn()
 const mockOrder = vi.fn()
-const mockDeleteEq = vi.fn()
-const mockEq = vi.fn(() => ({ single: mockSingle, select: mockSelect }))
+const mockDeleteEq: ReturnType<typeof vi.fn> = vi.fn(() => ({ eq: mockDeleteEq }))
+const mockEq = vi.fn(() => ({
+  single: mockSingle,
+  select: mockSelect,
+  eq: mockEq,
+  order: mockOrder,
+}))
 const mockSelect = vi.fn(() => ({ single: mockSingle, order: mockOrder, eq: mockEq }))
 const mockInsert = vi.fn(() => ({ select: mockSelect }))
 const mockUpdate = vi.fn(() => ({ eq: mockEq }))
 const mockDelete = vi.fn(() => ({ eq: mockDeleteEq }))
-const mockGetUser = vi.fn().mockResolvedValue({
-  data: { user: { id: 'user-1' } },
-})
 const mockFrom = vi.fn(() => ({
   insert: mockInsert,
   select: mockSelect,
@@ -27,12 +39,13 @@ const mockFrom = vi.fn(() => ({
 }))
 
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: vi.fn(() => Promise.resolve({ from: mockFrom, auth: { getUser: mockGetUser } })),
+  createClient: vi.fn(() => ({ from: mockFrom })),
 }))
 
 describe('createProject', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetAuthUserId.mockResolvedValue('user-1')
   })
 
   it('returns success with inserted project for valid input', async () => {
@@ -99,11 +112,21 @@ describe('createProject', () => {
 
     expect(result).toEqual({ success: false, error: 'Database error' })
   })
+
+  it('returns failure when not authenticated', async () => {
+    mockGetAuthUserId.mockResolvedValue(null)
+
+    const result = await createProject({ name: 'Test' })
+
+    expect(result).toEqual({ success: false, error: 'Not authenticated' })
+    expect(mockFrom).not.toHaveBeenCalled()
+  })
 })
 
 describe('listProjectsByUser', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetAuthUserId.mockResolvedValue('user-1')
   })
 
   it('returns projects ordered by created_at desc', async () => {
@@ -156,6 +179,7 @@ describe('listProjectsByUser', () => {
 describe('updateProject', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetAuthUserId.mockResolvedValue('user-1')
   })
 
   it('returns updated project when name is changed', async () => {
@@ -270,6 +294,7 @@ describe('updateProject', () => {
 describe('getProjectById', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetAuthUserId.mockResolvedValue('user-1')
   })
 
   it('returns project for a valid ID', async () => {
@@ -323,10 +348,13 @@ describe('getProjectById', () => {
 describe('deleteProject', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetAuthUserId.mockResolvedValue('user-1')
   })
 
   it('returns success when project is deleted', async () => {
-    mockDeleteEq.mockResolvedValue({ error: null })
+    // Chain: delete().eq('id', id).eq('user_id', userId)
+    const mockSecondEq = vi.fn().mockResolvedValue({ error: null })
+    mockDeleteEq.mockReturnValue({ eq: mockSecondEq })
 
     const result = await deleteProject('proj-1')
 
@@ -334,12 +362,14 @@ describe('deleteProject', () => {
     expect(mockFrom).toHaveBeenCalledWith('projects')
     expect(mockDelete).toHaveBeenCalled()
     expect(mockDeleteEq).toHaveBeenCalledWith('id', 'proj-1')
+    expect(mockSecondEq).toHaveBeenCalledWith('user_id', 'user-1')
   })
 
   it('returns failure when supabase delete fails', async () => {
-    mockDeleteEq.mockResolvedValue({
+    const mockSecondEq = vi.fn().mockResolvedValue({
       error: { message: 'Delete failed' },
     })
+    mockDeleteEq.mockReturnValue({ eq: mockSecondEq })
 
     const result = await deleteProject('proj-1')
 

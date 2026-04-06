@@ -1,7 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
   GraphOperation,
   CreateModuleOperation,
@@ -38,9 +37,6 @@ import { createModule, updateModule, deleteModule } from '@/lib/services/module-
 import { connectModules } from '@/lib/services/module-connection-service'
 import { addNode, updateNode, removeNode, addEdge, removeEdge } from '@/lib/services/graph-service'
 import { executeOperations } from '@/lib/services/graph-operation-executor'
-import type { ExecutionResult } from '@/lib/services/graph-operation-executor'
-
-const mockSupabase = {} as SupabaseClient
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -48,7 +44,7 @@ beforeEach(() => {
 
 describe('executeOperations', () => {
   it('returns empty results array when given no operations', async () => {
-    const result = await executeOperations([], mockSupabase)
+    const result = await executeOperations([])
 
     expect(result).toEqual({ success: true, results: [] })
   })
@@ -65,7 +61,7 @@ describe('executeOperations', () => {
         data: { id: 'mod-1', name: 'Auth Module' } as any,
       })
 
-      const result = await executeOperations([op], mockSupabase)
+      const result = await executeOperations([op])
 
       expect(createModule).toHaveBeenCalledWith({
         name: 'Auth Module',
@@ -90,7 +86,7 @@ describe('executeOperations', () => {
         error: 'Validation failed: name too short',
       })
 
-      const result = await executeOperations([op], mockSupabase)
+      const result = await executeOperations([op])
 
       expect(result.success).toBe(false)
       expect(result.results[0]).toEqual({
@@ -113,7 +109,7 @@ describe('executeOperations', () => {
         data: { id: 'mod-1', name: 'Updated Name' } as any,
       })
 
-      const result = await executeOperations([op], mockSupabase)
+      const result = await executeOperations([op])
 
       expect(updateModule).toHaveBeenCalledWith('mod-1', { name: 'Updated Name' })
       expect(result.success).toBe(true)
@@ -134,7 +130,7 @@ describe('executeOperations', () => {
         error: 'Module not found',
       })
 
-      const result = await executeOperations([op], mockSupabase)
+      const result = await executeOperations([op])
 
       expect(result.success).toBe(false)
       expect(result.results[0]).toEqual({
@@ -154,7 +150,7 @@ describe('executeOperations', () => {
 
       vi.mocked(deleteModule).mockResolvedValue({ success: true })
 
-      const result = await executeOperations([op], mockSupabase)
+      const result = await executeOperations([op])
 
       expect(deleteModule).toHaveBeenCalledWith('mod-1')
       expect(result.success).toBe(true)
@@ -175,7 +171,7 @@ describe('executeOperations', () => {
         error: 'Foreign key violation',
       })
 
-      const result = await executeOperations([op], mockSupabase)
+      const result = await executeOperations([op])
 
       expect(result.success).toBe(false)
       expect(result.results[0]).toEqual({
@@ -203,7 +199,7 @@ describe('executeOperations', () => {
         data: { id: 'conn-1' } as any,
       })
 
-      const result = await executeOperations([op], mockSupabase)
+      const result = await executeOperations([op])
 
       expect(connectModules).toHaveBeenCalledWith({
         source_module_id: 'mod-1',
@@ -234,7 +230,7 @@ describe('executeOperations', () => {
         error: 'Cannot connect module to itself',
       })
 
-      const result = await executeOperations([op], mockSupabase)
+      const result = await executeOperations([op])
 
       expect(result.success).toBe(false)
       expect(result.results[0]).toEqual({
@@ -258,7 +254,7 @@ describe('executeOperations', () => {
         .mockResolvedValueOnce({ success: true, data: { id: 'mod-b' } as any })
       vi.mocked(updateModule).mockResolvedValue({ success: true, data: { id: 'mod-1' } as any })
 
-      const result = await executeOperations(ops, mockSupabase)
+      const result = await executeOperations(ops)
 
       expect(result.success).toBe(true)
       expect(result.results).toHaveLength(3)
@@ -280,7 +276,7 @@ describe('executeOperations', () => {
         error: 'Not found',
       })
 
-      const result = await executeOperations(ops, mockSupabase)
+      const result = await executeOperations(ops)
 
       expect(result.success).toBe(false)
       expect(result.results[0].success).toBe(true)
@@ -303,7 +299,7 @@ describe('executeOperations', () => {
         data: { id: 'mod-good' } as any,
       })
 
-      const result = await executeOperations(ops, mockSupabase)
+      const result = await executeOperations(ops)
 
       expect(result.success).toBe(false)
       expect(result.results).toHaveLength(2)
@@ -325,7 +321,7 @@ describe('executeOperations', () => {
         data: { id: 'node-1', label: 'Validate Input' } as any,
       })
 
-      const result = await executeOperations([op], mockSupabase)
+      const result = await executeOperations([op])
 
       expect(addNode).toHaveBeenCalledWith({
         module_id: 'mod-1',
@@ -350,7 +346,7 @@ describe('executeOperations', () => {
         error: 'Validation failed: label required',
       })
 
-      const result = await executeOperations([op], mockSupabase)
+      const result = await executeOperations([op])
 
       expect(result.success).toBe(false)
       expect(result.results[0]).toEqual({
@@ -373,7 +369,7 @@ describe('executeOperations', () => {
         data: { id: 'node-1', label: 'Updated Label' } as any,
       })
 
-      const result = await executeOperations([op], mockSupabase)
+      const result = await executeOperations([op])
 
       expect(updateNode).toHaveBeenCalledWith('node-1', {
         label: 'Updated Label',
@@ -397,7 +393,7 @@ describe('executeOperations', () => {
         error: 'Node not found',
       })
 
-      const result = await executeOperations([op], mockSupabase)
+      const result = await executeOperations([op])
 
       expect(result.success).toBe(false)
       expect(result.results[0]).toEqual({
@@ -417,7 +413,7 @@ describe('executeOperations', () => {
 
       vi.mocked(removeNode).mockResolvedValue({ success: true, data: null })
 
-      const result = await executeOperations([op], mockSupabase)
+      const result = await executeOperations([op])
 
       expect(removeNode).toHaveBeenCalledWith('node-1')
       expect(result.success).toBe(true)
@@ -438,7 +434,7 @@ describe('executeOperations', () => {
         error: 'Foreign key violation',
       })
 
-      const result = await executeOperations([op], mockSupabase)
+      const result = await executeOperations([op])
 
       expect(result.success).toBe(false)
       expect(result.results[0]).toEqual({
@@ -467,7 +463,7 @@ describe('executeOperations', () => {
         data: { id: 'edge-1' } as any,
       })
 
-      const result = await executeOperations([op], mockSupabase)
+      const result = await executeOperations([op])
 
       expect(addEdge).toHaveBeenCalledWith({
         module_id: 'mod-1',
@@ -498,7 +494,7 @@ describe('executeOperations', () => {
         error: 'Source and target cannot be the same',
       })
 
-      const result = await executeOperations([op], mockSupabase)
+      const result = await executeOperations([op])
 
       expect(result.success).toBe(false)
       expect(result.results[0]).toEqual({
@@ -518,7 +514,7 @@ describe('executeOperations', () => {
 
       vi.mocked(removeEdge).mockResolvedValue({ success: true, data: null })
 
-      const result = await executeOperations([op], mockSupabase)
+      const result = await executeOperations([op])
 
       expect(removeEdge).toHaveBeenCalledWith('edge-1')
       expect(result.success).toBe(true)
@@ -539,7 +535,7 @@ describe('executeOperations', () => {
         error: 'Edge not found',
       })
 
-      const result = await executeOperations([op], mockSupabase)
+      const result = await executeOperations([op])
 
       expect(result.success).toBe(false)
       expect(result.results[0]).toEqual({
@@ -577,7 +573,7 @@ describe('executeOperations', () => {
         data: { id: 'edge-1' } as any,
       })
 
-      const result = await executeOperations(ops, mockSupabase)
+      const result = await executeOperations(ops)
 
       expect(result.success).toBe(false)
       expect(result.results).toHaveLength(3)
@@ -606,7 +602,7 @@ describe('executeOperations', () => {
         .mockResolvedValueOnce({ success: true, data: { id: 'n-1' } as any })
         .mockResolvedValueOnce({ success: true, data: { id: 'n-2' } as any })
 
-      const result = await executeOperations(ops, mockSupabase)
+      const result = await executeOperations(ops)
 
       expect(result.success).toBe(true)
       expect(result.error).toBeUndefined()
@@ -635,7 +631,7 @@ describe('executeOperations', () => {
         error: 'Edge not found',
       })
 
-      const result = await executeOperations(ops, mockSupabase)
+      const result = await executeOperations(ops)
 
       expect(result.success).toBe(false)
       expect(result.error).toContain('1 of 3 operations failed')
@@ -649,7 +645,7 @@ describe('executeOperations', () => {
     it('records an error for unknown operation types', async () => {
       const op = { type: 'unknown_op', payload: {} } as unknown as GraphOperation
 
-      const result = await executeOperations([op], mockSupabase)
+      const result = await executeOperations([op])
 
       expect(result.success).toBe(false)
       expect(result.results[0]).toEqual({

@@ -1,6 +1,12 @@
+import { auth } from '@clerk/nextjs/server'
+import { redirect } from 'next/navigation'
 import Link from 'next/link'
 
-export default function Home() {
+export default async function Home() {
+  const { isAuthenticated } = await auth()
+
+  if (isAuthenticated) redirect('/dashboard')
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-8 px-4">
       <div className="text-center">
@@ -11,13 +17,13 @@ export default function Home() {
       </div>
       <div className="flex gap-4">
         <Link
-          href="/signup"
+          href="/sign-up"
           className="rounded-lg bg-black px-6 py-3 text-sm font-medium text-white hover:bg-gray-800 transition-colors"
         >
           Get started
         </Link>
         <Link
-          href="/login"
+          href="/sign-in"
           className="rounded-lg border border-gray-300 px-6 py-3 text-sm font-medium hover:bg-gray-50 transition-colors"
         >
           Sign in

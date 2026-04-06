@@ -1,21 +1,27 @@
 'use server'
 
+import 'server-only'
+
+import { getAuthUserId } from '@/lib/auth'
 import { createModuleSchema, updateModuleSchema } from '@/lib/schemas/module'
 import { createClient } from '@/lib/supabase/server'
 import type { Module } from '@/types/graph'
+import type { Database } from '@/types/database'
 
 type ServiceResult<T> = { success: true; data: T } | { success: false; error: string }
 
-function mapRowToModule(row: any): Module {
+type ModuleRow = Database['public']['Tables']['modules']['Row']
+
+function mapRowToModule(row: ModuleRow): Module {
   return {
     id: row.id,
     project_id: row.project_id,
     name: row.name,
     description: row.description,
-    position: { x: row.position_x, y: row.position_y },
+    position: { x: row.position_x ?? 0, y: row.position_y ?? 0 },
     color: row.color ?? '',
-    entry_points: row.entry_points,
-    exit_points: row.exit_points,
+    entry_points: (row.entry_points as string[]) ?? [],
+    exit_points: (row.exit_points as string[]) ?? [],
     created_at: row.created_at,
     updated_at: row.updated_at,
   }
@@ -29,7 +35,11 @@ export async function createModule(input: Record<string, unknown>): Promise<Serv
 
   const { position, ...rest } = parsed.data
 
-  const supabase = await createClient()
+  const userId = await getAuthUserId()
+  if (!userId) return { success: false, error: 'Not authenticated' }
+
+  const supabase = createClient()
+
   const { data, error } = await supabase
     .from('modules')
     .insert({
@@ -37,7 +47,9 @@ export async function createModule(input: Record<string, unknown>): Promise<Serv
       position_x: position.x,
       position_y: position.y,
     })
-    .select()
+    .select(
+      'id, project_id, name, description, position_x, position_y, color, entry_points, exit_points, created_at, updated_at',
+    )
     .single()
 
   if (error) {
@@ -64,11 +76,17 @@ export async function updateModule(
     dbFields.position_y = position.y
   }
 
-  const supabase = await createClient()
+  const userId = await getAuthUserId()
+  if (!userId) return { success: false, error: 'Not authenticated' }
+
+  const supabase = createClient()
+
   const { data, error } = await supabase
     .from('modules')
     .update(dbFields)
-    .select()
+    .select(
+      'id, project_id, name, description, position_x, position_y, color, entry_points, exit_points, created_at, updated_at',
+    )
     .eq('id', id)
     .single()
 
@@ -80,10 +98,16 @@ export async function updateModule(
 }
 
 export async function listModulesByProject(projectId: string): Promise<ServiceResult<Module[]>> {
-  const supabase = await createClient()
+  const userId = await getAuthUserId()
+  if (!userId) return { success: false, error: 'Not authenticated' }
+
+  const supabase = createClient()
+
   const { data, error } = await supabase
     .from('modules')
-    .select()
+    .select(
+      'id, project_id, name, description, position_x, position_y, color, entry_points, exit_points, created_at, updated_at',
+    )
     .eq('project_id', projectId)
     .order('created_at', { ascending: true })
 
@@ -95,8 +119,18 @@ export async function listModulesByProject(projectId: string): Promise<ServiceRe
 }
 
 export async function getModuleById(id: string): Promise<ServiceResult<Module>> {
-  const supabase = await createClient()
-  const { data, error } = await supabase.from('modules').select().eq('id', id).single()
+  const userId = await getAuthUserId()
+  if (!userId) return { success: false, error: 'Not authenticated' }
+
+  const supabase = createClient()
+
+  const { data, error } = await supabase
+    .from('modules')
+    .select(
+      'id, project_id, name, description, position_x, position_y, color, entry_points, exit_points, created_at, updated_at',
+    )
+    .eq('id', id)
+    .single()
 
   if (error) {
     return { success: false, error: error.message }
@@ -108,7 +142,11 @@ export async function getModuleById(id: string): Promise<ServiceResult<Module>> 
 export async function deleteModule(
   id: string,
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const supabase = await createClient()
+  const userId = await getAuthUserId()
+  if (!userId) return { success: false, error: 'Not authenticated' }
+
+  const supabase = createClient()
+
   const { error } = await supabase.from('modules').delete().eq('id', id)
 
   if (error) {

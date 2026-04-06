@@ -1,7 +1,7 @@
 'use client'
 
 import { Handle, Position } from '@xyflow/react'
-import type { NodeProps } from '@xyflow/react'
+import type { Node, NodeProps } from '@xyflow/react'
 
 type ModuleCardNodeData = {
   name: string
@@ -10,8 +10,10 @@ type ModuleCardNodeData = {
   exit_points: string[]
 }
 
-export default function ModuleCardNode({ data }: NodeProps) {
-  const { name, description, entry_points, exit_points } = data as ModuleCardNodeData
+type ModuleCardNodeType = Node<ModuleCardNodeData, 'module_card'>
+
+export default function ModuleCardNode({ data }: NodeProps<ModuleCardNodeType>) {
+  const { name, description, entry_points, exit_points } = data
 
   return (
     <div className="min-w-[180px] rounded-lg border-2 border-indigo-400 bg-white px-4 py-3 shadow-md">
