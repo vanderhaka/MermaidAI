@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { ClerkProvider, Show, SignInButton, SignUpButton, UserButton } from '@clerk/nextjs'
 import { Inter } from 'next/font/google'
+import { clerkPostAuthUrl, clerkSignInUrl, clerkSignUpUrl } from '@/lib/clerk'
 import './globals.css'
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
@@ -14,13 +15,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className={`${inter.variable} font-sans`}>
-        <ClerkProvider>
+        <ClerkProvider signInUrl={clerkSignInUrl} signUpUrl={clerkSignUpUrl}>
           <header className="flex items-center justify-between border-b border-gray-200 px-6 h-14">
             <span className="text-sm font-semibold tracking-tight">MermaidAI</span>
             <div className="flex items-center gap-3">
               <Show when="signed-out">
-                <SignInButton />
-                <SignUpButton />
+                <SignInButton mode="redirect" fallbackRedirectUrl={clerkPostAuthUrl} />
+                <SignUpButton mode="redirect" fallbackRedirectUrl={clerkPostAuthUrl} />
               </Show>
               <Show when="signed-in">
                 <UserButton />
