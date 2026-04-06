@@ -196,3 +196,533 @@ App crashes on startup with a ZodError that names the missing variable
 - `CreateModuleInput` omits server-generated fields (`id`, `created_at`, `updated_at`)
 
 **RED phase evidence:** `tsc --noEmit` reported 3 type errors — `Position`, `Module`, and `CreateModuleInput` not exported from `@/types/graph`.
+
+---
+
+## Issue 15: Supabase server client factory
+
+| Field           | Value                             |
+| --------------- | --------------------------------- |
+| **Commit**      | `ce836c2`                         |
+| **Test file**   | `src/lib/supabase/server.test.ts` |
+| **Source file** | `src/lib/supabase/server.ts`      |
+| **Tests**       | 5 passed, 0 failed                |
+| **tsc**         | 0 errors in supabase server files |
+| **Status**      | PASS                              |
+
+**What was tested:**
+
+- `createClient()` calls `createServerClient` with URL and anon key from `getConfig()`
+- Options object includes `cookies.getAll` and `cookies.setAll` handlers
+- `getAll` delegates to the resolved `cookies().getAll()`
+- `setAll` iterates and calls `cookies().set(name, value, options)` for each cookie
+- Return value is the `SupabaseClient` from `createServerClient`
+
+**Key design decisions:**
+
+- `createClient()` is `async` because `cookies()` returns a `Promise` in Next.js 16
+- Imports `server-only` to prevent accidental client-bundle inclusion
+- Uses `getConfig()` singleton for env vars (Issue 1 dependency)
+- Typed with `Database` generic (Issue 2 dependency)
+
+**RED phase evidence:** Stub returning `null` without calling `createServerClient` caused all 5 tests to fail — `createServerClient` never called, no cookie handlers, wrong return value.
+
+---
+
+## Issue 16: Supabase browser client singleton factory
+
+| Field           | Value                             |
+| --------------- | --------------------------------- |
+| **Commit**      | `a96fd34`                         |
+| **Test file**   | `src/lib/supabase/client.test.ts` |
+| **Source file** | `src/lib/supabase/client.ts`      |
+| **Tests**       | 3 passed, 0 failed                |
+| **tsc**         | 0 errors in supabase client files |
+| **Status**      | PASS                              |
+
+**What was tested:**
+
+- `createClient()` returns an object with `auth` and `from` properties (SupabaseClient shape)
+- Multiple calls return the same instance (singleton via `Object.is` equality)
+- `createBrowserClient` from `@supabase/ssr` is called with config URL and anon key
+
+**RED phase evidence:** Stub without singleton pattern (calling `createBrowserClient` on every invocation) caused the singleton test to fail — two calls returned different object references (`Object.is` equality check failed).
+
+---
+
+## Issue 17: Supabase middleware client with dual cookie handlers
+
+| Field           | Value                                 |
+| --------------- | ------------------------------------- |
+| **Commit**      | `3c1bd07`                             |
+| **Test file**   | `src/lib/supabase/middleware.test.ts` |
+| **Source file** | `src/lib/supabase/middleware.ts`      |
+| **Tests**       | 6 passed, 0 failed                    |
+| **tsc**         | 0 errors in middleware files          |
+| **Status**      | PASS                                  |
+
+**What was tested:**
+
+- `createSupabaseMiddlewareClient(request)` returns `{ supabase, response }`
+- Calls `createServerClient` with URL and anon key from `getConfig()`
+- Options object includes `cookies.getAll` and `cookies.setAll` handlers
+- `getAll` reads from `request.cookies.getAll()`
+- `setAll` writes to **both** `request.cookies.set(name, value)` and `response.cookies.set(name, value, options)` — dual cookie handler pattern required for middleware session refresh
+- Response is created via `NextResponse.next()`
+
+**Key design decisions:**
+
+- Dual cookie write ensures the refreshed session token is available to both the downstream request and the outgoing response
+- Uses `getConfig()` singleton for env vars (Issue 1 dependency)
+- Typed with `Database` generic (Issue 2 dependency)
+- No `server-only` import — middleware runs in the Edge Runtime, not a Server Component
+
+**RED phase evidence:** Stub returning `null` without calling `createServerClient` or `NextResponse.next()` caused all 6 tests to fail — no properties on null, `createServerClient` never called, `NextResponse.next()` never called.
+
+---
+
+## Issue 5: FlowNode type with discriminated node types and pseudocode
+
+| Field           | Value                     |
+| --------------- | ------------------------- |
+| **Commit**      | `b5933c1`                 |
+| **Test file**   | `src/types/graph.test.ts` |
+| **Source file** | `src/types/graph.ts`      |
+| **Tests**       | 22 passed, 0 failed       |
+| **tsc**         | 0 errors in graph files   |
+| **Status**      | PASS                      |
+
+**What was tested:**
+
+- `FlowNodeType` is a union of 6 discriminated values: `'decision' | 'process' | 'entry' | 'exit' | 'start' | 'end'`
+- `FlowNode` type has all 9 required fields (`id`, `module_id`, `node_type`, `label`, `pseudocode`, `position`, `color`, `created_at`, `updated_at`)
+- `node_type` accepts each of the 6 discriminated values
+- `position` uses the existing `Position` type (`{ x: number, y: number }`)
+- `pseudocode` holds a string logic description
+- `CreateFlowNodeInput` requires only `module_id`, `node_type`, `label` (via `Pick`)
+- `CreateFlowNodeInput` omits server-generated fields (`id`, `created_at`, `updated_at`)
+
+**RED phase evidence:** `tsc --noEmit` reported 3 type errors — `FlowNodeType`, `FlowNode`, and `CreateFlowNodeInput` not exported from `@/types/graph`.
+
+---
+
+## Issue 10: Zod schema validates CreateModuleInput
+
+| Field           | Value                            |
+| --------------- | -------------------------------- |
+| **Commit**      | `4a67441`                        |
+| **Test file**   | `src/lib/schemas/module.test.ts` |
+| **Source file** | `src/lib/schemas/module.ts`      |
+| **Tests**       | 15 passed, 0 failed              |
+| **tsc**         | 0 errors in module schema files  |
+| **Status**      | PASS                             |
+
+**What was tested:**
+
+- Valid input with `project_id` (UUID), `name`, `position`, `color` passes
+- Valid input with explicit `entry_points` and `exit_points` arrays passes
+- `entry_points` defaults to `[]` when omitted
+- `exit_points` defaults to `[]` when omitted
+- Invalid UUID for `project_id` rejected with error on `project_id` path
+- Empty name rejected; whitespace-only name rejected (trim then min(1))
+- Name >100 chars rejected; exactly 100 chars accepted
+- Whitespace trimmed from name (`"  Auth  "` -> `"Auth"`)
+- Missing `position` rejected; partial `position` (missing `y`) rejected
+- Negative position values accepted
+- Extra fields stripped from output
+
+**RED phase evidence:** Stub schema with bare `z.string()` (no UUID validation), no `trim()`, no `min(1)`, no `max(100)`, and `optional()` arrays (no defaults) caused 8 of 15 tests to fail — invalid UUID passed, empty/whitespace names passed, long names passed, no trimming, array defaults returned `undefined`.
+
+---
+
+## Issue 7: ModuleConnection type for puzzle-piece connectors
+
+| Field           | Value                     |
+| --------------- | ------------------------- |
+| **Commit**      | `043373f`                 |
+| **Test file**   | `src/types/graph.test.ts` |
+| **Source file** | `src/types/graph.ts`      |
+| **Tests**       | 22 passed, 0 failed       |
+| **tsc**         | 0 errors in graph files   |
+| **Status**      | PASS                      |
+
+**What was tested:**
+
+- `ModuleConnection` has all 7 required fields (`id`, `project_id`, `source_module_id`, `target_module_id`, `source_exit_point`, `target_entry_point`, `created_at`)
+- References two modules by id and verifies they are distinct
+- Specifies which exit/entry points are linked between modules
+- `CreateModuleConnectionInput` omits server-generated fields (`id`, `created_at`)
+
+**RED phase evidence:** `tsc --noEmit` reported 2 type errors — `ModuleConnection` and `CreateModuleConnectionInput` not exported from `@/types/graph`.
+
+---
+
+## Issue 6: FlowEdge type for labeled connections
+
+| Field           | Value                     |
+| --------------- | ------------------------- |
+| **Commit**      | `c070d9b`                 |
+| **Test file**   | `src/types/graph.test.ts` |
+| **Source file** | `src/types/graph.ts`      |
+| **Tests**       | 29 passed, 0 failed       |
+| **tsc**         | 0 errors in graph files   |
+| **Status**      | PASS                      |
+
+**What was tested:**
+
+- `FlowEdge` has all 7 required fields (`id`, `module_id`, `source_node_id`, `target_node_id`, `label`, `condition`, `created_at`)
+- `label` is nullable (`string | null`) — tested with both null and string values
+- `condition` is nullable (`string | null`) — tested with both null and string values
+- References two nodes by id and verifies they are distinct
+- `CreateFlowEdgeInput` requires `module_id`, `source_node_id`, `target_node_id`
+- `CreateFlowEdgeInput` has optional `label` and `condition` fields
+- `CreateFlowEdgeInput` omits server-generated fields (`id`, `created_at`)
+
+**RED phase evidence:** `tsc --noEmit` reported 2 type errors — `FlowEdge` and `CreateFlowEdgeInput` not exported from `@/types/graph`.
+
+---
+
+## Issue 14: FileTreeNode type and file path extraction pattern
+
+| Field           | Value                                                               |
+| --------------- | ------------------------------------------------------------------- |
+| **Commit**      | `f325b44`                                                           |
+| **Test file**   | `src/types/file-tree.test.ts`, `src/lib/services/file-tree.test.ts` |
+| **Source file** | `src/types/file-tree.ts`, `src/lib/services/file-tree.ts`           |
+| **Tests**       | 10 passed, 0 failed                                                 |
+| **tsc**         | 0 errors in file-tree files                                         |
+| **Status**      | PASS                                                                |
+
+**What was tested:**
+
+- `FileTreeNode` has required fields: `name`, `path`, `type` (`'file' | 'folder'`)
+- `type` discriminates between `'file'` and `'folder'`
+- `children` is optional, recursive (`FileTreeNode[]`) — supports deep nesting
+- `linkedNodeIds` is optional `string[]`
+- `FILE_PATH_PATTERN` matches `// file: src/lib/auth.ts` and extracts the path
+- Pattern extracts multiple file paths from a single pseudocode block via `matchAll`
+- Pattern handles extra whitespace around `file:` prefix
+- Pattern does not match non-file comments
+- Pattern handles paths with dots and hyphens (e.g. `my-service.config.ts`)
+
+**RED phase evidence:** `tsc --noEmit` reported 10 type errors — `children` and `linkedNodeIds` not on stub type. 4 of 5 regex tests failed against `/wrong/` stub.
+
+---
+
+## Issue 13: Zod schema validates CreateModuleConnectionInput with self-connection guard
+
+| Field           | Value                                       |
+| --------------- | ------------------------------------------- |
+| **Commit**      | `11e0616`                                   |
+| **Test file**   | `src/lib/schemas/module-connection.test.ts` |
+| **Source file** | `src/lib/schemas/module-connection.ts`      |
+| **Tests**       | 8 passed, 0 failed                          |
+| **tsc**         | 0 errors in module-connection files         |
+| **Status**      | PASS                                        |
+
+**What was tested:**
+
+- Valid input with different source and target modules passes
+- Self-referencing connection (source_module_id === target_module_id) rejected via `.refine()`
+- Invalid UUID rejected for `project_id`, `source_module_id`, `target_module_id`
+- Empty `source_exit_point` rejected (min(1))
+- Empty `target_entry_point` rejected (min(1))
+- Extra fields stripped from output
+
+**RED phase evidence:** Stub schema with bare `z.string()` (no UUID validation, no min(1), no refinement) caused 6 of 8 tests to fail — invalid UUIDs passed, empty strings passed, self-referencing connection passed.
+
+---
+
+## Issue 11: Zod schema validates CreateFlowNodeInput
+
+| Field           | Value                               |
+| --------------- | ----------------------------------- |
+| **Commit**      | `4ff0c7a`                           |
+| **Test file**   | `src/lib/schemas/flow-node.test.ts` |
+| **Source file** | `src/lib/schemas/flow-node.ts`      |
+| **Tests**       | 17 passed, 0 failed                 |
+| **tsc**         | 0 errors in flow-node schema files  |
+| **Status**      | PASS                                |
+
+**What was tested:**
+
+- Valid input with `module_id` (UUID), `node_type`, `label`, `pseudocode`, `position`, `color` passes
+- All 6 valid node types accepted: `decision`, `process`, `entry`, `exit`, `start`, `end`
+- Invalid `node_type` string rejected; empty string `node_type` rejected
+- `pseudocode` defaults to `''` when omitted; explicit pseudocode accepted
+- Invalid UUID for `module_id` rejected with error on `module_id` path
+- Empty label rejected; whitespace-only label rejected (trim then min(1))
+- Label >200 chars rejected; exactly 200 chars accepted
+- Whitespace trimmed from label (`"  Check role  "` -> `"Check role"`)
+- Missing `position` rejected; partial `position` (missing `y`) rejected
+- Negative position values accepted
+- Extra fields stripped from output
+
+**RED phase evidence:** Stub schema with bare `z.string()` for `node_type` (no enum), `module_id` (no UUID), `label` (no trim/min/max), and `optional()` pseudocode (no default) caused 9 of 17 tests to fail — invalid node_type passed, empty/whitespace labels passed, long labels passed, no trimming, invalid UUIDs passed, pseudocode defaulted to `undefined`.
+
+---
+
+## Issue 12: Zod schema validates CreateFlowEdgeInput
+
+| Field           | Value                               |
+| --------------- | ----------------------------------- |
+| **Commit**      | `d553868`                           |
+| **Test file**   | `src/lib/schemas/flow-edge.test.ts` |
+| **Source file** | `src/lib/schemas/flow-edge.ts`      |
+| **Tests**       | 10 passed, 0 failed                 |
+| **tsc**         | 0 errors in flow-edge files         |
+| **Status**      | PASS                                |
+
+**What was tested:**
+
+- Valid input with only required fields (`module_id`, `source_node_id`, `target_node_id`) passes
+- Valid input with `label` and `condition` strings passes
+- `label` is optional (undefined when omitted)
+- `condition` is optional (undefined when omitted)
+- Invalid UUID rejected for `module_id`, `source_node_id`, `target_node_id`
+- Error reported on correct path (`module_id`, `source_node_id`) for invalid UUIDs
+- Extra fields stripped from output
+
+**RED phase evidence:** Stub schema with bare `z.string()` (no UUID validation) caused 5 of 10 tests to fail — invalid UUIDs for all three ID fields passed validation, and error path assertions never reached.
+
+---
+
+## Issue 22: Profile creation on signup with database trigger
+
+| Field           | Value                                                                |
+| --------------- | -------------------------------------------------------------------- |
+| **Commit**      | `77c4a49`                                                            |
+| **Test file**   | `src/lib/services/profile-service.test.ts`                           |
+| **Source file** | `src/lib/services/profile-service.ts`                                |
+| **Tests**       | 5 passed, 0 failed                                                   |
+| **tsc**         | 0 new errors (1 pre-existing `never` type from placeholder DB types) |
+| **Status**      | PASS                                                                 |
+
+**What was tested:**
+
+- `getOrCreateProfile(userId)` queries `profiles` table with `.select('*').eq('id', userId).single()`
+- Returns `{ success: true, data: profile }` when profile exists
+- Upserts with `{ id: userId }` and `{ onConflict: 'id' }` when profile not found (PGRST116)
+- Returns `{ success: true, data: upserted }` after successful upsert
+- Returns `{ success: false, error: message }` on non-PGRST116 select errors
+- Returns `{ success: false, error: message }` on upsert failures
+
+**RED phase evidence:** Stub returning `{ success: false, error: 'not implemented' }` caused all 5 tests to fail — no Supabase calls made, wrong return shape for success cases, wrong error message for failure cases.
+
+---
+
+## Issue 24: createProject service inserts and returns a project
+
+| Field           | Value                                                                              |
+| --------------- | ---------------------------------------------------------------------------------- |
+| **Commit**      | `7c73227`                                                                          |
+| **Test file**   | `src/lib/services/project-service.test.ts`                                         |
+| **Source file** | `src/lib/services/project-service.ts`                                              |
+| **Tests**       | 4 passed, 0 failed                                                                 |
+| **tsc**         | Pre-existing TS errors only (Insert type needs user_id — same as sibling services) |
+| **Status**      | PASS                                                                               |
+
+**What was tested:**
+
+- Valid input with name only returns `{ success: true, data: project }` with all fields
+- Optional description passed through to Supabase insert
+- Empty name fails Zod validation before hitting Supabase
+- Supabase insert error returns `{ success: false, error: message }`
+
+**Key design decisions:**
+
+- Uses `'use server'` directive for Server Action usage
+- Validates input with `createProjectSchema` before touching Supabase
+- Returns first Zod issue message on validation failure (consistent with schema layer)
+- Casts Supabase row to `Project` type (`data as Project`) since DB Row matches Project shape
+- Follows same pattern as `createModule` service
+
+**RED phase evidence:** Stub returning `{ success: false, error: 'Not implemented' }` caused all 4 tests to fail — success cases got wrong `success` value, validation test got wrong error message, DB error test got wrong error message.
+
+---
+
+## Issue 23: Auth middleware protects routes and refreshes sessions
+
+| Field           | Value                        |
+| --------------- | ---------------------------- |
+| **Commit**      | `74f913b`                    |
+| **Test file**   | `src/middleware.test.ts`     |
+| **Source file** | `src/middleware.ts`          |
+| **Tests**       | 11 passed, 0 failed          |
+| **tsc**         | 0 errors in middleware files |
+| **Status**      | PASS                         |
+
+**What was tested:**
+
+- Unauthenticated user on `/dashboard` redirected to `/login`
+- Unauthenticated user on `/dashboard/settings` (nested) redirected to `/login`
+- Unauthenticated user on `/` passes through (public route)
+- Unauthenticated user on `/login` passes through (auth route, not logged in)
+- Unauthenticated user on `/signup` passes through (auth route, not logged in)
+- Authenticated user on `/dashboard` passes through (authorized)
+- Authenticated user on `/login` redirected to `/dashboard`
+- Authenticated user on `/signup` redirected to `/dashboard`
+- Authenticated user on `/` passes through (public route)
+- `getUser()` called on every request (session refresh)
+- `config.matcher` exports an array excluding static assets
+
+**Key design decisions:**
+
+- Uses `getUser()` (not `getSession()`) for server-side verification per Supabase security best practices
+- Protected routes defined as prefix array (`/dashboard`) — matches exact and nested paths
+- Auth routes (`/login`, `/signup`) redirect authenticated users to `/dashboard`
+- Public routes (everything else) pass through without auth checks
+- Matcher excludes `_next/static`, `_next/image`, favicon, and image file extensions
+
+**RED phase evidence:** Stub middleware that always returned `response` without calling `getUser()` or redirecting caused 5 of 11 tests to fail — no redirects fired, `getUser()` never called. 6 pass-through tests passed because the stub coincidentally allowed all requests.
+
+---
+
+## Issue 29: createModule inserts a module within a project
+
+| Field           | Value                                                                                |
+| --------------- | ------------------------------------------------------------------------------------ |
+| **Commit**      | `f289192`                                                                            |
+| **Test file**   | `src/lib/services/module-service.test.ts`                                            |
+| **Source file** | `src/lib/services/module-service.ts`                                                 |
+| **Tests**       | 4 passed, 0 failed                                                                   |
+| **tsc**         | Pre-existing TS errors only (Insert overload `never` type from placeholder DB types) |
+| **Status**      | PASS                                                                                 |
+
+**What was tested:**
+
+- Valid input returns `{ success: true, data: module }` with Position mapped from `{x,y}` to `position_x`/`position_y` for DB insert, and mapped back on return
+- Invalid input (bad UUID, empty name) fails Zod validation before hitting Supabase, returns `{ success: false, error }` containing "Validation failed"
+- Database insert error (e.g. foreign key violation) returns `{ success: false, error: message }`
+- `entry_points` and `exit_points` default to `[]` when omitted from input, and are passed through to the insert
+
+**Key design decisions:**
+
+- Uses `'use server'` directive for Server Action usage
+- Validates input with `createModuleSchema` before touching Supabase
+- Destructures `position` from validated data, spreads remaining fields, and inserts `position_x`/`position_y` separately
+- Maps DB row back to `Module` type with `position: { x, y }` shape
+- `color` falls back to `''` if DB returns null (DB column is `string | null`, app type is `string`)
+- Follows same `ServiceResult<T>` pattern as `createProject`
+
+**RED phase evidence:** Stub returning `{ success: false, error: 'Not implemented' }` caused all 4 tests to fail — success cases got wrong `success` value, validation test got wrong error message, DB error test got wrong error message.
+
+---
+
+## Issue 21: Logout server action clears session
+
+| Field           | Value                                   |
+| --------------- | --------------------------------------- |
+| **Commit**      | `f289192`                               |
+| **Test file**   | `src/lib/services/auth-service.test.ts` |
+| **Source file** | `src/lib/services/auth-service.ts`      |
+| **Tests**       | 4 passed, 0 failed                      |
+| **tsc**         | 0 errors in auth-service files          |
+| **Status**      | PASS                                    |
+
+**What was tested:**
+
+- `signOut()` calls `supabase.auth.signOut()` to clear the session
+- `signOut()` calls `revalidatePath('/', 'layout')` to clear cached routes
+- `signOut()` calls `redirect('/login')` to send user to login page
+- Execution order enforced: signOut -> revalidatePath -> redirect (sequential)
+
+**Key design decisions:**
+
+- `signOut` is a `'use server'` Server Action (file-level directive shared with `signUp`)
+- Uses `createClient()` from `@/lib/supabase/server` (async, cookie-aware)
+- `redirect()` throws internally (Next.js behavior) — callers should expect this
+- No return value — redirect halts execution
+
+**RED phase evidence:** Stub with empty body (`// stub`) caused all 4 tests to fail — `signOut` never called (0 times), `revalidatePath` never called with `('/', 'layout')`, `redirect` never called with `('/login')`, call order array was empty `[]`.
+
+---
+
+## Issue 19: Signup server action validates and creates account
+
+| Field           | Value                                                   |
+| --------------- | ------------------------------------------------------- |
+| **Commit**      | `cfc3b55`                                               |
+| **Test file**   | `src/lib/services/auth-service.test.ts`                 |
+| **Source file** | `src/lib/services/auth-service.ts`, `src/types/auth.ts` |
+| **Tests**       | 8 passed, 0 failed (4 signUp + 4 signOut)               |
+| **tsc**         | 0 errors in auth files                                  |
+| **Status**      | PASS                                                    |
+
+**What was tested:**
+
+- Valid email + password (8+ chars) calls `supabase.auth.signUp` and returns `{ success: true }`
+- Invalid email fails Zod validation and returns `{ success: false, error }` without calling Supabase
+- Password shorter than 8 characters fails Zod validation without calling Supabase
+- Supabase error (e.g. "User already registered") returns `{ success: false, error: message }`
+
+**Key design decisions:**
+
+- `signUpSchema` uses Zod v4 `z.email()` and `z.string().min(8)` for validation
+- `signInSchema` also defined (email + password min 1) for Issue 20 reuse
+- `AuthResult` type: `{ success: boolean; error?: string }`
+- Uses `'use server'` directive + `server-only` import
+- Validates with `safeParse` — returns first issue message on failure
+- Uses parsed data (not raw input) when calling Supabase
+
+**RED phase evidence:** Stub returning `{ success: false, error: 'Not implemented' }` caused 2 of 4 tests to fail — success case got wrong `success` value, Supabase error case got wrong error message. Validation tests coincidentally passed because stub always returns failure.
+
+---
+
+## Issue 25: listProjectsByUser returns projects ordered by date
+
+| Field           | Value                                                                                |
+| --------------- | ------------------------------------------------------------------------------------ |
+| **Commit**      | `62565f6`                                                                            |
+| **Test file**   | `src/lib/services/project-service.test.ts`                                           |
+| **Source file** | `src/lib/services/project-service.ts`                                                |
+| **Tests**       | 7 passed, 0 failed (4 createProject + 3 listProjectsByUser)                          |
+| **tsc**         | Pre-existing TS errors only (Insert overload `never` type from placeholder DB types) |
+| **Status**      | PASS                                                                                 |
+
+**What was tested:**
+
+- Returns projects ordered by `created_at` descending (newer first)
+- Returns empty array when user has no projects
+- Selects only needed columns: `id`, `name`, `description`, `created_at`, `updated_at`
+- Returns `{ success: false, error: message }` on Supabase query failure
+
+**Key design decisions:**
+
+- Defines `ProjectSummary` type via `Pick<Project, ...>` to enforce column selection
+- Uses `.select('id, name, description, created_at, updated_at')` — no `select('*')`
+- `.order('created_at', { ascending: false })` for descending sort
+- No input validation needed — RLS handles user scoping server-side
+- Follows same `ServiceResult<T>` pattern as `createProject`
+
+**RED phase evidence:** `listProjectsByUser` not exported from module caused all 3 tests to fail with `TypeError: listProjectsByUser is not a function`. Existing 4 `createProject` tests continued passing.
+
+---
+
+## Issue 26: getProjectById returns a single project
+
+| Field           | Value                                                                                             |
+| --------------- | ------------------------------------------------------------------------------------------------- |
+| **Commit**      | `fa0dbcb`                                                                                         |
+| **Test file**   | `src/lib/services/project-service.test.ts`                                                        |
+| **Source file** | `src/lib/services/project-service.ts`                                                             |
+| **Tests**       | 17 passed, 0 failed (4 createProject + 3 listProjectsByUser + 7 updateProject + 3 getProjectById) |
+| **tsc**         | Pre-existing TS errors only (Insert overload `never` type from placeholder DB types)              |
+| **Status**      | PASS                                                                                              |
+
+**What was tested:**
+
+- Returns `{ success: true, data: project }` for a valid project ID with all 6 fields
+- Selects needed columns: `id`, `user_id`, `name`, `description`, `created_at`, `updated_at`
+- Returns `{ success: false, error }` when project not found (PGRST116)
+- Returns `{ success: false, error: message }` on generic Supabase query failure
+
+**Key design decisions:**
+
+- Uses `.select('id, user_id, name, description, created_at, updated_at')` — explicit columns, no `select('*')`
+- Includes `user_id` in select (unlike `listProjectsByUser` which omits it) since single-project view needs ownership info
+- Chain: `.from('projects').select(columns).eq('id', id).single()`
+- Returns `error.message` directly — Supabase's PGRST116 message is descriptive enough for not-found cases
+- Follows same `ServiceResult<Project>` pattern as `createProject`
+
+**RED phase evidence:** `getProjectById` not exported from module caused all 3 tests to fail with `TypeError: getProjectById is not a function`. Existing 14 tests (createProject + listProjectsByUser + updateProject) continued passing.
