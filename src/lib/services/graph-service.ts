@@ -107,3 +107,15 @@ export async function addEdge(input: Record<string, unknown>): Promise<ServiceRe
 
   return { success: true, data: data as FlowEdge }
 }
+
+export async function removeEdge(id: string): Promise<ServiceResult<null>> {
+  const supabase = await createClient()
+
+  const { error } = await supabase.from('flow_edges').delete().eq('id', id)
+
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  return { success: true, data: null }
+}

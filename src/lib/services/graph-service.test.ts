@@ -370,3 +370,40 @@ describe('addEdge', () => {
     })
   })
 })
+
+describe('removeEdge', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFrom.mockReturnValue({ delete: mockDelete })
+    mockDelete.mockReturnValue({ eq: mockEq })
+  })
+
+  afterEach(() => {
+    vi.resetModules()
+  })
+
+  it('returns success when edge is deleted', async () => {
+    mockEq.mockResolvedValue({ error: null })
+
+    const { removeEdge } = await import('@/lib/services/graph-service')
+    const result = await removeEdge('edge-1')
+
+    expect(result).toEqual({ success: true, data: null })
+    expect(mockFrom).toHaveBeenCalledWith('flow_edges')
+    expect(mockEq).toHaveBeenCalledWith('id', 'edge-1')
+  })
+
+  it('returns error when edge id does not exist', async () => {
+    mockEq.mockResolvedValue({
+      error: { message: 'No rows found' },
+    })
+
+    const { removeEdge } = await import('@/lib/services/graph-service')
+    const result = await removeEdge('nonexistent-id')
+
+    expect(result).toEqual({
+      success: false,
+      error: 'No rows found',
+    })
+  })
+})
