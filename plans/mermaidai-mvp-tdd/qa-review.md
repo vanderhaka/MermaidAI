@@ -2093,3 +2093,29 @@ Zustand store (`useChatStore`) managing chat state: `messages` (ChatMessage[]), 
 **RED phase evidence:** 3 of 4 tests failed against the stub (returned static empty root, never called deriveFileTree). Only the memoization test passed trivially.
 
 **REFACTOR notes:** Implementation is already minimal at 9 lines — no simplification needed.
+
+---
+
+## Issue 69: Module map view renders modules as card nodes
+
+| Field           | Value                                                |
+| --------------- | ---------------------------------------------------- |
+| **Commit**      | `2cf0941`                                            |
+| **Test file**   | `src/components/canvas/views/ModuleMapView.test.tsx` |
+| **Source file** | `src/components/canvas/views/ModuleMapView.tsx`      |
+| **Tests**       | 6 passed, 0 failed                                   |
+| **tsc**         | 0 errors in ModuleMapView files                      |
+| **Status**      | PASS                                                 |
+
+**What was tested:**
+
+- Renders each module as a React Flow node on the canvas
+- Uses `moduleCard` custom node type registered in `nodeTypes`
+- Passes module data (name, description, entry/exit points) to node
+- Shows empty state message when modules array is empty (no canvas rendered)
+- Fires `onModuleClick` callback with module ID on node click
+- Calls `computeLayout` to position nodes via dagre
+
+**RED phase evidence:** All 6 tests failed against stub component rendering only `<div>TODO</div>` — no nodes, no empty state text, no layout call.
+
+**REFACTOR notes:** Extracted `toLayoutNode` helper to eliminate double-mapping when converting modules to FlowNode shape for dagre layout. Single-pass position merge replaced two-pass build+merge pattern. 85 lines total.
