@@ -726,3 +726,359 @@ App crashes on startup with a ZodError that names the missing variable
 - Follows same `ServiceResult<Project>` pattern as `createProject`
 
 **RED phase evidence:** `getProjectById` not exported from module caused all 3 tests to fail with `TypeError: getProjectById is not a function`. Existing 14 tests (createProject + listProjectsByUser + updateProject) continued passing.
+
+---
+
+## Issue 27: updateProject modifies name and description
+
+| Field           | Value                                      |
+| --------------- | ------------------------------------------ |
+| **Commit**      | `bbe0b1d`                                  |
+| **Test file**   | `src/lib/services/project-service.test.ts` |
+| **Source file** | `src/lib/services/project-service.ts`      |
+| **Tests**       | 7 passed, 0 failed                         |
+| **tsc**         | 0 new errors (pre-existing untyped client) |
+| **Status**      | PASS                                       |
+
+**What was tested:**
+
+- Updates name only — returns updated project, calls `.update({ name })` then `.eq('id', id).select().single()`
+- Updates description only — returns updated project with new description
+- Updates both name and description in one call
+- Rejects empty input (`{}`) — returns validation error "At least one field must be provided"
+- Rejects empty name string — returns validation error for min length
+- Handles Supabase update failure — returns `{ success: false, error }`
+- Strips disallowed fields (`id`, `user_id`, `created_at`) — Zod schema only permits `name` and `description`
+
+**Key design decisions:**
+
+- `updateProjectSchema` uses `.refine()` to require at least one field, preventing no-op updates
+- Schema only allows `name` (optional) and `description` (optional, nullable) — `id`, `user_id`, `created_at` are stripped by Zod's strict parsing
+- Chain: `.from('projects').update(parsed.data).eq('id', id).select().single()`
+- Follows same `ServiceResult<Project>` pattern as `createProject`
+
+**RED phase evidence:** `updateProject` not exported from module caused all 7 tests to fail with `TypeError: updateProject is not a function`. Existing 7 tests (createProject + listProjectsByUser) continued passing.
+
+---
+
+## Issue 28: deleteProject removes a project by ID
+
+| Field           | Value                                                                                                               |
+| --------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **Commit**      | `60bb136`                                                                                                           |
+| **Test file**   | `src/lib/services/project-service.test.ts`                                                                          |
+| **Source file** | `src/lib/services/project-service.ts`                                                                               |
+| **Tests**       | 19 passed, 0 failed (4 createProject + 3 listProjectsByUser + 7 updateProject + 3 getProjectById + 2 deleteProject) |
+| **tsc**         | Pre-existing TS errors only (Insert overload `never` type from placeholder DB types)                                |
+| **Status**      | PASS                                                                                                                |
+
+**What was tested:**
+
+- Calls `.from('projects').delete().eq('id', id)` and returns `{ success: true }` on success
+- Returns `{ success: false, error: message }` when Supabase delete fails
+
+**Key design decisions:**
+
+- Introduces `DeleteResult` type: `{ success: true } | { success: false; error: string }` — no `data` field since delete returns nothing
+- No input validation needed — RLS handles authorization; Supabase handles the ID lookup
+- Minimal implementation: 6 lines of code following the established service pattern
+
+**RED phase evidence:** `deleteProject` not exported from module caused both tests to fail with `TypeError: deleteProject is not a function`. Existing 17 tests continued passing.
+
+---
+
+## Issue 38: getGraphForModule service
+
+| Field           | Value                                    |
+| --------------- | ---------------------------------------- |
+| **Commit**      | `8f56637`                                |
+| **Test file**   | `src/lib/services/graph-service.test.ts` |
+| **Source file** | `src/lib/services/graph-service.ts`      |
+| **Tests**       | 4 passed, 0 failed                       |
+| **tsc**         | 0 errors in graph-service files          |
+| **Status**      | PASS                                     |
+
+**What was tested:**
+
+- `getGraphForModule(moduleId)` returns `{ success: true, data: { nodes, edges } }` with populated arrays
+- Returns `{ nodes: [], edges: [] }` when module has no nodes or edges
+- Returns `{ success: false, error }` when the flow_nodes query fails
+- Returns `{ success: false, error }` when the flow_edges query fails (nodes succeed but edges fail)
+
+**Key design decisions:**
+
+- Two sequential queries: `flow_nodes` then `flow_edges`, both filtered by `module_id`
+- Early return on node query failure — skips the edge query entirely
+- Exports `ModuleGraph` type (`{ nodes: FlowNode[]; edges: FlowEdge[] }`) for consumers
+- Follows established service pattern: `'use server'`, `import 'server-only'`, `ServiceResult<T>` return type
+- Uses `.select()` without column list (consistent with module-service pattern for full row retrieval)
+
+**RED phase evidence:** Stub threw `Error('Not implemented')`, all 4 tests failed with that error. No pre-existing tests were affected.
+
+---
+
+## Issue 45: addChatMessage + listChatMessages service
+
+| Field           | Value                                                           |
+| --------------- | --------------------------------------------------------------- |
+| **Commit**      | `773d877`                                                       |
+| **Test file**   | `src/lib/services/chat-message-service.test.ts`                 |
+| **Source file** | `src/lib/services/chat-message-service.ts`                      |
+| **Tests**       | 5 passed, 0 failed                                              |
+| **tsc**         | 0 new errors (known placeholder DB type `never` on `.insert()`) |
+| **Status**      | PASS                                                            |
+
+**What was tested:**
+
+- `addChatMessage` inserts a row into `chat_messages` and returns the created message
+- `addChatMessage` returns `{ success: false, error }` when Supabase insert fails
+- `listChatMessages` returns messages filtered by `project_id`, ordered by `created_at` ascending (chronological)
+- `listChatMessages` returns empty array when no messages exist for the project
+- `listChatMessages` returns `{ success: false, error }` when Supabase query fails
+
+**Implementation notes:**
+
+- Follows established service pattern: `'use server'`, `import 'server-only'`, `ServiceResult<T>` return type
+- `addChatMessage` accepts `CreateChatMessageInput` (project_id, role, content) from `@/types/chat`
+- `listChatMessages` selects only needed columns: `id, project_id, role, content, created_at`
+- Ascending order on `created_at` ensures chronological conversation display
+
+**RED phase evidence:** Module not found error (`ERR_MODULE_NOT_FOUND`) — service file did not exist yet. All 5 tests failed at import resolution.
+
+---
+
+## Issue 54: Node color config maps each type to a color
+
+| Field           | Value                           |
+| --------------- | ------------------------------- |
+| **Commit**      | `5373297`                       |
+| **Test file**   | `src/lib/canvas/colors.test.ts` |
+| **Source file** | `src/lib/canvas/colors.ts`      |
+| **Tests**       | 7 passed, 0 failed              |
+| **tsc**         | 0 errors in canvas color files  |
+| **Status**      | PASS                            |
+
+**What was tested:**
+
+- `getNodeColor('decision')` returns `'amber'`
+- `getNodeColor('process')` returns `'blue'`
+- `getNodeColor('entry')` returns `'green'`
+- `getNodeColor('exit')` returns `'red'`
+- `getNodeColor('start')` returns `'gray'`
+- `getNodeColor('end')` returns `'gray'`
+- Unknown node type (cast as `FlowNodeType`) returns a non-empty default color (`'slate'`)
+
+**Implementation notes:**
+
+- `NODE_COLOR_MAP` is a `Record<FlowNodeType, string>` ensuring compile-time exhaustiveness for all known node types
+- `DEFAULT_NODE_COLOR` (`'slate'`) returned via nullish coalescing for any unrecognized type
+- Pure function, no side effects, no external dependencies beyond the `FlowNodeType` union
+
+**RED phase evidence:** Stub function returned empty string `''`. All 7 tests failed — each color assertion received `''` instead of the expected color, and the unknown-type test failed because `''.length` is not greater than 0.
+
+---
+
+## Issue 46: React Flow base canvas
+
+| Field           | Value                                   |
+| --------------- | --------------------------------------- |
+| **Commit**      | `053c2c1`                               |
+| **Test file**   | `src/components/canvas/Canvas.test.tsx` |
+| **Source file** | `src/components/canvas/Canvas.tsx`      |
+| **Tests**       | 5 passed, 0 failed                      |
+| **tsc**         | 0 errors in Canvas files                |
+| **Status**      | PASS                                    |
+
+**What was tested:**
+
+- Renders without crashing with empty nodes/edges arrays
+- ReactFlowProvider wraps the ReactFlow component (provider contains flow element)
+- MiniMap component is present in the DOM
+- Controls component is present in the DOM
+- Background component is present in the DOM
+
+**Implementation notes:**
+
+- `"use client"` directive — Canvas uses browser APIs via React Flow
+- Wraps `ReactFlow` in `ReactFlowProvider` as required by `@xyflow/react` v12
+- Accepts `nodes`, `edges`, `onNodesChange`, `onEdgesChange` props — typed with `Node`, `Edge`, `OnNodesChange`, `OnEdgesChange` from `@xyflow/react`
+- Includes `MiniMap`, `Controls`, and `Background` (dots variant) as child components
+- `fitView` prop auto-fits the viewport to node bounds on mount
+- CSS import `@xyflow/react/dist/style.css` for React Flow base styles
+- Test uses `// @vitest-environment happy-dom` to avoid jsdom v29 ESM compat issue (`ERR_REQUIRE_ASYNC_MODULE`)
+- `@xyflow/react` is fully mocked in tests — ReactFlow, MiniMap, Controls, Background rendered as simple divs with data-testid
+
+---
+
+## Issue 52: Auto-layout positions nodes using dagre
+
+| Field           | Value                           |
+| --------------- | ------------------------------- |
+| **Commit**      | `7f59c2f`                       |
+| **Test file**   | `src/lib/canvas/layout.test.ts` |
+| **Source file** | `src/lib/canvas/layout.ts`      |
+| **Tests**       | 4 passed, 0 failed              |
+| **tsc**         | 0 errors in layout files        |
+| **Status**      | PASS                            |
+
+**What was tested:**
+
+- Empty input (no nodes, no edges) returns empty array
+- Single node returns valid finite x/y position
+- Two connected nodes (source -> target) position source above target (source.y < target.y) in top-to-bottom layout
+- Input arrays are not mutated (pure function)
+
+**Implementation notes:**
+
+- `computeLayout(nodes: FlowNode[], edges: FlowEdge[]): FlowNode[]` — pure function using dagre for automatic graph layout
+- Uses `rankdir: 'TB'` (top-to-bottom) so source nodes always appear above target nodes
+- Default node dimensions: 172x36px (exported as `DEFAULT_NODE_WIDTH`/`DEFAULT_NODE_HEIGHT` for reuse)
+- Returns new array with updated positions — never mutates input
+- Code landed in commit `773d877` due to concurrent agent staging; attribution commit `7f59c2f` exports constants
+- Test uses `// @vitest-environment node` pragma (non-DOM test)
+
+---
+
+## Issue 34: Signup form component
+
+**Commit**: `7f59c2f` | **Type**: feature | **Status**: Implemented
+
+### Summary
+
+Client-side signup form component with Zod validation, server action integration via `signUp`, loading/pending states, success/error feedback, and full ARIA accessibility. Page route created at `/signup`.
+
+### Steps to test
+
+1. Navigate to /signup
+2. Submit the form with an invalid email (e.g. "bad") -- expect email validation error displayed
+3. Submit the form with a valid email but short password (e.g. "short") -- expect password validation error (min 8 chars)
+4. Submit with valid email and password (8+ chars) -- expect signUp action called, success message "Check your email" shown
+5. Verify the "Log in" link points to /login
+6. Verify the submit button shows "Signing up..." and is disabled during submission
+7. Tab through all form elements to verify keyboard accessibility
+
+### Expected result
+
+- Email and password fields render with proper labels
+- Client-side validation blocks submission for invalid email or short password
+- On valid submit, signUp server action is called with email and password
+- Success displays "Check your email to confirm your account"
+- Server errors display in an alert role element
+- Button disables and shows loading text during pending
+- All inputs have required attribute, error messages linked via aria-describedby
+
+### Edge cases
+
+- Double-submit while pending (button is disabled, preventing this)
+- Both email and password invalid simultaneously (both field errors shown)
+- Server returns error after valid client-side validation (error message displayed)
+
+### Test results
+
+- 13 tests passed, 0 failed
+- Test file: src/components/auth/signup-form.test.tsx
+- tsc: 0 errors in signup files (pre-existing Database placeholder errors in other files unrelated)
+
+**RED phase evidence:** Stub component returned `null` — all 5 tests failed with `Unable to find an element by: [data-testid="react-flow"]` (and similar for provider, minimap, controls, background).
+
+---
+
+## Issue 36: Logout button component
+
+| Field           | Value                                        |
+| --------------- | -------------------------------------------- |
+| **Commit**      | `bc6926d`                                    |
+| **Test file**   | `src/components/auth/logout-button.test.tsx` |
+| **Source file** | `src/components/auth/logout-button.tsx`      |
+| **Tests**       | 2 passed, 0 failed                           |
+| **tsc**         | 0 errors in logout-button files              |
+| **Status**      | PASS                                         |
+
+**What was tested:**
+
+- `LogoutButton` renders a `<button>` with accessible name "Log out"
+- Clicking the button calls the `signOut` server action exactly once
+
+**Key design decisions:**
+
+- `"use client"` directive — component uses `onClick` event handler
+- Delegates to `signOut` server action from `@/lib/services/auth-service` (Issue 21)
+- `type="button"` prevents accidental form submission when nested in forms
+- Test uses `happy-dom` environment (`// @vitest-environment happy-dom`) because `jsdom` 29 has ESM compat issues with Node 24
+- Mock at module level via `vi.mock('@/lib/services/auth-service')` — no real Supabase calls
+
+**RED phase evidence:** Stub rendered `<button>TODO</button>`. Both tests failed — `getByRole('button', { name: /log out/i })` found no match (button had name "TODO"), and `signOut` was never called on click.
+
+---
+
+## Issue 44: connectModules + disconnectModules service
+
+| Field           | Value                                                   |
+| --------------- | ------------------------------------------------------- |
+| **Commit**      | `5373297`                                               |
+| **Test file**   | `src/lib/services/module-connection-service.test.ts`    |
+| **Source file** | `src/lib/services/module-connection-service.ts`         |
+| **Tests**       | 7 passed, 0 failed                                      |
+| **tsc**         | 0 new errors (known placeholder `never` type on insert) |
+| **Status**      | PASS                                                    |
+
+**What was tested:**
+
+- `connectModules` returns the created `ModuleConnection` on successful insert
+- `connectModules` rejects self-connections (source === target module ID) with "Validation failed"
+- `connectModules` rejects invalid UUIDs with "Validation failed"
+- `connectModules` rejects empty exit/entry point strings with "Validation failed"
+- `connectModules` returns Supabase error message on database insert failure
+- `disconnectModules` returns `{ success: true }` when connection is deleted
+- `disconnectModules` returns error when database delete fails
+
+**Key design decisions:**
+
+- Validates input with `createModuleConnectionSchema` (Zod) which enforces UUID format on all three IDs and non-empty strings on exit/entry points, plus the self-connection guard refinement
+- Passes `parsed.data` directly to Supabase insert — no field mapping needed (DB columns match type fields)
+- `disconnectModules` takes a connection `id` and deletes directly — no additional validation needed (RLS handles authorization)
+- Follows established service pattern: `ServiceResult<T>` return type, `'use server'` + `import 'server-only'`
+
+**RED phase evidence:** Stub returned `{ success: false, error: 'Not implemented' }` for both functions. All 7 tests failed — success case got wrong `success` value, validation cases got "Not implemented" instead of "Validation failed", DB error cases got "Not implemented" instead of specific error messages, and `disconnectModules` success case got `{ success: false }` instead of `{ success: true }`.
+
+**Note:** Code landed in commit `5373297` (node color config) due to concurrent agent staging; implementation and tests are authored by the issue #44 agent.
+
+---
+
+## Issue 39: addNode inserts flow node into module
+
+| Field           | Value                                    |
+| --------------- | ---------------------------------------- |
+| **Commit**      | `0cfe8be`                                |
+| **Test file**   | `src/lib/services/graph-service.test.ts` |
+| **Source file** | `src/lib/services/graph-service.ts`      |
+| **Tests**       | 7 passed, 0 failed (3 new + 4 existing)  |
+| **tsc**         | 0 errors in graph-service.ts             |
+| **Status**      | PASS                                     |
+
+**What was tested:**
+
+- `addNode` with valid input returns the inserted node from `flow_nodes` table
+- `addNode` with invalid input (bad UUID, invalid node_type, empty label) returns validation error without calling Supabase
+- `addNode` returns database error when insert fails (e.g. foreign key violation)
+
+**Steps to test:**
+
+1. This is a data service function — no user-facing UI yet
+2. Run `npx vitest run src/lib/services/graph-service.test.ts` — all 7 tests pass
+3. The function validates input with `createFlowNodeSchema` (Zod) before inserting
+
+**Expected result:**
+
+- Valid input: `{ success: true, data: FlowNode }` with the inserted row
+- Invalid input: `{ success: false, error: "Validation failed: ..." }`
+- DB error: `{ success: false, error: "<db error message>" }`
+
+**Key design decisions:**
+
+- Follows the established service pattern: Zod validate -> Supabase insert -> return `ServiceResult<T>`
+- Uses `createFlowNodeSchema` from `@/lib/schemas/flow-node` (Issue 11)
+- Accepts `Record<string, unknown>` input to keep the boundary untyped (server action compatible)
+- `.insert().select().single()` chain returns the full inserted row
+
+**RED phase evidence:** All 3 addNode tests failed with `TypeError: addNode is not a function` — function did not exist yet. Existing 4 getGraphForModule tests continued passing.
