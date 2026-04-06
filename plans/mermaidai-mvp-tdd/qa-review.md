@@ -1668,3 +1668,157 @@ Zustand store (`useChatStore`) managing chat state: `messages` (ChatMessage[]), 
 - `_supabase` parameter accepted but unused by module ops (services create own clients); preserved for node/edge ops that may need it
 - `connect_modules` maps camelCase payload fields to snake_case for the module-connection schema
 - Continues executing all operations even after failures (no short-circuit) — partial success is reported per-operation
+
+---
+
+## Issue 59: LLM response parser
+
+| Field           | Value                                          |
+| --------------- | ---------------------------------------------- |
+| **Commit**      | `98fe025`                                      |
+| **Test file**   | `src/lib/services/llm-response-parser.test.ts` |
+| **Source file** | `src/lib/services/llm-response-parser.ts`      |
+| **Tests**       | 11 passed, 0 failed                            |
+| **tsc**         | 0 errors in parser files                       |
+| **Status**      | PASS                                           |
+
+**What was tested:**
+
+- Empty string input returns `{ message: '', operations: [] }`
+- Text with no `<operations>` block returns the text as message, empty operations array
+- Text outside `<operations>` tags becomes the message, separated by paragraph breaks
+- Valid JSON inside `<operations>` tags parsed into `GraphOperation[]`
+- Malformed JSON inside tags returns empty array (graceful degradation)
+- Unknown operation types filtered out (only valid `GraphOperationType` values kept)
+- All 10 valid operation types accepted: `create_module`, `update_module`, `delete_module`, `create_node`, `update_node`, `delete_node`, `create_edge`, `update_edge`, `delete_edge`, `connect_modules`
+- Whitespace trimmed from extracted message
+- Operations block with no surrounding text yields empty message
+- Empty array inside operations tags returns empty operations
+- Non-array JSON inside tags returns empty array
+
+**Key design decisions:**
+
+- Regex `/<operations>([\s\S]*?)<\/operations>/` extracts the JSON block; `String.split` with the same regex yields text segments at even indices and captured JSON at odd indices
+- `VALID_OPERATION_TYPES` set derived from `GraphOperationType` union via `satisfies` — compile-time guarantee the set stays in sync with the type
+- `parseOperationsJson` helper isolates JSON parsing and type filtering from message extraction
+- Message parts joined with `\n\n` to preserve paragraph breaks between text before and after the operations block
+
+**RED phase evidence:** Test file failed with `Error: Cannot find package '@/lib/services/llm-response-parser'` — the module did not exist yet. All 11 tests could not run.
+
+---
+
+## Issue 56: System prompt — discovery mode
+
+| Field           | Value                                     |
+| --------------- | ----------------------------------------- |
+| **Commit**      | `789e187`                                 |
+| **Test file**   | `src/lib/services/prompt-builder.test.ts` |
+| **Source file** | `src/lib/services/prompt-builder.ts`      |
+| **Tests**       | 9 passed, 0 failed                        |
+| **tsc**         | 0 new errors in prompt-builder files      |
+| **Status**      | PASS                                      |
+
+**What was tested:**
+
+- `buildSystemPrompt('discovery', context)` returns a non-empty string
+- Prompt includes the project name (tested with two different names)
+- Prompt instructs AI to ask clarifying/discovery questions
+- Prompt includes JSON schema for all 10 graph operation types (`create_module`, `update_module`, `delete_module`, `create_node`, `update_node`, `delete_node`, `create_edge`, `update_edge`, `delete_edge`, `connect_modules`)
+- Prompt includes `<operations>` and `</operations>` delimiters for wrapping operations
+- Prompt includes `// file: <path>` instruction for pseudocode file path comments
+- Prompt includes all key payload fields (`moduleId`, `nodeId`, `edgeId`, `sourceNodeId`, `targetNodeId`, `pseudocode`, `label`, `nodeType`)
+- Prompt references the file tree sidebar to explain the purpose of file path comments
+
+**RED phase evidence:** Tests failed with `Cannot find package '@/lib/services/prompt-builder'` — module did not exist.
+
+**Developer verification steps:**
+
+1. Run `npx vitest run src/lib/services/prompt-builder.test.ts --reporter=verbose` — 9 tests pass
+2. Inspect exported types: `PromptMode` = `'discovery' | 'module_map' | 'module_detail'`, `PromptContext` = `{ projectName, modules?, currentModule?, nodes?, edges? }`
+3. Call `buildSystemPrompt('module_map', ctx)` — throws `"Prompt mode "module_map" is not yet implemented"` (placeholder for issue #57)
+4. Verify `GRAPH_OPERATIONS_SCHEMA` constant matches the `GraphOperation` union in `src/types/chat.ts`
+5. Verify `// file:` pattern in the prompt aligns with `FILE_PATH_PATTERN` in `src/lib/services/file-tree.ts`
+
+**Key design decisions:**
+
+- `GRAPH_OPERATIONS_SCHEMA` is a module-level constant, reusable by `module_map` and `module_detail` modes (issues #57, #58)
+- Switch statement in `buildSystemPrompt` is extensible — each mode delegates to a private builder function
+- `PromptContext` accepts optional `modules`, `currentModule`, `nodes`, `edges` for future modes without breaking the discovery call signature
+
+---
+
+## Issue 60: LLM client wrapper (streaming)
+
+| Field            | Value                                         |
+| ---------------- | --------------------------------------------- |
+| **Commit**       | `c4538fd`                                     |
+| **Test file**    | `src/lib/services/llm-client.test.ts`         |
+| **Source file**  | `src/lib/services/llm-client.ts`              |
+| **Also changed** | `src/lib/config.ts` (added optional AI_MODEL) |
+| **Tests**        | 7 passed, 0 failed                            |
+| **tsc**          | 0 errors in changed files                     |
+| **Full suite**   | 448 passed, 0 failed                          |
+| **Status**       | PASS                                          |
+
+**What was tested:**
+
+- `callLLM` returns a `ReadableStream<string>`
+- Default model is `claude-sonnet-4-6` when `AI_MODEL` env var is not set
+- Model is overridable via `AI_MODEL` env var
+- System prompt and messages are correctly passed to the Anthropic SDK
+- Text chunks stream through the `ReadableStream` in order
+- API errors are sanitized (no API keys leaked in error messages)
+- Anthropic client uses singleton pattern (constructor called once across multiple `callLLM` calls)
+
+**RED phase evidence:** All 7 tests failed with `Cannot find package '@/lib/services/llm-client'` — module did not exist yet.
+
+**Manual QA checklist:**
+
+1. Verify `callLLM` signature matches acceptance criteria: `(systemPrompt: string, messages: Array<{role: string; content: string}>): Promise<ReadableStream<string>>`
+2. Verify `AI_MODEL` is added as optional field in `src/lib/config.ts` env schema
+3. Verify error messages containing `sk-ant*` patterns are redacted to `[REDACTED]`
+4. Verify `MAX_TOKENS` is set to a reasonable default (4096)
+5. Verify the Anthropic SDK is never called with real API keys in tests (module-level mock)
+
+**Key design decisions:**
+
+- Singleton pattern via module-level `_client` variable — avoids creating new Anthropic instances per call
+- Uses `messages.stream()` API with `.on('text')` events bridged to a standard `ReadableStream<string>`
+- Error sanitization strips API key patterns (`sk-ant*`) before surfacing to callers
+- `AI_MODEL` reads directly from `process.env` at call time (not cached in config singleton) to allow runtime flexibility
+
+---
+
+## Issue 62: Graph executor — node/edge ops with partial failure reporting
+
+| Field           | Value                                               |
+| --------------- | --------------------------------------------------- |
+| **Commit**      | `c1ccdac`                                           |
+| **Test file**   | `src/lib/services/graph-operation-executor.test.ts` |
+| **Source file** | `src/lib/services/graph-operation-executor.ts`      |
+| **Tests**       | 26 passed, 0 failed                                 |
+| **tsc**         | 0 errors in executor files                          |
+| **Status**      | PASS                                                |
+
+**What was tested:**
+
+- `create_node` operation calls `addNode` with mapped payload (`moduleId` -> `module_id`, `nodeType` -> `node_type`)
+- `update_node` operation calls `updateNode` with node ID and remaining fields
+- `delete_node` operation calls `removeNode` with node ID
+- `create_edge` operation calls `addEdge` with mapped payload (`moduleId` -> `module_id`, `sourceNodeId` -> `source_node_id`, etc.)
+- `delete_edge` operation calls `removeEdge` with edge ID
+- Each operation records success/failure from the underlying service
+- Partial failure: `{ success: false, results: [...], error: "1 of 3 operations failed" }`
+- All succeed: `{ success: true, results: [...] }` with no `error` field
+- Mixed module + node/edge operations with partial failure
+- Empty operations array returns `{ success: true, results: [] }`
+- Existing module/connect tests still pass (13 prior + 13 new = 26 total)
+
+**RED phase evidence:** 13 new tests failed — node/edge ops hit the default "Unsupported operation type" case, and `ExecutionResult` lacked the `error` field.
+
+**Key design decisions:**
+
+- Maps camelCase operation payloads to snake_case service parameters (matching DB column naming)
+- `ExecutionResult.error` is a summary string (`"N of M operations failed"`) — only present on failure
+- No rollback on partial failure — operations continue executing after a failure (MVP design decision)
+- `update_edge` is not yet handled (no `updateEdge` service exists) — falls through to "Unsupported" default
