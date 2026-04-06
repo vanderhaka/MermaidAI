@@ -1,12 +1,17 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createProject, listProjectsByUser, updateProject } from '@/lib/services/project-service'
+import {
+  createProject,
+  getProjectById,
+  listProjectsByUser,
+  updateProject,
+} from '@/lib/services/project-service'
 
 const mockSingle = vi.fn()
 const mockOrder = vi.fn()
-const mockSelect = vi.fn(() => ({ single: mockSingle, order: mockOrder }))
+const mockEq = vi.fn(() => ({ single: mockSingle, select: mockSelect }))
+const mockSelect = vi.fn(() => ({ single: mockSingle, order: mockOrder, eq: mockEq }))
 const mockInsert = vi.fn(() => ({ select: mockSelect }))
-const mockEq = vi.fn(() => ({ select: mockSelect }))
 const mockUpdate = vi.fn(() => ({ eq: mockEq }))
 const mockFrom = vi.fn(() => ({ insert: mockInsert, select: mockSelect, update: mockUpdate }))
 
@@ -247,5 +252,55 @@ describe('updateProject', () => {
 
     expect(result).toEqual({ success: true, data: updated })
     expect(mockUpdate).toHaveBeenCalledWith({ name: 'Valid Name' })
+  })
+})
+
+describe('getProjectById', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('returns project for a valid ID', async () => {
+    const project = {
+      id: 'proj-1',
+      user_id: 'user-1',
+      name: 'My Project',
+      description: 'A great project',
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    }
+    mockSingle.mockResolvedValue({ data: project, error: null })
+
+    const result = await getProjectById('proj-1')
+
+    expect(result).toEqual({ success: true, data: project })
+    expect(mockFrom).toHaveBeenCalledWith('projects')
+    expect(mockSelect).toHaveBeenCalledWith(
+      'id, user_id, name, description, created_at, updated_at',
+    )
+    expect(mockEq).toHaveBeenCalledWith('id', 'proj-1')
+    expect(mockSingle).toHaveBeenCalled()
+  })
+
+  it('returns failure when project is not found', async () => {
+    mockSingle.mockResolvedValue({
+      data: null,
+      error: { message: 'JSON object requested, multiple (or no) rows returned', code: 'PGRST116' },
+    })
+
+    const result = await getProjectById('nonexistent-id')
+
+    expect(result).toEqual({ success: false, error: expect.any(String) })
+  })
+
+  it('returns failure when supabase query fails', async () => {
+    mockSingle.mockResolvedValue({
+      data: null,
+      error: { message: 'Database error' },
+    })
+
+    const result = await getProjectById('proj-1')
+
+    expect(result).toEqual({ success: false, error: 'Database error' })
   })
 })
