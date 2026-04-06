@@ -2056,3 +2056,40 @@ Zustand store (`useChatStore`) managing chat state: `messages` (ChatMessage[]), 
 **RED phase evidence:** 11 of 12 tests failed against the stub (rendered only root name). Only "renders root folder name" passed.
 
 **REFACTOR notes:** Simplify review found no issues — component is 95 lines, clean recursive structure, no duplication.
+
+---
+
+## Issue 72: useFileTree hook reactively derives file tree from graph state
+
+| Field           | Value                           |
+| --------------- | ------------------------------- |
+| **Commit**      | pending                         |
+| **Test file**   | `src/hooks/useFileTree.test.ts` |
+| **Source file** | `src/hooks/useFileTree.ts`      |
+| **Tests**       | 4 passed, 0 failed              |
+| **tsc**         | 0 errors in hook files          |
+| **Status**      | PASS                            |
+
+**What was tested:**
+
+- Returns empty root FileTreeNode when graph store has no nodes
+- Returns derived file tree from store nodes via `deriveFileTree`
+- Reactively updates when nodes change in the store (via `act()` + `setNodes`)
+- Does not re-derive when nodes reference is unchanged (useMemo memoization)
+
+**Steps to test:**
+
+1. This is an internal React hook — no direct user-facing UI
+2. Used by components that display the file tree sidebar
+3. Verify: open a project with nodes containing `// file:` pseudocode annotations, the file tree panel should reflect the file structure derived from those nodes
+4. Verify: adding/removing nodes with file annotations updates the file tree in real time
+
+### Key design decisions
+
+- Subscribes to graph store `nodes` via Zustand selector: `useGraphStore(state => state.nodes)`
+- Wraps `deriveFileTree(nodes)` in `useMemo` keyed on nodes reference — avoids re-derivation on unrelated renders
+- 9 lines of implementation — delegates all tree-building logic to `deriveFileTree` service
+
+**RED phase evidence:** 3 of 4 tests failed against the stub (returned static empty root, never called deriveFileTree). Only the memoization test passed trivially.
+
+**REFACTOR notes:** Implementation is already minimal at 9 lines — no simplification needed.
