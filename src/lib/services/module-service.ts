@@ -94,6 +94,17 @@ export async function listModulesByProject(projectId: string): Promise<ServiceRe
   return { success: true, data: data.map(mapRowToModule) }
 }
 
+export async function getModuleById(id: string): Promise<ServiceResult<Module>> {
+  const supabase = await createClient()
+  const { data, error } = await supabase.from('modules').select().eq('id', id).single()
+
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  return { success: true, data: mapRowToModule(data) }
+}
+
 export async function deleteModule(
   id: string,
 ): Promise<{ success: true } | { success: false; error: string }> {
