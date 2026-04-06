@@ -73,9 +73,9 @@ Status: Waves 1-4 COMPLETE, Wave 5 PENDING
 | 63  | Graph store (Zustand)                        | 4    | ✓   | ✓     | ✓        | `59e4b32` | DONE        |
 | 64  | Chat route handler (streaming)               | 5    | ✓   | -     | -        | -         | IN_PROGRESS |
 | 65  | Chat message list (streaming)                | 5    | ✓   | ✓     | ✓        | -         | IN_PROGRESS |
-| 66  | Chat input component                         | 5    | ✓   | ✓     | -        | -         | IN_PROGRESS |
-| 67  | Derive file tree from nodes                  | 5    | ✓   | -     | -        | -         | IN_PROGRESS |
-| 68  | FileTree component                           | 5    | ✓   | -     | -        | -         | IN_PROGRESS |
+| 66  | Chat input component                         | 5    | ✓   | ✓     | ✓        | `245c763` | DONE        |
+| 67  | Derive file tree from nodes                  | 5    | ✓   | ✓     | ✓        | -         | IN_PROGRESS |
+| 68  | FileTree component                           | 5    | ✓   | ✓     | -        | -         | IN_PROGRESS |
 | 69  | Module map view                              | 6    | -   | -     | -        | -         | PENDING     |
 | 70  | ModuleDetailView                             | 6    | -   | -     | -        | -         | PENDING     |
 | 71  | Canvas container (drill-down)                | 6    | -   | -     | -        | -         | PENDING     |
