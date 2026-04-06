@@ -1952,3 +1952,107 @@ Zustand store (`useChatStore`) managing chat state: `messages` (ChatMessage[]), 
 **RED phase evidence:** 11 of 13 tests failed against the empty `<div />` stub — only the two absence assertions (no welcome when messages exist, no thinking indicator when streaming) passed vacuously.
 
 **REFACTOR notes:** Eliminated separate `StreamingBubble` component by reusing `MessageBubble` with a synthetic `ChatMessage` object, reducing component count from 4 to 3 with zero behavior change.
+
+---
+
+## Issue #67 — Derive file tree from nodes
+
+**Commit:** `592e63c`
+**Files changed:** `src/lib/services/file-tree.ts`, `src/lib/services/file-tree.test.ts`
+
+### What to test
+
+| #   | Test case                                              | How to verify                                                                                              |
+| --- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| 1   | Empty nodes array returns empty root                   | `deriveFileTree([])` returns `{ name: 'root', path: '', type: 'folder', children: [], linkedNodeIds: [] }` |
+| 2   | Nodes without `// file:` annotations return empty root | Pass nodes with plain pseudocode, verify no children                                                       |
+| 3   | Single file path builds nested folder structure        | `// file: src/lib/auth.ts` produces root > src > lib > auth.ts                                             |
+| 4   | Multiple nodes with shared folders merge correctly     | Two nodes referencing `src/lib/auth.ts` and `src/lib/db.ts` share the `src/lib` folder                     |
+| 5   | Duplicate file paths merge linkedNodeIds               | Two nodes referencing the same path produce one file node with both node IDs                               |
+| 6   | Multiple file annotations in one node                  | `// file: a.ts\n// file: b.ts` produces two file entries                                                   |
+| 7   | Folders sorted before files, both alphabetically       | Mixed files and folders at same level appear folders-first, then files, each group sorted                  |
+| 8   | Root-level file (no folders)                           | `// file: README.md` produces a file directly under root                                                   |
+
+### Test results
+
+14 tests pass (5 FILE_PATH_PATTERN + 9 deriveFileTree). Zero failures.
+
+### Key design decisions
+
+- `insertPath` walks the path segments, creating folder nodes for intermediate segments and a file node for the leaf
+- `linkedNodeIds` on file nodes tracks which FlowNodes reference that file; duplicates are merged
+- `sortTree` recursively applies folders-before-files alphabetical sort to every level
+- Reuses the existing `FILE_PATH_PATTERN` regex with global/multiline flags for extraction
+
+**RED phase evidence:** 6 of 9 deriveFileTree tests failed against the stub (empty root). The 3 empty-input/no-annotation tests passed trivially.
+
+**REFACTOR notes:** Implementation already minimal at 70 lines, 4 functions. No refactoring needed.
+
+---
+
+## Issue 64: Chat route handler (streaming)
+
+| Field         | Value                                                         |
+| ------------- | ------------------------------------------------------------- |
+| Commit        | `a16e0c2`                                                     |
+| Files changed | `src/app/api/chat/route.ts`, `src/app/api/chat/route.test.ts` |
+| Test count    | 15                                                            |
+| Failures      | 0                                                             |
+
+### What was tested
+
+1. **Input validation (4 tests)** — Missing projectId, missing message, empty/whitespace message, invalid chat mode all return 400 with `{ error }` JSON.
+2. **Auth guard (1 test)** — Unauthenticated request returns 401.
+3. **Streaming response (2 tests)** — Successful request returns 200 with `text/event-stream` Content-Type; LLM text chunks are forwarded through the stream.
+4. **Prompt building (1 test)** — `buildSystemPrompt` called with correct mode and context.
+5. **LLM call (1 test)** — `callLLM` called with system prompt and full message history (history + new message).
+6. **Post-stream processing (2 tests)** — After stream completes, `parseLLMResponse` extracts operations; `executeOperations` called when ops exist, skipped when empty.
+7. **Message persistence (2 tests)** — User message and assistant message both persisted to `chat_messages` via `addChatMessage`.
+8. **Error handling (2 tests)** — LLM failure returns 500 JSON error (no key leakage); malformed JSON body returns 400.
+
+### Key design decisions
+
+- Route Handler (not Server Action) because streaming requires returning a `ReadableStream` body.
+- Zod validates the full request shape including nested `context` object and `history` array.
+- Post-stream processing (parse, execute ops, persist messages) runs inside the `ReadableStream.start()` after `controller.close()` — this ensures the client gets all tokens before the server does background work.
+- `addChatMessage` is called twice: once for user, once for assistant. Both use the parsed message content (ops stripped).
+
+**RED phase evidence:** 14 of 15 tests failed against the 501 stub. The 1 pass ("skips executeOperations when no operations are parsed") was a trivial true-negative.
+
+**REFACTOR notes:** Replaced `ChatMode` import with `PromptMode` for accuracy. Simplified prompt context construction. Code is 120 lines, well under limits.
+
+---
+
+## Issue 68: FileTree component — collapsible tree with selection
+
+| Field           | Value                                         |
+| --------------- | --------------------------------------------- |
+| **Commit**      | `20baf36`                                     |
+| **Test file**   | `src/components/file-tree/file-tree.test.tsx` |
+| **Source file** | `src/components/file-tree/file-tree.tsx`      |
+| **Tests**       | 12 passed, 0 failed                           |
+| **tsc**         | 0 errors in file-tree files                   |
+| **Status**      | PASS                                          |
+
+**What was tested:**
+
+- Root folder, nested folders, and file names all render
+- Clicking a folder collapses its children; clicking again expands them
+- Collapsing one folder does not affect siblings
+- Clicking a file calls `onFileSelect` with the file's `linkedNodeIds`
+- Folders do not fire `onFileSelect`
+- `highlightedPaths` prop adds `data-highlighted="true"` to matching file paths
+- Non-matching files do not receive highlight attribute
+- Empty tree (no children) shows "No files generated yet" message
+
+### Key design decisions
+
+- Recursive `TreeNode` internal component handles both folder and file rendering
+- Each folder manages its own `expanded` state via `useState(true)` (default open)
+- `data-highlighted` attribute on file wrapper div enables CSS-based highlight styling
+- Depth-based `paddingLeft` for visual indentation via inline style (Tailwind can't do dynamic values)
+- `onFileSelect` passes `linkedNodeIds ?? []` defensively since the type allows undefined
+
+**RED phase evidence:** 11 of 12 tests failed against the stub (rendered only root name). Only "renders root folder name" passed.
+
+**REFACTOR notes:** Simplify review found no issues — component is 95 lines, clean recursive structure, no duplication.
