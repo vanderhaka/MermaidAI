@@ -77,11 +77,11 @@ Status: Waves 1-4 COMPLETE, Wave 5 PENDING
 | 67  | Derive file tree from nodes                  | 5    | ✓   | ✓     | ✓        | `592e63c` | DONE    |
 | 68  | FileTree component                           | 5    | ✓   | ✓     | ✓        | `20baf36` | DONE    |
 | 69  | Module map view                              | 6    | ✓   | ✓     | ✓        | `2cf0941` | DONE    |
-| 70  | ModuleDetailView                             | 6    | ✓   | ✓     | ✓        | -         | COMMIT  |
+| 70  | ModuleDetailView                             | 6    | ✓   | ✓     | ✓        | `4d6ea5e` | DONE    |
 | 71  | Canvas container (drill-down)                | 6    | -   | -     | -        | -         | PENDING |
 | 72  | useFileTree hook                             | 6    | ✓   | ✓     | ✓        | `523ccad` | DONE    |
 | 73  | FileTreeSidebar                              | 6    | -   | -     | -        | -         | PENDING |
-| 74  | Pseudocode display                           | 6    | ✓   | ✓     | -        | -         | GREEN   |
+| 74  | Pseudocode display                           | 6    | ✓   | ✓     | ✓        | -         | COMMIT  |
 
 ## Test Suite
 
