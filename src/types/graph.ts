@@ -28,3 +28,19 @@ export type Module = {
 }
 
 export type CreateModuleInput = Omit<Module, 'id' | 'created_at' | 'updated_at'>
+
+export type FlowNodeType = 'decision' | 'process' | 'entry' | 'exit' | 'start' | 'end'
+
+export type FlowNode = {
+  id: string
+  module_id: string
+  node_type: FlowNodeType
+  label: string
+  pseudocode: string
+  position: Position
+  color: string
+  created_at: string
+  updated_at: string
+}
+
+export type CreateFlowNodeInput = Pick<FlowNode, 'module_id' | 'node_type' | 'label'>

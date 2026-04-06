@@ -6,6 +6,11 @@ import type {
   Position,
   Module,
   CreateModuleInput,
+  FlowNodeType,
+  FlowNode,
+  CreateFlowNodeInput,
+  ModuleConnection,
+  CreateModuleConnectionInput,
 } from '@/types/graph'
 
 describe('Project type', () => {
@@ -138,5 +143,144 @@ describe('CreateModuleInput', () => {
     expect(input).not.toHaveProperty('id')
     expect(input).not.toHaveProperty('created_at')
     expect(input).not.toHaveProperty('updated_at')
+  })
+})
+
+describe('FlowNodeType', () => {
+  it('accepts all valid discriminated node types', () => {
+    const types: FlowNodeType[] = ['decision', 'process', 'entry', 'exit', 'start', 'end']
+    expect(types).toHaveLength(6)
+    expect(types).toContain('decision')
+    expect(types).toContain('process')
+    expect(types).toContain('entry')
+    expect(types).toContain('exit')
+    expect(types).toContain('start')
+    expect(types).toContain('end')
+  })
+})
+
+describe('FlowNode type', () => {
+  const validNode: FlowNode = {
+    id: 'node_001',
+    module_id: 'mod_123',
+    node_type: 'decision',
+    label: 'Is authenticated?',
+    pseudocode: 'if user.token is valid then proceed',
+    position: { x: 200, y: 300 },
+    color: '#EF4444',
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+  }
+
+  it('has all required fields', () => {
+    expect(validNode).toHaveProperty('id')
+    expect(validNode).toHaveProperty('module_id')
+    expect(validNode).toHaveProperty('node_type')
+    expect(validNode).toHaveProperty('label')
+    expect(validNode).toHaveProperty('pseudocode')
+    expect(validNode).toHaveProperty('position')
+    expect(validNode).toHaveProperty('color')
+    expect(validNode).toHaveProperty('created_at')
+    expect(validNode).toHaveProperty('updated_at')
+  })
+
+  it('node_type accepts each discriminated value', () => {
+    const decision: FlowNode = { ...validNode, node_type: 'decision' }
+    const process: FlowNode = { ...validNode, node_type: 'process' }
+    const entry: FlowNode = { ...validNode, node_type: 'entry' }
+    const exit: FlowNode = { ...validNode, node_type: 'exit' }
+    const start: FlowNode = { ...validNode, node_type: 'start' }
+    const end: FlowNode = { ...validNode, node_type: 'end' }
+    expect(decision.node_type).toBe('decision')
+    expect(process.node_type).toBe('process')
+    expect(entry.node_type).toBe('entry')
+    expect(exit.node_type).toBe('exit')
+    expect(start.node_type).toBe('start')
+    expect(end.node_type).toBe('end')
+  })
+
+  it('position uses Position type with x and y', () => {
+    expect(validNode.position.x).toBe(200)
+    expect(validNode.position.y).toBe(300)
+  })
+
+  it('pseudocode holds the logic description', () => {
+    expect(validNode.pseudocode).toBe('if user.token is valid then proceed')
+  })
+})
+
+describe('CreateFlowNodeInput', () => {
+  it('requires module_id, node_type, and label', () => {
+    const input: CreateFlowNodeInput = {
+      module_id: 'mod_123',
+      node_type: 'process',
+      label: 'Validate input',
+    }
+    expect(input).toHaveProperty('module_id')
+    expect(input).toHaveProperty('node_type')
+    expect(input).toHaveProperty('label')
+  })
+
+  it('omits server-generated fields', () => {
+    const input: CreateFlowNodeInput = {
+      module_id: 'mod_123',
+      node_type: 'start',
+      label: 'Begin',
+    }
+    expect(input).not.toHaveProperty('id')
+    expect(input).not.toHaveProperty('created_at')
+    expect(input).not.toHaveProperty('updated_at')
+  })
+})
+
+describe('ModuleConnection type', () => {
+  const validConnection: ModuleConnection = {
+    id: 'conn_001',
+    project_id: 'proj_456',
+    source_module_id: 'mod_100',
+    target_module_id: 'mod_200',
+    source_exit_point: 'authenticated',
+    target_entry_point: 'login',
+    created_at: '2024-01-01T00:00:00Z',
+  }
+
+  it('has all required fields', () => {
+    expect(validConnection).toHaveProperty('id')
+    expect(validConnection).toHaveProperty('project_id')
+    expect(validConnection).toHaveProperty('source_module_id')
+    expect(validConnection).toHaveProperty('target_module_id')
+    expect(validConnection).toHaveProperty('source_exit_point')
+    expect(validConnection).toHaveProperty('target_entry_point')
+    expect(validConnection).toHaveProperty('created_at')
+  })
+
+  it('references two modules by id', () => {
+    expect(validConnection.source_module_id).toBe('mod_100')
+    expect(validConnection.target_module_id).toBe('mod_200')
+    expect(validConnection.source_module_id).not.toBe(validConnection.target_module_id)
+  })
+
+  it('specifies which exit/entry points are linked', () => {
+    expect(validConnection.source_exit_point).toBe('authenticated')
+    expect(validConnection.target_entry_point).toBe('login')
+  })
+})
+
+describe('CreateModuleConnectionInput', () => {
+  it('omits server-generated fields', () => {
+    const input: CreateModuleConnectionInput = {
+      project_id: 'proj_456',
+      source_module_id: 'mod_100',
+      target_module_id: 'mod_200',
+      source_exit_point: 'success',
+      target_entry_point: 'start',
+    }
+    expect(input).toHaveProperty('project_id')
+    expect(input).toHaveProperty('source_module_id')
+    expect(input).toHaveProperty('target_module_id')
+    expect(input).toHaveProperty('source_exit_point')
+    expect(input).toHaveProperty('target_entry_point')
+    expect(input).not.toHaveProperty('id')
+    expect(input).not.toHaveProperty('created_at')
   })
 })
