@@ -3,16 +3,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 
-import { signUp, signOut } from '@/lib/services/auth-service'
+import { signUp, signOut, signIn } from '@/lib/services/auth-service'
 
 const mockSignUp = vi.fn()
 const mockSignOut = vi.fn().mockResolvedValue({ error: null })
+const mockSignInWithPassword = vi.fn()
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn().mockResolvedValue({
     auth: {
       signUp: (...args: unknown[]) => mockSignUp(...args),
       signOut: (...args: unknown[]) => mockSignOut(...args),
+      signInWithPassword: (...args: unknown[]) => mockSignInWithPassword(...args),
     },
   }),
 }))
@@ -115,5 +117,53 @@ describe('signOut', () => {
     await signOut().catch(() => {})
 
     expect(callOrder).toEqual(['signOut', 'revalidatePath', 'redirect'])
+  })
+})
+
+describe('signIn', () => {
+  beforeEach(() => {
+    mockSignInWithPassword.mockReset()
+  })
+
+  it('returns success when Supabase authenticates the user', async () => {
+    mockSignInWithPassword.mockResolvedValue({
+      data: { user: { id: '123' }, session: {} },
+      error: null,
+    })
+
+    const result = await signIn('test@example.com', 'password123')
+
+    expect(result).toEqual({ success: true })
+    expect(mockSignInWithPassword).toHaveBeenCalledWith({
+      email: 'test@example.com',
+      password: 'password123',
+    })
+  })
+
+  it('returns error for invalid email without calling Supabase', async () => {
+    const result = await signIn('not-an-email', 'password123')
+
+    expect(result.success).toBe(false)
+    expect(result.error).toBeDefined()
+    expect(mockSignInWithPassword).not.toHaveBeenCalled()
+  })
+
+  it('returns error for empty password without calling Supabase', async () => {
+    const result = await signIn('test@example.com', '')
+
+    expect(result.success).toBe(false)
+    expect(result.error).toBeDefined()
+    expect(mockSignInWithPassword).not.toHaveBeenCalled()
+  })
+
+  it('returns error when Supabase returns invalid credentials', async () => {
+    mockSignInWithPassword.mockResolvedValue({
+      data: { user: null, session: null },
+      error: { message: 'Invalid login credentials' },
+    })
+
+    const result = await signIn('test@example.com', 'wrongpassword')
+
+    expect(result).toEqual({ success: false, error: 'Invalid login credentials' })
   })
 })
