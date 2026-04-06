@@ -44,3 +44,16 @@ export async function createModule(input: Record<string, unknown>): Promise<Serv
 
   return { success: true, data: row }
 }
+
+export async function deleteModule(
+  id: string,
+): Promise<{ success: true } | { success: false; error: string }> {
+  const supabase = await createClient()
+  const { error } = await supabase.from('modules').delete().eq('id', id)
+
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  return { success: true }
+}
