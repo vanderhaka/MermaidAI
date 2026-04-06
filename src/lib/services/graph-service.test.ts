@@ -23,8 +23,13 @@ vi.mock('server-only', () => ({}))
 describe('getGraphForModule', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockFrom.mockReturnValue({ select: mockSelect })
-    mockSelect.mockReturnValue({ eq: mockEq })
+    mockFrom.mockReturnValue({
+      select: mockSelect,
+      insert: mockInsert,
+      update: mockUpdate,
+      delete: mockDelete,
+    })
+    mockSelect.mockReturnValue({ eq: mockEq, single: mockSingle })
   })
 
   afterEach(() => {
@@ -110,9 +115,14 @@ describe('getGraphForModule', () => {
 describe('addNode', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockFrom.mockReturnValue({ insert: mockInsert })
+    mockFrom.mockReturnValue({
+      select: mockSelect,
+      insert: mockInsert,
+      update: mockUpdate,
+      delete: mockDelete,
+    })
     mockInsert.mockReturnValue({ select: mockSelect })
-    mockSelect.mockReturnValue({ single: mockSingle })
+    mockSelect.mockReturnValue({ eq: mockEq, single: mockSingle })
   })
 
   afterEach(() => {
@@ -201,10 +211,15 @@ describe('addNode', () => {
 describe('updateNode', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockFrom.mockReturnValue({ update: mockUpdate })
+    mockFrom.mockReturnValue({
+      select: mockSelect,
+      insert: mockInsert,
+      update: mockUpdate,
+      delete: mockDelete,
+    })
     mockUpdate.mockReturnValue({ eq: mockEq })
-    mockEq.mockReturnValue({ select: mockSelect })
-    mockSelect.mockReturnValue({ single: mockSingle })
+    mockEq.mockReturnValue({ select: mockSelect, single: mockSingle })
+    mockSelect.mockReturnValue({ eq: mockEq, single: mockSingle })
   })
 
   afterEach(() => {
@@ -260,7 +275,12 @@ describe('updateNode', () => {
 describe('removeNode', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockFrom.mockReturnValue({ delete: mockDelete })
+    mockFrom.mockReturnValue({
+      select: mockSelect,
+      insert: mockInsert,
+      update: mockUpdate,
+      delete: mockDelete,
+    })
     mockDelete.mockReturnValue({ eq: mockEq })
   })
 
@@ -297,9 +317,14 @@ describe('removeNode', () => {
 describe('addEdge', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockFrom.mockReturnValue({ insert: mockInsert })
+    mockFrom.mockReturnValue({
+      select: mockSelect,
+      insert: mockInsert,
+      update: mockUpdate,
+      delete: mockDelete,
+    })
     mockInsert.mockReturnValue({ select: mockSelect })
-    mockSelect.mockReturnValue({ single: mockSingle })
+    mockSelect.mockReturnValue({ eq: mockEq, single: mockSingle })
   })
 
   afterEach(() => {
@@ -374,7 +399,12 @@ describe('addEdge', () => {
 describe('removeEdge', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockFrom.mockReturnValue({ delete: mockDelete })
+    mockFrom.mockReturnValue({
+      select: mockSelect,
+      insert: mockInsert,
+      update: mockUpdate,
+      delete: mockDelete,
+    })
     mockDelete.mockReturnValue({ eq: mockEq })
   })
 

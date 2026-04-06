@@ -38,7 +38,7 @@ export async function getGraphForModule(moduleId: string): Promise<ServiceResult
   return {
     success: true,
     data: {
-      nodes: nodes as FlowNode[],
+      nodes: nodes as unknown as FlowNode[],
       edges: edges as FlowEdge[],
     },
   }
@@ -57,18 +57,26 @@ export async function addNode(input: Record<string, unknown>): Promise<ServiceRe
     return { success: false, error: error.message }
   }
 
-  return { success: true, data: data as FlowNode }
+  return { success: true, data: data as unknown as FlowNode }
 }
 
 export async function updateNode(
   id: string,
   data: Partial<Pick<FlowNode, 'label' | 'pseudocode' | 'position' | 'color' | 'node_type'>>,
 ): Promise<ServiceResult<FlowNode>> {
+  const { position, ...rest } = data
+
+  const dbFields: Record<string, unknown> = { ...rest }
+  if (position) {
+    dbFields.position_x = position.x
+    dbFields.position_y = position.y
+  }
+
   const supabase = await createClient()
 
   const { data: updated, error } = await supabase
     .from('flow_nodes')
-    .update(data)
+    .update(dbFields)
     .eq('id', id)
     .select()
     .single()
@@ -77,7 +85,7 @@ export async function updateNode(
     return { success: false, error: error.message }
   }
 
-  return { success: true, data: updated as FlowNode }
+  return { success: true, data: updated as unknown as FlowNode }
 }
 
 export async function removeNode(id: string): Promise<ServiceResult<null>> {

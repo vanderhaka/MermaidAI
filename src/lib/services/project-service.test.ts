@@ -16,6 +16,9 @@ const mockSelect = vi.fn(() => ({ single: mockSingle, order: mockOrder, eq: mock
 const mockInsert = vi.fn(() => ({ select: mockSelect }))
 const mockUpdate = vi.fn(() => ({ eq: mockEq }))
 const mockDelete = vi.fn(() => ({ eq: mockDeleteEq }))
+const mockGetUser = vi.fn().mockResolvedValue({
+  data: { user: { id: 'user-1' } },
+})
 const mockFrom = vi.fn(() => ({
   insert: mockInsert,
   select: mockSelect,
@@ -24,7 +27,7 @@ const mockFrom = vi.fn(() => ({
 }))
 
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: vi.fn(() => Promise.resolve({ from: mockFrom })),
+  createClient: vi.fn(() => Promise.resolve({ from: mockFrom, auth: { getUser: mockGetUser } })),
 }))
 
 describe('createProject', () => {
@@ -47,7 +50,7 @@ describe('createProject', () => {
 
     expect(result).toEqual({ success: true, data: project })
     expect(mockFrom).toHaveBeenCalledWith('projects')
-    expect(mockInsert).toHaveBeenCalledWith({ name: 'Test Project' })
+    expect(mockInsert).toHaveBeenCalledWith({ name: 'Test Project', user_id: 'user-1' })
     expect(mockSelect).toHaveBeenCalled()
     expect(mockSingle).toHaveBeenCalled()
   })
@@ -72,6 +75,7 @@ describe('createProject', () => {
     expect(mockInsert).toHaveBeenCalledWith({
       name: 'With Desc',
       description: 'A description',
+      user_id: 'user-1',
     })
   })
 

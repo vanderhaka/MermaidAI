@@ -20,7 +20,19 @@ export async function createProject(input: {
   }
 
   const supabase = await createClient()
-  const { data, error } = await supabase.from('projects').insert(parsed.data).select().single()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
+    return { success: false, error: 'Not authenticated' }
+  }
+
+  const { data, error } = await supabase
+    .from('projects')
+    .insert({ ...parsed.data, user_id: user.id })
+    .select()
+    .single()
 
   if (error) {
     return { success: false, error: error.message }

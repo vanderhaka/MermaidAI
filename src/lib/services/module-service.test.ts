@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // Mock server-only (no-op in test)
 vi.mock('server-only', () => ({}))
@@ -33,7 +33,12 @@ vi.mock('@/lib/supabase/server', () => ({
 describe('createModule', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockFrom.mockReturnValue({ insert: mockInsert })
+    mockFrom.mockReturnValue({
+      insert: mockInsert,
+      update: mockUpdate,
+      select: mockSelect,
+      delete: mockDelete,
+    })
     mockInsert.mockReturnValue({ select: mockSelect })
     mockSelect.mockReturnValue({ single: mockSingle })
   })
@@ -184,7 +189,12 @@ describe('createModule', () => {
 describe('updateModule', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockFrom.mockReturnValue({ update: mockUpdate })
+    mockFrom.mockReturnValue({
+      insert: mockInsert,
+      update: mockUpdate,
+      select: mockSelect,
+      delete: mockDelete,
+    })
     mockUpdate.mockReturnValue({ select: mockSelect })
     mockSelect.mockReturnValue({ eq: mockEq })
     mockEq.mockReturnValue({ single: mockSingle })
@@ -307,7 +317,12 @@ describe('updateModule', () => {
 describe('deleteModule', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockFrom.mockReturnValue({ delete: mockDelete })
+    mockFrom.mockReturnValue({
+      insert: mockInsert,
+      update: mockUpdate,
+      select: mockSelect,
+      delete: mockDelete,
+    })
     mockDelete.mockReturnValue({ eq: mockEq })
   })
 
@@ -340,7 +355,12 @@ describe('deleteModule', () => {
 describe('listModulesByProject', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockFrom.mockReturnValue({ select: mockSelect })
+    mockFrom.mockReturnValue({
+      insert: mockInsert,
+      update: mockUpdate,
+      select: mockSelect,
+      delete: mockDelete,
+    })
     mockSelect.mockReturnValue({ eq: mockEq })
     mockEq.mockReturnValue({ order: mockOrder })
   })
@@ -453,7 +473,12 @@ describe('listModulesByProject', () => {
 describe('getModuleById', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockFrom.mockReturnValue({ select: mockSelect })
+    mockFrom.mockReturnValue({
+      insert: mockInsert,
+      update: mockUpdate,
+      select: mockSelect,
+      delete: mockDelete,
+    })
     mockSelect.mockReturnValue({ eq: mockEq })
     mockEq.mockReturnValue({ single: mockSingle })
   })

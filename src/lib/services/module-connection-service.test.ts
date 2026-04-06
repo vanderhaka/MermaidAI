@@ -13,6 +13,7 @@ const mockEq = vi.fn()
 
 const mockFrom = vi.fn(() => ({
   insert: mockInsert,
+  select: mockSelect,
   delete: mockDelete,
 }))
 
@@ -43,7 +44,7 @@ const dbRow = {
 describe('connectModules', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockFrom.mockReturnValue({ insert: mockInsert })
+    mockFrom.mockReturnValue({ insert: mockInsert, select: mockSelect, delete: mockDelete })
     mockInsert.mockReturnValue({ select: mockSelect })
     mockSelect.mockReturnValue({ single: mockSingle })
   })
@@ -137,7 +138,7 @@ describe('connectModules', () => {
 describe('disconnectModules', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockFrom.mockReturnValue({ delete: mockDelete })
+    mockFrom.mockReturnValue({ insert: mockInsert, select: mockSelect, delete: mockDelete })
     mockDelete.mockReturnValue({ eq: mockEq })
   })
 
