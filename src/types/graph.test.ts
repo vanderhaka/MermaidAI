@@ -11,6 +11,8 @@ import type {
   CreateFlowNodeInput,
   ModuleConnection,
   CreateModuleConnectionInput,
+  FlowEdge,
+  CreateFlowEdgeInput,
 } from '@/types/graph'
 
 describe('Project type', () => {
@@ -280,6 +282,90 @@ describe('CreateModuleConnectionInput', () => {
     expect(input).toHaveProperty('target_module_id')
     expect(input).toHaveProperty('source_exit_point')
     expect(input).toHaveProperty('target_entry_point')
+    expect(input).not.toHaveProperty('id')
+    expect(input).not.toHaveProperty('created_at')
+  })
+})
+
+describe('FlowEdge type', () => {
+  const validEdge: FlowEdge = {
+    id: 'edge_001',
+    module_id: 'mod_123',
+    source_node_id: 'node_001',
+    target_node_id: 'node_002',
+    label: 'Yes',
+    condition: 'user.isAuthenticated === true',
+    created_at: '2024-01-01T00:00:00Z',
+  }
+
+  it('has all required fields', () => {
+    expect(validEdge).toHaveProperty('id')
+    expect(validEdge).toHaveProperty('module_id')
+    expect(validEdge).toHaveProperty('source_node_id')
+    expect(validEdge).toHaveProperty('target_node_id')
+    expect(validEdge).toHaveProperty('label')
+    expect(validEdge).toHaveProperty('condition')
+    expect(validEdge).toHaveProperty('created_at')
+  })
+
+  it('label is nullable', () => {
+    const withNull: FlowEdge = { ...validEdge, label: null }
+    const withString: FlowEdge = { ...validEdge, label: 'Yes' }
+    expect(withNull.label).toBeNull()
+    expect(withString.label).toBe('Yes')
+  })
+
+  it('condition is nullable', () => {
+    const withNull: FlowEdge = { ...validEdge, condition: null }
+    const withString: FlowEdge = { ...validEdge, condition: 'x > 0' }
+    expect(withNull.condition).toBeNull()
+    expect(withString.condition).toBe('x > 0')
+  })
+
+  it('references two nodes by id', () => {
+    expect(validEdge.source_node_id).toBe('node_001')
+    expect(validEdge.target_node_id).toBe('node_002')
+    expect(validEdge.source_node_id).not.toBe(validEdge.target_node_id)
+  })
+})
+
+describe('CreateFlowEdgeInput', () => {
+  it('requires module_id, source_node_id, and target_node_id', () => {
+    const input: CreateFlowEdgeInput = {
+      module_id: 'mod_123',
+      source_node_id: 'node_001',
+      target_node_id: 'node_002',
+    }
+    expect(input).toHaveProperty('module_id')
+    expect(input).toHaveProperty('source_node_id')
+    expect(input).toHaveProperty('target_node_id')
+  })
+
+  it('label and condition are optional', () => {
+    const minimal: CreateFlowEdgeInput = {
+      module_id: 'mod_123',
+      source_node_id: 'node_001',
+      target_node_id: 'node_002',
+    }
+    const withOptionals: CreateFlowEdgeInput = {
+      module_id: 'mod_123',
+      source_node_id: 'node_001',
+      target_node_id: 'node_002',
+      label: 'Fallback',
+      condition: 'else',
+    }
+    expect(minimal).not.toHaveProperty('label')
+    expect(minimal).not.toHaveProperty('condition')
+    expect(withOptionals.label).toBe('Fallback')
+    expect(withOptionals.condition).toBe('else')
+  })
+
+  it('omits server-generated fields', () => {
+    const input: CreateFlowEdgeInput = {
+      module_id: 'mod_123',
+      source_node_id: 'node_001',
+      target_node_id: 'node_002',
+    }
     expect(input).not.toHaveProperty('id')
     expect(input).not.toHaveProperty('created_at')
   })

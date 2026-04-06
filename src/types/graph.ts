@@ -56,3 +56,21 @@ export type ModuleConnection = {
 }
 
 export type CreateModuleConnectionInput = Omit<ModuleConnection, 'id' | 'created_at'>
+
+export type FlowEdge = {
+  id: string
+  module_id: string
+  source_node_id: string
+  target_node_id: string
+  label: string | null
+  condition: string | null
+  created_at: string
+}
+
+export type CreateFlowEdgeInput = Pick<
+  FlowEdge,
+  'module_id' | 'source_node_id' | 'target_node_id'
+> & {
+  label?: string
+  condition?: string
+}
