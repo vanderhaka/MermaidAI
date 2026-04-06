@@ -181,6 +181,129 @@ describe('createModule', () => {
   })
 })
 
+describe('updateModule', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFrom.mockReturnValue({ update: mockUpdate })
+    mockUpdate.mockReturnValue({ select: mockSelect })
+    mockSelect.mockReturnValue({ eq: mockEq })
+    mockEq.mockReturnValue({ single: mockSingle })
+  })
+
+  afterEach(() => {
+    vi.resetModules()
+  })
+
+  it('returns updated module with partial fields', async () => {
+    const dbRow = {
+      id: 'mod-1',
+      project_id: '550e8400-e29b-41d4-a716-446655440000',
+      name: 'Renamed Module',
+      description: 'Updated desc',
+      position_x: 100,
+      position_y: 200,
+      color: '#00ff00',
+      entry_points: ['in'],
+      exit_points: ['out'],
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-02T00:00:00Z',
+    }
+
+    mockSingle.mockResolvedValue({ data: dbRow, error: null })
+
+    const { updateModule } = await import('@/lib/services/module-service')
+    const result = await updateModule('mod-1', {
+      name: 'Renamed Module',
+      description: 'Updated desc',
+      color: '#00ff00',
+    })
+
+    expect(result).toEqual({
+      success: true,
+      data: {
+        id: 'mod-1',
+        project_id: '550e8400-e29b-41d4-a716-446655440000',
+        name: 'Renamed Module',
+        description: 'Updated desc',
+        position: { x: 100, y: 200 },
+        color: '#00ff00',
+        entry_points: ['in'],
+        exit_points: ['out'],
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z',
+      },
+    })
+
+    expect(mockFrom).toHaveBeenCalledWith('modules')
+    expect(mockUpdate).toHaveBeenCalledWith({
+      name: 'Renamed Module',
+      description: 'Updated desc',
+      color: '#00ff00',
+    })
+    expect(mockEq).toHaveBeenCalledWith('id', 'mod-1')
+  })
+
+  it('maps position {x,y} to position_x/position_y when position is provided', async () => {
+    const dbRow = {
+      id: 'mod-1',
+      project_id: '550e8400-e29b-41d4-a716-446655440000',
+      name: 'Auth Module',
+      description: null,
+      position_x: 300,
+      position_y: 400,
+      color: '#ff0000',
+      entry_points: [],
+      exit_points: [],
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-02T00:00:00Z',
+    }
+
+    mockSingle.mockResolvedValue({ data: dbRow, error: null })
+
+    const { updateModule } = await import('@/lib/services/module-service')
+    const result = await updateModule('mod-1', {
+      position: { x: 300, y: 400 },
+    })
+
+    expect(result.success).toBe(true)
+    expect(mockUpdate).toHaveBeenCalledWith({
+      position_x: 300,
+      position_y: 400,
+    })
+  })
+
+  it('returns validation error for invalid input', async () => {
+    const { updateModule } = await import('@/lib/services/module-service')
+    const result = await updateModule('mod-1', {
+      name: '',
+    })
+
+    expect(result).toEqual({
+      success: false,
+      error: expect.stringContaining('Validation failed'),
+    })
+
+    expect(mockFrom).not.toHaveBeenCalled()
+  })
+
+  it('returns error when database update fails', async () => {
+    mockSingle.mockResolvedValue({
+      data: null,
+      error: { message: 'Module not found' },
+    })
+
+    const { updateModule } = await import('@/lib/services/module-service')
+    const result = await updateModule('mod-1', {
+      name: 'New Name',
+    })
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Module not found',
+    })
+  })
+})
+
 describe('deleteModule', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -323,6 +446,74 @@ describe('listModulesByProject', () => {
     expect(result).toEqual({
       success: false,
       error: 'Connection refused',
+    })
+  })
+})
+
+describe('getModuleById', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFrom.mockReturnValue({ select: mockSelect })
+    mockSelect.mockReturnValue({ eq: mockEq })
+    mockEq.mockReturnValue({ single: mockSingle })
+  })
+
+  afterEach(() => {
+    vi.resetModules()
+  })
+
+  it('returns module with position mapped from position_x/position_y to {x,y}', async () => {
+    const dbRow = {
+      id: 'mod-1',
+      project_id: '550e8400-e29b-41d4-a716-446655440000',
+      name: 'Auth Module',
+      description: 'Handles authentication',
+      position_x: 150,
+      position_y: 250,
+      color: '#ff0000',
+      entry_points: ['input'],
+      exit_points: ['output'],
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    }
+
+    mockSingle.mockResolvedValue({ data: dbRow, error: null })
+
+    const { getModuleById } = await import('@/lib/services/module-service')
+    const result = await getModuleById('mod-1')
+
+    expect(result).toEqual({
+      success: true,
+      data: {
+        id: 'mod-1',
+        project_id: '550e8400-e29b-41d4-a716-446655440000',
+        name: 'Auth Module',
+        description: 'Handles authentication',
+        position: { x: 150, y: 250 },
+        color: '#ff0000',
+        entry_points: ['input'],
+        exit_points: ['output'],
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    })
+
+    expect(mockFrom).toHaveBeenCalledWith('modules')
+    expect(mockEq).toHaveBeenCalledWith('id', 'mod-1')
+  })
+
+  it('returns error when module is not found', async () => {
+    mockSingle.mockResolvedValue({
+      data: null,
+      error: { message: 'Row not found' },
+    })
+
+    const { getModuleById } = await import('@/lib/services/module-service')
+    const result = await getModuleById('nonexistent-id')
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Row not found',
     })
   })
 })
