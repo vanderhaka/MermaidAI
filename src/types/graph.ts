@@ -44,3 +44,15 @@ export type FlowNode = {
 }
 
 export type CreateFlowNodeInput = Pick<FlowNode, 'module_id' | 'node_type' | 'label'>
+
+export type ModuleConnection = {
+  id: string
+  project_id: string
+  source_module_id: string
+  target_module_id: string
+  source_exit_point: string
+  target_entry_point: string
+  created_at: string
+}
+
+export type CreateModuleConnectionInput = Omit<ModuleConnection, 'id' | 'created_at'>
