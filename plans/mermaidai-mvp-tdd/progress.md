@@ -55,7 +55,7 @@ Status: Waves 1-2 COMPLETE, Wave 3 PENDING
 | 45  | addChatMessage + listChatMessages            | 3    | ✓   | ✓     | ✓        | `773d877` | DONE    |
 | 46  | React Flow base canvas                       | 3    | ✓   | ✓     | ✓        | `053c2c1` | DONE    |
 | 47  | Module card custom node                      | 3    | ✓   | ✓     | ✓        | `834a62b` | DONE    |
-| 48  | Decision node                                | 3    | -   | -     | -        | -         | PENDING |
+| 48  | Decision node                                | 3    | ✓   | ✓     | ✓        | `ad302af` | DONE    |
 | 49  | Process node with pseudocode                 | 3    | ✓   | ✓     | ✓        | `6c9b8cd` | DONE    |
 | 50  | Entry and exit nodes                         | 3    | ✓   | ✓     | ✓        | `48e063e` | DONE    |
 | 51  | Start and end nodes                          | 3    | ✓   | ✓     | ✓        | `834a62b` | DONE    |

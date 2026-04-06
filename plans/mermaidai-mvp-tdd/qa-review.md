@@ -1302,3 +1302,45 @@ Client-side signup form component with Zod validation, server action integration
 - Rapid toggle clicks — state stays consistent
 
 **RED phase evidence:** Module not found — `Failed to resolve import "@/components/canvas/nodes/ProcessNode"`. All 6 tests could not run because the file did not exist.
+
+---
+
+## Issue 47: Module card custom node
+
+| Field           | Value                                                 |
+| --------------- | ----------------------------------------------------- |
+| **Commit**      | `834a62b`                                             |
+| **Test file**   | `src/components/canvas/nodes/ModuleCardNode.test.tsx` |
+| **Source file** | `src/components/canvas/nodes/ModuleCardNode.tsx`      |
+| **Tests**       | 6 passed, 0 failed                                    |
+| **tsc**         | 0 errors in ModuleCardNode files                      |
+| **Status**      | PASS                                                  |
+
+**What was tested:**
+
+- Module name renders as visible text
+- Module description renders as visible text
+- Entry handles render as target handles positioned left, one per entry point with unique id (`entry-{name}`)
+- Exit handles render as source handles positioned right, one per exit point with unique id (`exit-{name}`)
+- Null description renders gracefully (no crash, name still shown)
+- Empty entry/exit point arrays render zero handles
+
+**Manual QA checklist:**
+
+1. Add a module card node to the canvas — verify name and description display
+2. Verify entry handles appear on the left side of the card
+3. Verify exit handles appear on the right side of the card
+4. Connect an edge to an entry handle — verify it snaps to target
+5. Connect an edge from an exit handle — verify it snaps to source
+6. Render a module with null description — verify card still renders cleanly
+7. Render a module with no entry/exit points — verify no handles appear
+
+**Key design decisions:**
+
+- `'use client'` directive required because component is rendered inside React Flow (client-side)
+- Handle `id` format: `entry-{pointName}` / `exit-{pointName}` for deterministic edge targeting
+- Entry handles are `type="target"` at `Position.Left`; exit handles are `type="source"` at `Position.Right`
+- `data as ModuleCardNodeData` cast follows project convention (see ProcessNode, EntryNode patterns)
+- Indigo color scheme differentiates module cards from other node types
+
+**RED phase evidence:** Import of `@/components/canvas/nodes/ModuleCardNode` failed — file did not exist. All 6 tests could not run.
