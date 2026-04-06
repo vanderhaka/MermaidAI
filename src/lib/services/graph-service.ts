@@ -78,3 +78,15 @@ export async function updateNode(
 
   return { success: true, data: updated as FlowNode }
 }
+
+export async function removeNode(id: string): Promise<ServiceResult<null>> {
+  const supabase = await createClient()
+
+  const { error } = await supabase.from('flow_nodes').delete().eq('id', id)
+
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  return { success: true, data: null }
+}

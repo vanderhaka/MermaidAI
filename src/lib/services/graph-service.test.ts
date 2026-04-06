@@ -6,10 +6,12 @@ const mockSingle = vi.fn()
 const mockSelect = vi.fn(() => ({ eq: mockEq, single: mockSingle }))
 const mockInsert = vi.fn(() => ({ select: mockSelect }))
 const mockUpdate = vi.fn(() => ({ eq: mockEq }))
+const mockDelete = vi.fn(() => ({ eq: mockEq }))
 const mockFrom = vi.fn(() => ({
   select: mockSelect,
   insert: mockInsert,
   update: mockUpdate,
+  delete: mockDelete,
 }))
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -247,6 +249,43 @@ describe('updateNode', () => {
 
     const { updateNode } = await import('@/lib/services/graph-service')
     const result = await updateNode('nonexistent-id', { label: 'New label' })
+
+    expect(result).toEqual({
+      success: false,
+      error: 'No rows found',
+    })
+  })
+})
+
+describe('removeNode', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFrom.mockReturnValue({ delete: mockDelete })
+    mockDelete.mockReturnValue({ eq: mockEq })
+  })
+
+  afterEach(() => {
+    vi.resetModules()
+  })
+
+  it('returns success when node is deleted', async () => {
+    mockEq.mockResolvedValue({ error: null })
+
+    const { removeNode } = await import('@/lib/services/graph-service')
+    const result = await removeNode('node-1')
+
+    expect(result).toEqual({ success: true, data: null })
+    expect(mockFrom).toHaveBeenCalledWith('flow_nodes')
+    expect(mockEq).toHaveBeenCalledWith('id', 'node-1')
+  })
+
+  it('returns error when node id does not exist', async () => {
+    mockEq.mockResolvedValue({
+      error: { message: 'No rows found' },
+    })
+
+    const { removeNode } = await import('@/lib/services/graph-service')
+    const result = await removeNode('nonexistent-id')
 
     expect(result).toEqual({
       success: false,
