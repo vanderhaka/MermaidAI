@@ -47,50 +47,78 @@ export default function LoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate aria-label="Login form">
-      <div>
-        <label htmlFor="email">Email</label>
-        <input
-          id="email"
-          name="email"
-          type="email"
-          required
-          aria-describedby={emailError ? 'email-error' : undefined}
-        />
-        {emailError && (
-          <p id="email-error" role="alert">
-            {emailError}
-          </p>
-        )}
+    <div>
+      <div className="mb-8 text-center">
+        <h1 className="text-2xl font-bold tracking-tight">Welcome back</h1>
+        <p className="mt-1 text-sm text-gray-500">Sign in to your account</p>
       </div>
 
-      <div>
-        <label htmlFor="password">Password</label>
-        <input
-          id="password"
-          name="password"
-          type="password"
-          required
-          aria-describedby={passwordError ? 'password-error' : undefined}
-        />
-        {passwordError && (
-          <p id="password-error" role="alert">
-            {passwordError}
+      <form onSubmit={handleSubmit} noValidate aria-label="Login form" className="space-y-4">
+        <div>
+          <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+            Email
+          </label>
+          <input
+            id="email"
+            name="email"
+            type="email"
+            required
+            aria-describedby={emailError ? 'email-error' : undefined}
+            className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+          />
+          {emailError && (
+            <p id="email-error" role="alert" className="mt-1 text-sm text-red-600">
+              {emailError}
+            </p>
+          )}
+        </div>
+
+        <div>
+          <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+            Password
+          </label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            required
+            aria-describedby={passwordError ? 'password-error' : undefined}
+            className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+          />
+          {passwordError && (
+            <p id="password-error" role="alert" className="mt-1 text-sm text-red-600">
+              {passwordError}
+            </p>
+          )}
+        </div>
+
+        {serverError && (
+          <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+            {serverError}
           </p>
         )}
-      </div>
 
-      {serverError && <p role="alert">{serverError}</p>}
+        {serverSuccess && (
+          <p role="status" className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
+            Signed in successfully
+          </p>
+        )}
 
-      {serverSuccess && <p role="status">Signed in successfully</p>}
+        <button
+          type="submit"
+          disabled={isPending}
+          className="w-full rounded-lg bg-black px-4 py-2.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50 transition-colors"
+        >
+          {isPending ? 'Signing in...' : 'Sign in'}
+        </button>
 
-      <button type="submit" disabled={isPending}>
-        {isPending ? 'Signing in...' : 'Sign in'}
-      </button>
-
-      <p>
-        Don&apos;t have an account? <Link href="/signup">Sign up</Link>
-      </p>
-    </form>
+        <p className="text-center text-sm text-gray-500">
+          Don&apos;t have an account?{' '}
+          <Link href="/signup" className="font-medium text-black hover:underline">
+            Sign up
+          </Link>
+        </p>
+      </form>
+    </div>
   )
 }
