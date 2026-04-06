@@ -56,6 +56,41 @@ Graph Operations JSON Schema:
 ]
 `.trim()
 
+const MODULE_OPERATIONS_SCHEMA = `
+Module-Level Operations JSON Schema:
+[
+  {
+    "type": "create_module",
+    "payload": { "name": "string", "description": "string (optional)" }
+  },
+  {
+    "type": "update_module",
+    "payload": { "moduleId": "string", "name": "string (optional)", "description": "string (optional)" }
+  },
+  {
+    "type": "delete_module",
+    "payload": { "moduleId": "string" }
+  },
+  {
+    "type": "connect_modules",
+    "payload": { "sourceModuleId": "string", "targetModuleId": "string", "sourceExitPoint": "string", "targetEntryPoint": "string" }
+  }
+]
+`.trim()
+
+function buildExistingModulesSection(modules?: Module[]): string {
+  if (!modules || modules.length === 0) {
+    return 'No modules exist yet.'
+  }
+
+  const lines = modules.map((m) => {
+    const desc = m.description ? ` — ${m.description}` : ''
+    return `- **${m.name}**${desc}`
+  })
+
+  return `Existing modules:\n${lines.join('\n')}`
+}
+
 function buildDiscoveryPrompt(context: PromptContext): string {
   return `You are an AI assistant helping a user design the software architecture for their project "${context.projectName}".
 
@@ -103,11 +138,50 @@ Multiple file references in one block are allowed:
 `.trim()
 }
 
+function buildModuleMapPrompt(context: PromptContext): string {
+  return `You are an AI assistant helping a user design the high-level module architecture for their project "${context.projectName}".
+
+Your role in module map mode is to help the user create, organise, and connect the top-level modules of their system. Focus on module-level structure only — do not create or modify individual nodes, edges, or internal flows.
+
+## Current Modules
+
+${buildExistingModulesSection(context.modules)}
+
+## Graph Operations
+
+You can emit module-level graph operations to create, update, delete, and connect modules. Wrap all operations in delimiters:
+
+<operations>
+[
+  { "type": "create_module", "payload": { "name": "Auth", "description": "Handles user authentication" } }
+]
+</operations>
+
+Available operations and their schemas:
+
+${MODULE_OPERATIONS_SCHEMA}
+
+## File Path Instructions
+
+When writing pseudocode for module descriptions, always include a \`// file: <path>\` comment at the top of each pseudocode block to indicate which source file the code belongs to. This allows the file tree sidebar to derive the project's file structure automatically.
+
+Example:
+\`\`\`
+// file: src/lib/services/auth-service.ts
+async function login(email, password) {
+  // validate credentials
+  // create session
+}
+\`\`\`
+`.trim()
+}
+
 export function buildSystemPrompt(mode: PromptMode, context: PromptContext): string {
   switch (mode) {
     case 'discovery':
       return buildDiscoveryPrompt(context)
     case 'module_map':
+      return buildModuleMapPrompt(context)
     case 'module_detail':
       throw new Error(`Prompt mode "${mode}" is not yet implemented`)
   }

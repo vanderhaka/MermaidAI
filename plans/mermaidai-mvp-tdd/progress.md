@@ -64,10 +64,10 @@ Status: Waves 1-3 COMPLETE, Wave 4 PENDING
 | 54  | Node color config                            | 3    | ✓   | ✓     | ✓        | `5373297` | DONE        |
 | 55  | Chat store                                   | 4    | ✓   | ✓     | ✓        | `6cba8cd` | DONE        |
 | 56  | System prompt — discovery mode               | 4    | ✓   | ✓     | ✓        | `789e187` | DONE        |
-| 57  | System prompt — module map mode              | 4    | -   | -     | -        | -         | PENDING     |
+| 57  | System prompt — module map mode              | 4    | -   | -     | -        | -         | IN_PROGRESS |
 | 58  | System prompt — module detail mode           | 4    | -   | -     | -        | -         | PENDING     |
 | 59  | LLM response parser                          | 4    | ✓   | ✓     | ✓        | `98fe025` | DONE        |
-| 60  | LLM client wrapper (streaming)               | 4    | ✓   | ✓     | ✓        | -         | IN_PROGRESS |
+| 60  | LLM client wrapper (streaming)               | 4    | ✓   | ✓     | ✓        | `c4538fd` | DONE        |
 | 61  | Graph executor — module ops                  | 4    | ✓   | ✓     | ✓        | `50005c1` | DONE        |
 | 62  | Graph executor — node/edge + partial failure | 4    | -   | -     | -        | -         | IN_PROGRESS |
 | 63  | Graph store (Zustand)                        | 4    | ✓   | ✓     | ✓        | `59e4b32` | DONE        |
