@@ -1,8 +1,8 @@
 import dagre from 'dagre'
 import type { FlowNode, FlowEdge } from '@/types/graph'
 
-const DEFAULT_NODE_WIDTH = 172
-const DEFAULT_NODE_HEIGHT = 36
+export const DEFAULT_NODE_WIDTH = 172
+export const DEFAULT_NODE_HEIGHT = 36
 
 export function computeLayout(nodes: FlowNode[], edges: FlowEdge[]): FlowNode[] {
   if (nodes.length === 0) return []
