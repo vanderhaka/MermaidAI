@@ -2,6 +2,7 @@
 
 import 'server-only'
 
+import { createFlowEdgeSchema } from '@/lib/schemas/flow-edge'
 import { createFlowNodeSchema } from '@/lib/schemas/flow-node'
 import { createClient } from '@/lib/supabase/server'
 import type { FlowEdge, FlowNode } from '@/types/graph'
@@ -89,4 +90,20 @@ export async function removeNode(id: string): Promise<ServiceResult<null>> {
   }
 
   return { success: true, data: null }
+}
+
+export async function addEdge(input: Record<string, unknown>): Promise<ServiceResult<FlowEdge>> {
+  const parsed = createFlowEdgeSchema.safeParse(input)
+  if (!parsed.success) {
+    return { success: false, error: `Validation failed: ${parsed.error.issues[0].message}` }
+  }
+
+  const supabase = await createClient()
+  const { data, error } = await supabase.from('flow_edges').insert(parsed.data).select().single()
+
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  return { success: true, data: data as FlowEdge }
 }

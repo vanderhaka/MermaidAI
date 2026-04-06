@@ -293,3 +293,80 @@ describe('removeNode', () => {
     })
   })
 })
+
+describe('addEdge', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFrom.mockReturnValue({ insert: mockInsert })
+    mockInsert.mockReturnValue({ select: mockSelect })
+    mockSelect.mockReturnValue({ single: mockSingle })
+  })
+
+  afterEach(() => {
+    vi.resetModules()
+  })
+
+  it('returns the inserted edge on valid input', async () => {
+    const dbRow = {
+      id: 'edge-1',
+      module_id: '550e8400-e29b-41d4-a716-446655440000',
+      source_node_id: '660e8400-e29b-41d4-a716-446655440001',
+      target_node_id: '770e8400-e29b-41d4-a716-446655440002',
+      label: null,
+      condition: null,
+      created_at: '2026-01-01T00:00:00Z',
+    }
+
+    mockSingle.mockResolvedValue({ data: dbRow, error: null })
+
+    const { addEdge } = await import('@/lib/services/graph-service')
+    const result = await addEdge({
+      module_id: '550e8400-e29b-41d4-a716-446655440000',
+      source_node_id: '660e8400-e29b-41d4-a716-446655440001',
+      target_node_id: '770e8400-e29b-41d4-a716-446655440002',
+    })
+
+    expect(result).toEqual({ success: true, data: dbRow })
+    expect(mockFrom).toHaveBeenCalledWith('flow_edges')
+    expect(mockInsert).toHaveBeenCalledWith({
+      module_id: '550e8400-e29b-41d4-a716-446655440000',
+      source_node_id: '660e8400-e29b-41d4-a716-446655440001',
+      target_node_id: '770e8400-e29b-41d4-a716-446655440002',
+    })
+  })
+
+  it('returns validation error for invalid UUIDs', async () => {
+    const { addEdge } = await import('@/lib/services/graph-service')
+    const result = await addEdge({
+      module_id: 'not-a-uuid',
+      source_node_id: 'also-not-uuid',
+      target_node_id: 'nope',
+    })
+
+    expect(result).toEqual({
+      success: false,
+      error: expect.stringContaining('Validation failed'),
+    })
+
+    expect(mockFrom).not.toHaveBeenCalled()
+  })
+
+  it('returns error when database insert fails', async () => {
+    mockSingle.mockResolvedValue({
+      data: null,
+      error: { message: 'Foreign key violation' },
+    })
+
+    const { addEdge } = await import('@/lib/services/graph-service')
+    const result = await addEdge({
+      module_id: '550e8400-e29b-41d4-a716-446655440000',
+      source_node_id: '660e8400-e29b-41d4-a716-446655440001',
+      target_node_id: '770e8400-e29b-41d4-a716-446655440002',
+    })
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Foreign key violation',
+    })
+  })
+})
