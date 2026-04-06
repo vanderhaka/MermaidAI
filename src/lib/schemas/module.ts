@@ -8,3 +8,17 @@ export const createModuleSchema = z.object({
   entry_points: z.array(z.string()).default([]),
   exit_points: z.array(z.string()).default([]),
 })
+
+export const updateModuleSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    description: z.string(),
+    position: z.object({ x: z.number(), y: z.number() }),
+    color: z.string(),
+    entry_points: z.array(z.string()),
+    exit_points: z.array(z.string()),
+  })
+  .partial()
+  .refine((data) => Object.keys(data).length > 0, {
+    message: 'At least one field must be provided',
+  })

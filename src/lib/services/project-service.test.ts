@@ -5,15 +5,23 @@ import {
   getProjectById,
   listProjectsByUser,
   updateProject,
+  deleteProject,
 } from '@/lib/services/project-service'
 
 const mockSingle = vi.fn()
 const mockOrder = vi.fn()
+const mockDeleteEq = vi.fn()
 const mockEq = vi.fn(() => ({ single: mockSingle, select: mockSelect }))
 const mockSelect = vi.fn(() => ({ single: mockSingle, order: mockOrder, eq: mockEq }))
 const mockInsert = vi.fn(() => ({ select: mockSelect }))
 const mockUpdate = vi.fn(() => ({ eq: mockEq }))
-const mockFrom = vi.fn(() => ({ insert: mockInsert, select: mockSelect, update: mockUpdate }))
+const mockDelete = vi.fn(() => ({ eq: mockDeleteEq }))
+const mockFrom = vi.fn(() => ({
+  insert: mockInsert,
+  select: mockSelect,
+  update: mockUpdate,
+  delete: mockDelete,
+}))
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(() => Promise.resolve({ from: mockFrom })),
@@ -285,7 +293,10 @@ describe('getProjectById', () => {
   it('returns failure when project is not found', async () => {
     mockSingle.mockResolvedValue({
       data: null,
-      error: { message: 'JSON object requested, multiple (or no) rows returned', code: 'PGRST116' },
+      error: {
+        message: 'JSON object requested, multiple (or no) rows returned',
+        code: 'PGRST116',
+      },
     })
 
     const result = await getProjectById('nonexistent-id')
@@ -302,5 +313,32 @@ describe('getProjectById', () => {
     const result = await getProjectById('proj-1')
 
     expect(result).toEqual({ success: false, error: 'Database error' })
+  })
+})
+
+describe('deleteProject', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('returns success when project is deleted', async () => {
+    mockDeleteEq.mockResolvedValue({ error: null })
+
+    const result = await deleteProject('proj-1')
+
+    expect(result).toEqual({ success: true })
+    expect(mockFrom).toHaveBeenCalledWith('projects')
+    expect(mockDelete).toHaveBeenCalled()
+    expect(mockDeleteEq).toHaveBeenCalledWith('id', 'proj-1')
+  })
+
+  it('returns failure when supabase delete fails', async () => {
+    mockDeleteEq.mockResolvedValue({
+      error: { message: 'Delete failed' },
+    })
+
+    const result = await deleteProject('proj-1')
+
+    expect(result).toEqual({ success: false, error: 'Delete failed' })
   })
 })

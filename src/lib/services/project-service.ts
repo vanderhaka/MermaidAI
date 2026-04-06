@@ -6,6 +6,8 @@ import type { Project } from '@/types/graph'
 
 type ServiceResult<T> = { success: true; data: T } | { success: false; error: string }
 
+type DeleteResult = { success: true } | { success: false; error: string }
+
 type ProjectSummary = Pick<Project, 'id' | 'name' | 'description' | 'created_at' | 'updated_at'>
 
 export async function createProject(input: {
@@ -78,4 +80,15 @@ export async function getProjectById(id: string): Promise<ServiceResult<Project>
   }
 
   return { success: true, data: data as Project }
+}
+
+export async function deleteProject(id: string): Promise<DeleteResult> {
+  const supabase = await createClient()
+  const { error } = await supabase.from('projects').delete().eq('id', id)
+
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  return { success: true }
 }
