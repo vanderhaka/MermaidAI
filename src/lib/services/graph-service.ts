@@ -58,3 +58,23 @@ export async function addNode(input: Record<string, unknown>): Promise<ServiceRe
 
   return { success: true, data: data as FlowNode }
 }
+
+export async function updateNode(
+  id: string,
+  data: Partial<Pick<FlowNode, 'label' | 'pseudocode' | 'position' | 'color' | 'node_type'>>,
+): Promise<ServiceResult<FlowNode>> {
+  const supabase = await createClient()
+
+  const { data: updated, error } = await supabase
+    .from('flow_nodes')
+    .update(data)
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  return { success: true, data: updated as FlowNode }
+}

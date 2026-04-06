@@ -5,9 +5,11 @@ const mockEq = vi.fn()
 const mockSingle = vi.fn()
 const mockSelect = vi.fn(() => ({ eq: mockEq, single: mockSingle }))
 const mockInsert = vi.fn(() => ({ select: mockSelect }))
+const mockUpdate = vi.fn(() => ({ eq: mockEq }))
 const mockFrom = vi.fn(() => ({
   select: mockSelect,
   insert: mockInsert,
+  update: mockUpdate,
 }))
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -190,6 +192,65 @@ describe('addNode', () => {
     expect(result).toEqual({
       success: false,
       error: 'Foreign key violation',
+    })
+  })
+})
+
+describe('updateNode', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFrom.mockReturnValue({ update: mockUpdate })
+    mockUpdate.mockReturnValue({ eq: mockEq })
+    mockEq.mockReturnValue({ select: mockSelect })
+    mockSelect.mockReturnValue({ single: mockSingle })
+  })
+
+  afterEach(() => {
+    vi.resetModules()
+  })
+
+  it('returns the updated node when given valid id and partial data', async () => {
+    const updatedRow = {
+      id: 'node-1',
+      module_id: '550e8400-e29b-41d4-a716-446655440000',
+      node_type: 'process',
+      label: 'Updated label',
+      pseudocode: 'do something new',
+      position: { x: 50, y: 75 },
+      color: '#000000',
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-04-06T00:00:00Z',
+    }
+
+    mockSingle.mockResolvedValue({ data: updatedRow, error: null })
+
+    const { updateNode } = await import('@/lib/services/graph-service')
+    const result = await updateNode('node-1', {
+      label: 'Updated label',
+      pseudocode: 'do something new',
+    })
+
+    expect(result).toEqual({ success: true, data: updatedRow })
+    expect(mockFrom).toHaveBeenCalledWith('flow_nodes')
+    expect(mockUpdate).toHaveBeenCalledWith({
+      label: 'Updated label',
+      pseudocode: 'do something new',
+    })
+    expect(mockEq).toHaveBeenCalledWith('id', 'node-1')
+  })
+
+  it('returns error when node id does not exist', async () => {
+    mockSingle.mockResolvedValue({
+      data: null,
+      error: { message: 'No rows found' },
+    })
+
+    const { updateNode } = await import('@/lib/services/graph-service')
+    const result = await updateNode('nonexistent-id', { label: 'New label' })
+
+    expect(result).toEqual({
+      success: false,
+      error: 'No rows found',
     })
   })
 })
