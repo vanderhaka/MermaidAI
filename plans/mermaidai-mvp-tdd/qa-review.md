@@ -1822,3 +1822,133 @@ Zustand store (`useChatStore`) managing chat state: `messages` (ChatMessage[]), 
 - `ExecutionResult.error` is a summary string (`"N of M operations failed"`) — only present on failure
 - No rollback on partial failure — operations continue executing after a failure (MVP design decision)
 - `update_edge` is not yet handled (no `updateEdge` service exists) — falls through to "Unsupported" default
+
+---
+
+## Issue 57: System prompt — module map mode
+
+| Field           | Value                                     |
+| --------------- | ----------------------------------------- |
+| **Commit**      | `b80a468`                                 |
+| **Test file**   | `src/lib/services/prompt-builder.test.ts` |
+| **Source file** | `src/lib/services/prompt-builder.ts`      |
+| **Tests**       | 10 new passed, 19 total passed, 0 failed  |
+| **tsc**         | 0 errors in prompt-builder files          |
+| **Status**      | PASS                                      |
+
+**What was tested:**
+
+- `buildSystemPrompt('module_map', ctx)` returns a non-empty string containing the project name
+- Existing module names and descriptions from `context.modules` appear in the prompt
+- Module-level operations are included: `create_module`, `update_module`, `delete_module`, `connect_modules`
+- Node-level operations are excluded: `create_node`, `update_node`, `delete_node`, `create_edge`, `update_edge`, `delete_edge`
+- File path instruction (`// file: <path>`) is included for pseudocode
+- Operation delimiters (`<operations>`, `</operations>`) are present
+- Works with empty modules array and undefined modules
+
+**RED phase evidence:** All 10 new tests threw `Error: Prompt mode "module_map" is not yet implemented` from the existing placeholder.
+
+**Key design decisions:**
+
+- Separate `MODULE_OPERATIONS_SCHEMA` constant containing only the 4 module-level operations (vs. the full 10-operation `GRAPH_OPERATIONS_SCHEMA` used by discovery mode)
+- Extracted `buildExistingModulesSection()` helper to render module names/descriptions — reusable by future `module_detail` mode
+- Module descriptions rendered inline with em-dash separator; `null` descriptions omitted gracefully
+
+---
+
+## Issue 58: System prompt — module detail mode
+
+| Field           | Value                                     |
+| --------------- | ----------------------------------------- |
+| **Commit**      | `fa34626`                                 |
+| **Test file**   | `src/lib/services/prompt-builder.test.ts` |
+| **Source file** | `src/lib/services/prompt-builder.ts`      |
+| **Tests**       | 13 new passed, 32 total passed, 0 failed  |
+| **tsc**         | 0 errors in prompt-builder files          |
+| **Status**      | PASS                                      |
+
+**What was tested:**
+
+- `buildSystemPrompt('module_detail', ctx)` returns a non-empty string with project name and current module name
+- Node-level operations included: `create_node`, `update_node`, `delete_node`, `create_edge`, `update_edge`, `delete_edge`
+- Module-level create/delete excluded: `create_module`, `delete_module`, `connect_modules`
+- Current module's flow data rendered: node labels, node types, edge connections (source/target IDs)
+- Node type vocabulary included: `process`, `decision`, `entry`, `exit`, `start`, `end`
+- File path instruction (`// file: <path>`) included for pseudocode
+- Operation delimiters (`<operations>`, `</operations>`) present
+- Works with empty and undefined nodes/edges arrays
+
+**RED phase evidence:** All 13 new tests threw `Error: Prompt mode "module_detail" is not yet implemented` from the existing placeholder.
+
+**Key design decisions:**
+
+- Separate `NODE_OPERATIONS_SCHEMA` constant containing only the 6 node/edge operations (no module-level operations)
+- `buildCurrentNodesSection()` and `buildCurrentEdgesSection()` helpers render flow data with IDs for AI reference
+- Node type vocabulary listed with descriptions so the AI understands the purpose of each type
+- Example operation in the prompt uses the current module's actual ID via `context.currentModule?.id`
+
+---
+
+## Issue 66: Chat input component
+
+| Field           | Value                                    |
+| --------------- | ---------------------------------------- |
+| **Commit**      | `245c763`                                |
+| **Test file**   | `src/components/chat/ChatInput.test.tsx` |
+| **Source file** | `src/components/chat/ChatInput.tsx`      |
+| **Tests**       | 13 passed, 0 failed                      |
+| **tsc**         | 0 errors in ChatInput files              |
+| **Status**      | PASS                                     |
+
+**What was tested:**
+
+- Renders textbox with placeholder "Describe what you want to build..."
+- Renders Send button with accessible name
+- Calls `onSend` with message text on button click
+- Calls `onSend` with message text on Enter key
+- Does not send on Shift+Enter (allows newline)
+- Clears input after successful send
+- Does not send empty messages
+- Does not send whitespace-only messages
+- Disables input and button when `isLoading` is true
+- Has a `<form>` element wrapping inputs
+- Has accessible label on textbox
+- Send button has accessible name
+
+**RED phase evidence:** All 13 tests failed against stub `<div>TODO</div>` — no accessible roles found.
+
+**Key design decisions:**
+
+- Uses `<textarea>` (not `<input>`) to support Shift+Enter newlines
+- Shared `send()` helper eliminates duplication between form submit and keyboard handlers
+- Trims whitespace before sending — guards against empty and whitespace-only messages
+- `sr-only` label for screen reader accessibility without visual clutter
+- Tailwind CSS styling with disabled state visual feedback
+
+---
+
+## Issue 65: Chat message list (streaming)
+
+| Field           | Value                                          |
+| --------------- | ---------------------------------------------- |
+| **Commit**      | `95290c2`                                      |
+| **Test file**   | `src/components/chat/ChatMessageList.test.tsx` |
+| **Source file** | `src/components/chat/ChatMessageList.tsx`      |
+| **Tests**       | 13 passed, 0 failed                            |
+| **tsc**         | 0 errors in ChatMessageList files              |
+| **Status**      | PASS                                           |
+
+**What was tested:**
+
+- Empty state shows welcome prompt ("Describe what you want to build"); hidden when messages exist
+- User and assistant messages render with correct content
+- User messages have `data-role="user"` (right-aligned, blue); assistant messages have `data-role="assistant"` (left-aligned, gray)
+- Streaming content renders progressively in a synthetic assistant bubble when `isLoading` + `streamingContent` provided
+- Thinking indicator (`aria-label="Thinking"`) shown when loading with no streaming content; hidden once tokens arrive
+- Container uses `role="log"` with `aria-live="polite"` for screen reader announcements
+- Each message wrapped in `<article>` with descriptive `aria-label` (e.g., "user message", "assistant message")
+- Scroll anchor (`data-testid="scroll-anchor"`) present at bottom for auto-scroll via `useEffect` + `scrollIntoView`
+
+**RED phase evidence:** 11 of 13 tests failed against the empty `<div />` stub — only the two absence assertions (no welcome when messages exist, no thinking indicator when streaming) passed vacuously.
+
+**REFACTOR notes:** Eliminated separate `StreamingBubble` component by reusing `MessageBubble` with a synthetic `ChatMessage` object, reducing component count from 4 to 3 with zero behavior change.

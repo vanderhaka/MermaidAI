@@ -71,11 +71,11 @@ Status: Waves 1-4 COMPLETE, Wave 5 PENDING
 | 61  | Graph executor — module ops                  | 4    | ✓   | ✓     | ✓        | `50005c1` | DONE        |
 | 62  | Graph executor — node/edge + partial failure | 4    | ✓   | ✓     | ✓        | `c1ccdac` | DONE        |
 | 63  | Graph store (Zustand)                        | 4    | ✓   | ✓     | ✓        | `59e4b32` | DONE        |
-| 64  | Chat route handler (streaming)               | 5    | ✓   | -     | -        | -         | IN_PROGRESS |
-| 65  | Chat message list (streaming)                | 5    | ✓   | ✓     | ✓        | -         | IN_PROGRESS |
+| 64  | Chat route handler (streaming)               | 5    | ✓   | ✓     | -        | -         | IN_PROGRESS |
+| 65  | Chat message list (streaming)                | 5    | ✓   | ✓     | ✓        | `95290c2` | DONE        |
 | 66  | Chat input component                         | 5    | ✓   | ✓     | ✓        | `245c763` | DONE        |
-| 67  | Derive file tree from nodes                  | 5    | ✓   | ✓     | ✓        | -         | IN_PROGRESS |
-| 68  | FileTree component                           | 5    | ✓   | ✓     | -        | -         | IN_PROGRESS |
+| 67  | Derive file tree from nodes                  | 5    | ✓   | ✓     | ✓        | `592e63c` | DONE        |
+| 68  | FileTree component                           | 5    | ✓   | ✓     | ✓        | -         | IN_PROGRESS |
 | 69  | Module map view                              | 6    | -   | -     | -        | -         | PENDING     |
 | 70  | ModuleDetailView                             | 6    | -   | -     | -        | -         | PENDING     |
 | 71  | Canvas container (drill-down)                | 6    | -   | -     | -        | -         | PENDING     |
