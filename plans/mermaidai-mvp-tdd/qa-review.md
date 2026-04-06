@@ -1344,3 +1344,327 @@ Client-side signup form component with Zod validation, server action integration
 - Indigo color scheme differentiates module cards from other node types
 
 **RED phase evidence:** Import of `@/components/canvas/nodes/ModuleCardNode` failed — file did not exist. All 6 tests could not run.
+
+---
+
+## Issue 48: Decision node renders as diamond with yes/no handles
+
+| Field           | Value                                               |
+| --------------- | --------------------------------------------------- |
+| **Commit**      | `ad302af`                                           |
+| **Test file**   | `src/components/canvas/nodes/DecisionNode.test.tsx` |
+| **Source file** | `src/components/canvas/nodes/DecisionNode.tsx`      |
+| **Tests**       | 6 passed, 0 failed                                  |
+| **tsc**         | 0 errors in DecisionNode files                      |
+| **Status**      | PASS                                                |
+
+**What was tested:**
+
+- Renders the label text ("Is Valid?")
+- Diamond shape achieved via `transform: rotate(45deg)` on outer container
+- Label content counter-rotated with `transform: rotate(-45deg)` so text stays upright
+- Target handle at `Position.Top` for incoming edges
+- Source handle with `id="yes"` for the affirmative branch
+- Source handle with `id="no"` for the negative branch
+
+**Notes:**
+
+- `'use client'` directive required because component uses `@xyflow/react` Handle (client-side)
+- Amber color scheme (`border-amber-400`, `bg-amber-50`, `text-amber-900`) matches `getNodeColor('decision')` → `'amber'`
+- Diamond is a 24x24 (96px) rotated square; inner content counter-rotated keeps text readable
+- "yes" handle at `Position.Bottom`, "no" handle at `Position.Left` — positioned on diamond edges
+- `data as DecisionNodeData` cast follows project convention (see ProcessNode, EntryExitNode patterns)
+
+**RED phase evidence:** Import of `@/components/canvas/nodes/DecisionNode` failed — file did not exist. All 6 tests could not run.
+
+---
+
+## Issue 53: Custom condition edge
+
+| Field           | Value                                                |
+| --------------- | ---------------------------------------------------- |
+| **Commit**      | `a269331`                                            |
+| **Test file**   | `src/components/canvas/edges/ConditionEdge.test.tsx` |
+| **Source file** | `src/components/canvas/edges/ConditionEdge.tsx`      |
+| **Tests**       | 7 passed, 0 failed                                   |
+| **tsc**         | 0 errors in ConditionEdge files                      |
+| **Status**      | PASS                                                 |
+
+**What was tested:**
+
+1. Renders without crashing (BaseEdge present in DOM)
+2. Displays label text when `data.label` is a non-empty string
+3. Shows no label element when `data.label` is null
+4. Shows no label element when data object is empty
+5. Renders an animated path via BaseEdge with correct SVG path
+6. Uses EdgeLabelRenderer for label positioning (label is a child of EdgeLabelRenderer)
+7. Applies animated CSS style (`animation`, `strokeDasharray`) to the edge
+
+**RED phase evidence:** Import of `@/components/canvas/edges/ConditionEdge` failed with "Does the file exist?" — all 7 tests could not run.
+
+**Manual QA steps:**
+
+1. Register `ConditionEdge` as a custom edge type in Canvas (`edgeTypes={{ condition: ConditionEdge }}`)
+2. Add an edge with `type: 'condition'` and `data: { label: 'Yes' }` — verify label renders at midpoint
+3. Add an edge with `type: 'condition'` and no label — verify no label element appears
+4. Verify the edge path has a dashed animated stroke indicating direction
+
+**Key design decisions:**
+
+- Uses `getSmoothStepPath` for stepped/orthogonal routing (matches flowchart convention)
+- `BaseEdge` renders the SVG path with animated dash stroke (`strokeDasharray: 5`, CSS `dashdraw` animation)
+- `EdgeLabelRenderer` positions labels at the path midpoint using absolute positioning + CSS transform
+- Label is conditionally rendered only when `data.label` is truthy (not null/undefined/empty)
+- `'use client'` directive since it's a React component rendered in the canvas
+
+---
+
+## Issue 40: updateNode modifies flow node fields
+
+| Field           | Value                                    |
+| --------------- | ---------------------------------------- |
+| **Commit**      | `6e364c4`                                |
+| **Test file**   | `src/lib/services/graph-service.test.ts` |
+| **Source file** | `src/lib/services/graph-service.ts`      |
+| **Tests**       | 9 passed, 0 failed (2 new + 7 existing)  |
+| **tsc**         | 0 new errors in graph-service.ts         |
+| **Status**      | PASS                                     |
+
+**What was tested:**
+
+- `updateNode` with valid id and partial data (label, pseudocode) returns the updated node
+- `updateNode` with nonexistent id returns error from database
+
+**Steps to test:**
+
+1. This is a data service function — no user-facing UI yet
+2. Run `npx vitest run src/lib/services/graph-service.test.ts` — all 9 tests pass
+3. The function accepts an id and partial node fields, updates `flow_nodes` where id matches
+
+**Expected result:**
+
+- Valid update: `{ success: true, data: FlowNode }` with the updated row
+- Nonexistent id: `{ success: false, error: "<db error message>" }`
+
+**Key design decisions:**
+
+- `Partial<Pick<FlowNode, 'label' | 'pseudocode' | 'position' | 'color' | 'node_type'>>` restricts updates to mutable fields only — `id`, `module_id`, `created_at`, `updated_at` are excluded
+- `.update().eq().select().single()` chain updates and returns the full row in one query
+- No Zod validation on update — partial updates of arbitrary fields don't map to the creation schema; type safety is enforced at the function signature level
+- Follows established service pattern: `ServiceResult<T>` return type, `'use server'` + `import 'server-only'`
+
+**RED phase evidence:** Both updateNode tests failed with `TypeError: updateNode is not a function` — function did not exist yet. Existing 7 tests (4 getGraphForModule + 3 addNode) continued passing.
+
+---
+
+## Issue 41: removeNode deletes flow node by ID
+
+| Field           | Value                                    |
+| --------------- | ---------------------------------------- |
+| **Commit**      | `f066427`                                |
+| **Test file**   | `src/lib/services/graph-service.test.ts` |
+| **Source file** | `src/lib/services/graph-service.ts`      |
+| **Tests**       | 11 passed, 0 failed (2 new + 9 existing) |
+| **tsc**         | 0 new errors in graph-service.ts         |
+| **Status**      | PASS                                     |
+
+**What was tested:**
+
+- `removeNode` with valid id deletes from `flow_nodes` and returns `{ success: true, data: null }`
+- `removeNode` with nonexistent id returns `{ success: false, error: "<db error message>" }`
+
+**Steps to test:**
+
+1. This is a data service function — no user-facing UI yet
+2. Run `npx vitest run src/lib/services/graph-service.test.ts` — all 11 tests pass
+3. The function accepts an id, deletes from `flow_nodes` where id matches
+
+**Expected result:**
+
+- Successful delete: `{ success: true, data: null }`
+- Failed delete (db error): `{ success: false, error: "<db error message>" }`
+
+**Key design decisions:**
+
+- Returns `ServiceResult<null>` — delete operations have no meaningful data to return
+- Uses `.delete().eq('id', id)` chain — single query, no prior existence check needed
+- No Zod validation — id is a plain string; RLS and FK constraints handle authorization and integrity at the database level
+- Follows established service pattern: `ServiceResult<T>` return type, `'use server'` + `import 'server-only'`
+
+**RED phase evidence:** Both removeNode tests failed with `TypeError: removeNode is not a function` — function did not exist yet. Existing 9 tests (4 getGraphForModule + 3 addNode + 2 updateNode) continued passing.
+
+---
+
+## Issue 42: addEdge inserts flow edge between nodes
+
+| Field           | Value                                     |
+| --------------- | ----------------------------------------- |
+| **Commit**      | `9a25ab5`                                 |
+| **Test file**   | `src/lib/services/graph-service.test.ts`  |
+| **Source file** | `src/lib/services/graph-service.ts`       |
+| **Tests**       | 14 passed, 0 failed (3 new + 11 existing) |
+| **tsc**         | 0 new errors in graph-service.ts          |
+| **Status**      | PASS                                      |
+
+**What was tested:**
+
+- `addEdge` with valid UUIDs inserts into `flow_edges` and returns `{ success: true, data: <edge row> }`
+- `addEdge` with invalid UUIDs returns `{ success: false, error: "Validation failed: ..." }` without hitting the database
+- `addEdge` returns database error when insert fails (e.g. foreign key violation)
+
+**Steps to test:**
+
+1. This is a data service function — no user-facing UI yet
+2. Run `npx vitest run src/lib/services/graph-service.test.ts` — all 14 tests pass
+3. The function accepts a `Record<string, unknown>`, validates with `createFlowEdgeSchema`, inserts into `flow_edges`
+
+**Expected result:**
+
+- Valid input: `{ success: true, data: <FlowEdge> }`
+- Invalid UUIDs: `{ success: false, error: "Validation failed: ..." }` — no DB call
+- DB error: `{ success: false, error: "<db error message>" }`
+
+**Key design decisions:**
+
+- Accepts `Record<string, unknown>` and validates with Zod `createFlowEdgeSchema` — mirrors `addNode` pattern for consistent server action input handling
+- Schema validates `module_id`, `source_node_id`, `target_node_id` as UUIDs; `label` and `condition` are optional strings
+- Uses `.insert(parsed.data).select().single()` — insert and return the full row in one query
+- Follows established service pattern: `ServiceResult<T>` return type, `'use server'` + `import 'server-only'`
+
+**RED phase evidence:** All 3 addEdge tests failed with `TypeError: addEdge is not a function` — function did not exist yet. Existing 11 tests (4 getGraphForModule + 3 addNode + 2 updateNode + 2 removeNode) continued passing.
+
+---
+
+## Issue 43: removeEdge service
+
+| Field           | Value                                    |
+| --------------- | ---------------------------------------- |
+| **Commit**      | `34b51cb`                                |
+| **Test file**   | `src/lib/services/graph-service.test.ts` |
+| **Source file** | `src/lib/services/graph-service.ts`      |
+| **Tests**       | 16 passed, 0 failed                      |
+| **tsc**         | 0 new errors in graph-service files      |
+| **Status**      | PASS                                     |
+
+**What was tested:**
+
+- `removeEdge('edge-1')` deletes from `flow_edges` where `id` matches and returns `{ success: true, data: null }`
+- `removeEdge('nonexistent-id')` returns `{ success: false, error: "No rows found" }` when the database reports an error
+
+**Expected result:**
+
+- Valid id: `{ success: true, data: null }`
+- DB error (nonexistent id): `{ success: false, error: "<db error message>" }`
+
+**Key design decisions:**
+
+- Mirrors `removeNode` pattern exactly: `supabase.from('flow_edges').delete().eq('id', id)`
+- Uses `ServiceResult<null>` return type — no data returned on successful deletion
+- Follows established service pattern: `'use server'` + `import 'server-only'`
+
+**RED phase evidence:** Both removeEdge tests failed with `TypeError: removeEdge is not a function` — function did not exist yet. Existing 14 tests (4 getGraphForModule + 3 addNode + 2 updateNode + 2 removeNode + 3 addEdge) continued passing.
+
+---
+
+## Issue 55: Chat store
+
+**Commit**: `6cba8cd` | **Type**: feature | **Status**: Implemented
+
+### Summary
+
+Zustand store (`useChatStore`) managing chat state: `messages` (ChatMessage[]), `isLoading` (boolean), and `error` (string | null). Actions: `addMessage`, `setLoading`, `setError`, `reset`. Imports `ChatMessage` type from `@/types/chat`.
+
+### Steps to test
+
+1. Run `npx vitest run src/store/chat-store.test.ts --reporter=verbose`
+2. Verify all 11 tests pass across 5 describe blocks (initial state, addMessage, setLoading, setError, reset)
+3. Check that `useChatStore.getState()` returns the expected initial state: `{ messages: [], isLoading: false, error: null }`
+4. Verify `addMessage` appends without mutating — call twice, confirm both messages present in order
+5. Verify `reset()` returns all fields to initial values after modification
+
+### Expected result
+
+- 11 tests pass, 0 failures
+- Store is a singleton — multiple `getState()` calls return the same instance
+- `addMessage` preserves insertion order
+- `reset()` fully clears messages, isLoading, and error
+
+### Edge cases
+
+- Multiple rapid `addMessage` calls maintain correct ordering
+- `setError(null)` after `setError('msg')` clears the error
+- `reset()` after mixed state mutations returns all three fields to defaults
+- Store state is shared across all consumers (Zustand singleton behavior)
+
+### Preserved behaviors
+
+- All 363 pre-existing tests continue to pass (374 total including 11 new)
+- No changes to `@/types/chat` — store consumes the existing `ChatMessage` type as-is
+
+---
+
+## Issue 63: Graph store (Zustand)
+
+| Field           | Value                             |
+| --------------- | --------------------------------- |
+| **Commit**      | `59e4b32`                         |
+| **Test file**   | `src/store/graph-store.test.ts`   |
+| **Source file** | `src/store/graph-store.ts`        |
+| **Tests**       | 34 passed, 0 failed               |
+| **tsc**         | 0 new errors in graph-store files |
+| **Status**      | PASS                              |
+
+**What was tested:**
+
+- Initial state: `modules`, `nodes`, `edges` start as empty arrays; `activeModuleId` starts as `null`
+- `setModules`, `setNodes`, `setEdges` replace current state arrays entirely
+- `addModule`, `addNode`, `addEdge` append to existing arrays preserving order
+- `updateModule(id, partial)` merges updates into matching module, no-op for non-matching id
+- `updateNode(id, partial)` merges updates into matching node, no-op for non-matching id
+- `removeModule(id)`, `removeNode(id)`, `removeEdge(id)` filter out by id, no-op for non-matching id
+- `setActiveModuleId(id | null)` controls drill-down state
+- `reset()` restores all state to initial values after arbitrary mutations
+
+**RED phase evidence:** Test file failed with `Error: Cannot find package '@/store/graph-store'` — the module did not exist yet. All 34 tests could not run.
+
+**Key design decisions:**
+
+- Zustand v5 `create` with separated state type (`GraphState`) and actions type (`GraphActions`)
+- `initialState` object extracted for clean `reset()` implementation
+- All update operations are immutable — `map` for updates, `filter` for removes, spread for appends
+- Types imported from `@/types/graph` (Module, FlowNode, FlowEdge) — no duplication
+
+---
+
+## Issue 61: Graph executor — module operations
+
+| Field           | Value                                                       |
+| --------------- | ----------------------------------------------------------- |
+| **Commit**      | `50005c1`                                                   |
+| **Test file**   | `src/lib/services/graph-operation-executor.test.ts`         |
+| **Source file** | `src/lib/services/graph-operation-executor.ts`              |
+| **Tests**       | 13 passed, 0 failed                                         |
+| **tsc**         | 0 new errors (pre-existing placeholder DB type errors only) |
+| **Status**      | PASS                                                        |
+
+**What was tested:**
+
+- `executeOperations` returns `{ success: true, results: [] }` for empty operations array
+- `create_module` operation delegates to `createModule` service with payload
+- `update_module` operation delegates to `updateModule` service with extracted `moduleId` and remaining fields
+- `delete_module` operation delegates to `deleteModule` service with `moduleId`
+- `connect_modules` operation delegates to `connectModules` service with camelCase-to-snake_case field mapping
+- Each operation type records failure with error message when service returns `{ success: false }`
+- Multiple operations execute sequentially, results aggregated into results array
+- Overall `success` is `false` if any single operation fails
+- Execution continues past failures — subsequent operations still run
+- Unknown operation types produce `Unsupported operation type` error
+
+**RED phase evidence:** Tests failed with `Cannot find package '@/lib/services/graph-operation-executor'` — module did not exist.
+
+**Key design decisions:**
+
+- `executeOne` helper dispatches per operation via switch statement — extensible for node/edge ops in issue #62
+- `_supabase` parameter accepted but unused by module ops (services create own clients); preserved for node/edge ops that may need it
+- `connect_modules` maps camelCase payload fields to snake_case for the module-connection schema
+- Continues executing all operations even after failures (no short-circuit) — partial success is reported per-operation

@@ -66,11 +66,11 @@ Status: Waves 1-3 COMPLETE, Wave 4 PENDING
 | 56  | System prompt — discovery mode               | 4    | ✓   | ✓     | ✓        | `789e187` | DONE        |
 | 57  | System prompt — module map mode              | 4    | -   | -     | -        | -         | PENDING     |
 | 58  | System prompt — module detail mode           | 4    | -   | -     | -        | -         | PENDING     |
-| 59  | LLM response parser                          | 4    | ✓   | ✓     | ✓        | -         | IN_PROGRESS |
+| 59  | LLM response parser                          | 4    | ✓   | ✓     | ✓        | `98fe025` | DONE        |
 | 60  | LLM client wrapper (streaming)               | 4    | ✓   | -     | -        | -         | IN_PROGRESS |
-| 61  | Graph executor — module ops                  | 4    | ✓   | ✓     | ✓        | -         | IN_PROGRESS |
+| 61  | Graph executor — module ops                  | 4    | ✓   | ✓     | ✓        | `50005c1` | DONE        |
 | 62  | Graph executor — node/edge + partial failure | 4    | -   | -     | -        | -         | PENDING     |
-| 63  | Graph store (Zustand)                        | 4    | ✓   | ✓     | ✓        | -         | IN_PROGRESS |
+| 63  | Graph store (Zustand)                        | 4    | ✓   | ✓     | ✓        | `59e4b32` | DONE        |
 | 64  | Chat route handler (streaming)               | 5    | -   | -     | -        | -         | PENDING     |
 | 65  | Chat message list (streaming)                | 5    | -   | -     | -        | -         | PENDING     |
 | 66  | Chat input component                         | 5    | -   | -     | -        | -         | PENDING     |
