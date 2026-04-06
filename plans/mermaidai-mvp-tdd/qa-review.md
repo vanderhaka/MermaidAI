@@ -1082,3 +1082,223 @@ Client-side signup form component with Zod validation, server action integration
 - `.insert().select().single()` chain returns the full inserted row
 
 **RED phase evidence:** All 3 addNode tests failed with `TypeError: addNode is not a function` — function did not exist yet. Existing 4 getGraphForModule tests continued passing.
+
+---
+
+## Issue 51: Start and end nodes
+
+| Field            | Value                                                                                  |
+| ---------------- | -------------------------------------------------------------------------------------- |
+| **Commit**       | `834a62b`                                                                              |
+| **Test file**    | `src/components/canvas/nodes/StartEndNode.test.tsx`                                    |
+| **Source files** | `src/components/canvas/nodes/StartNode.tsx`, `src/components/canvas/nodes/EndNode.tsx` |
+| **Tests**        | 8 passed, 0 failed                                                                     |
+| **tsc**          | 0 errors in StartNode/EndNode files                                                    |
+| **Status**       | PASS                                                                                   |
+
+**What was tested:**
+
+- StartNode renders the label from `data.label`
+- StartNode has a source handle (outgoing connections)
+- StartNode does NOT have a target handle (no incoming connections)
+- StartNode renders as a circle shape (`data-shape="circle"`)
+- EndNode renders the label from `data.label`
+- EndNode has a target handle (incoming connections)
+- EndNode does NOT have a source handle (no outgoing connections)
+- EndNode renders as a circle shape (`data-shape="circle"`)
+
+**Steps to test:**
+
+1. Register `start` and `end` node types in React Flow's `nodeTypes` map
+2. Add a node with `type: 'start'` — it should render as a gray circle with only a bottom source handle
+3. Add a node with `type: 'end'` — it should render as a gray circle with only a top target handle
+4. Verify start nodes can connect outward but not receive edges
+5. Verify end nodes can receive edges but not connect outward
+
+**Key design decisions:**
+
+- Both use `@xyflow/react` `Handle` component with explicit `type` and `Position`
+- Circle shape communicated via `data-shape="circle"` attribute and `rounded-full` Tailwind class
+- Gray color scheme (`bg-gray-100`, `border-gray-400`) — neutral terminal nodes
+- Minimal props: `{ data: { label: string }, id: string }` — follows React Flow custom node convention
+- Start handle at `Position.Bottom`, end handle at `Position.Top` — natural top-to-bottom flow direction
+
+**RED phase evidence:** Test suite failed with `Failed to resolve import "@/components/canvas/nodes/StartNode"` — neither component file existed yet.
+
+---
+
+## Issue 50: Entry and exit nodes
+
+| Field            | Value                                                                                   |
+| ---------------- | --------------------------------------------------------------------------------------- |
+| **Commit**       | `48e063e`                                                                               |
+| **Test file**    | `src/components/canvas/nodes/EntryExitNode.test.tsx`                                    |
+| **Source files** | `src/components/canvas/nodes/EntryNode.tsx`, `src/components/canvas/nodes/ExitNode.tsx` |
+| **Tests**        | 8 passed, 0 failed                                                                      |
+| **tsc**          | 0 errors in entry/exit node files                                                       |
+| **Status**       | PASS                                                                                    |
+
+**What was tested:**
+
+1. EntryNode renders the label text
+2. EntryNode has at least one source handle (outgoing connections)
+3. EntryNode has zero target handles (no incoming connections)
+4. EntryNode displays green-ish styling (border-green-500, bg-green-50)
+5. ExitNode renders the label text
+6. ExitNode has at least one target handle (incoming connections)
+7. ExitNode has zero source handles (no outgoing connections)
+8. ExitNode displays red-ish styling (border-red-500, bg-red-50)
+
+**Manual QA steps:**
+
+1. Import EntryNode/ExitNode into Canvas with `nodeTypes` registration
+2. Verify EntryNode shows green border and background
+3. Verify ExitNode shows red border and background
+4. Verify edges can only originate from EntryNode (no inbound connections)
+5. Verify edges can only terminate at ExitNode (no outbound connections)
+
+**Key design decisions:**
+
+- Both use `@xyflow/react` `Handle` component with explicit `type` and `Position`
+- EntryNode: source handle at `Position.Bottom`, green color scheme (`border-green-500`, `bg-green-50`, `text-green-800`)
+- ExitNode: target handle at `Position.Top`, red color scheme (`border-red-500`, `bg-red-50`, `text-red-800`)
+- Props use `NodeProps` from `@xyflow/react` with data cast — consistent with ProcessNode pattern
+- Rounded-lg rectangle shape to distinguish from circular start/end nodes
+
+**RED phase evidence:** Test suite failed with `Failed to resolve import "@/components/canvas/nodes/EntryNode"` — neither component file existed yet.
+
+---
+
+## Issue #35: Login form component
+
+**Commit:** `0d1f387`
+**Files created:**
+
+- `src/components/auth/login-form.tsx` — Client component with email/password form, Zod validation, signIn action
+- `src/components/auth/login-form.test.tsx` — 13 tests covering rendering, validation, submission, pending state, accessibility
+- `src/app/(auth)/login/page.tsx` — Login route page rendering LoginForm
+
+**Test count:** 13 tests, all passing
+
+**Manual QA checklist:**
+
+1. Navigate to `/login` — verify form renders with email, password fields and Sign in button
+2. Submit with invalid email (e.g., "notanemail") — verify error message appears near email field
+3. Submit with valid email but empty password — verify error message appears near password field
+4. Submit with valid credentials — verify "Signed in successfully" status message appears
+5. Submit with invalid credentials — verify server error message appears with alert role
+6. During submission, verify button shows "Signing in..." and is disabled
+7. Verify "Sign up" link navigates to `/signup`
+8. Tab through all form elements — verify keyboard accessibility
+9. Screen reader check: verify labels, required attributes, and aria-describedby on error state
+
+**Key design decisions:**
+
+- Used `useState` + `onSubmit` instead of `useActionState` for test environment compatibility (happy-dom does not dispatch React form actions)
+- `noValidate` on form to bypass native HTML validation in favor of Zod schema validation
+- `required` attributes retained for accessibility (screen reader announcements) despite noValidate
+- Zod `signInSchema` (min 1 char password) used for client-side validation before calling server action
+- `role="alert"` for validation and server errors, `role="status"` for success message
+- `aria-describedby` connects inputs to their error messages for screen reader association
+
+**RED phase evidence:** All 13 tests failed on assertion errors (stub component rendered `<div>TODO</div>`, no form elements found).
+
+---
+
+## Issue 37: Dashboard page lists projects with new project button
+
+| Field            | Value                                                                                 |
+| ---------------- | ------------------------------------------------------------------------------------- |
+| **Commit**       | `6c9b8cd`                                                                             |
+| **Test file**    | `src/components/dashboard/project-list.test.tsx`                                      |
+| **Source files** | `src/components/dashboard/project-list.tsx`, `src/app/(dashboard)/dashboard/page.tsx` |
+| **Tests**        | 7 passed, 0 failed                                                                    |
+| **tsc**          | 0 errors in dashboard files                                                           |
+| **Status**       | PASS                                                                                  |
+
+**What was tested:**
+
+- Renders project names and descriptions from the projects prop
+- Renders `<time>` elements with correct `datetime` attributes for each project's created date
+- Project cards are clickable buttons that navigate to `/dashboard/[projectId]`
+- Empty state shows "No projects yet" prompt when projects array is empty
+- "New Project" button is rendered and accessible
+- Clicking "New Project" calls `createProject({ name: 'Untitled Project' })` and navigates to `/dashboard/[newId]`
+- When `createProject` returns failure, navigation does not occur
+
+**Manual QA checklist:**
+
+1. Navigate to `/dashboard` as an authenticated user — verify project list renders
+2. Verify each project card shows name, description (if present), and formatted date
+3. Click a project card — verify navigation to `/dashboard/[projectId]`
+4. Click "New Project" — verify a project is created and you navigate to its workspace
+5. With no projects, verify empty state message appears
+6. Verify LogoutButton is present in the header
+
+**Key design decisions:**
+
+- Server Component (`page.tsx`) fetches projects via `listProjectsByUser` and passes data to the Client Component
+- Client Component (`ProjectList`) handles user interaction (navigation, project creation)
+- Uses `useRouter().push()` for client-side navigation on project card click and new project creation
+- Date formatting uses `toLocaleDateString('en-US')` for human-readable dates; test asserts on `datetime` attribute to avoid timezone flakiness
+- Empty state is a simple conditional render, not a separate component
+
+**RED phase evidence:** All 7 tests failed on stub component rendering `<div>TODO</div>` — no project text, no buttons, no time elements found.
+
+---
+
+## Issue 49: Process node with expandable pseudocode
+
+| Field           | Value                                              |
+| --------------- | -------------------------------------------------- |
+| **Commit**      | `6c9b8cd`                                          |
+| **Test file**   | `src/components/canvas/nodes/ProcessNode.test.tsx` |
+| **Source file** | `src/components/canvas/nodes/ProcessNode.tsx`      |
+| **Tests**       | 6 passed, 0 failed                                 |
+| **tsc**         | 0 errors in ProcessNode files                      |
+| **Status**      | PASS                                               |
+
+**What was tested:**
+
+- Renders the label text from `data.label`
+- Pseudocode is hidden by default (not in DOM)
+- Clicking expand button reveals pseudocode content
+- Clicking collapse button hides pseudocode again
+- Target Handle present at Position.Top
+- Source Handle present at Position.Bottom
+
+**Key design decisions:**
+
+- `"use client"` directive — component uses `useState` for expand/collapse toggle
+- `ProcessNodeData` type with `label: string` and optional `pseudocode?: string`
+- Expand button only renders when `pseudocode` is present in data
+- Button uses `aria-label` toggling between "Expand pseudocode" and "Collapse pseudocode" for accessibility
+- `Handle` from `@xyflow/react` for target (top) and source (bottom) connection points
+- Pseudocode rendered in a `<pre>` with `whitespace-pre-wrap` for formatting
+- Test mocks `@xyflow/react` `Handle` and `Position` — consistent with Canvas.test.tsx mock pattern
+- Full `NodeProps` satisfied in test props (including `isConnectable`, `positionAbsoluteX/Y`)
+
+**Steps to test:**
+
+1. Register `ProcessNode` as a custom node type in React Flow `nodeTypes`
+2. Add a node with `type: 'process'` and `data: { label: 'Validate Input', pseudocode: 'if valid\n  process\nelse\n  error' }`
+3. Verify label is visible, pseudocode is hidden
+4. Click the expand arrow — pseudocode section appears
+5. Click again — pseudocode disappears
+6. Verify node has connection handles top and bottom
+7. Tab to expand button and press Enter — verify keyboard accessibility
+
+**Expected result:**
+
+- Label always visible
+- Pseudocode hidden by default, toggles on expand/collapse click
+- Target handle at top, source handle at bottom
+- Button accessible via keyboard with descriptive aria-label
+
+**Edge cases:**
+
+- Node with no pseudocode — expand button should not render
+- Very long pseudocode text — wraps correctly with `whitespace-pre-wrap`
+- Rapid toggle clicks — state stays consistent
+
+**RED phase evidence:** Module not found — `Failed to resolve import "@/components/canvas/nodes/ProcessNode"`. All 6 tests could not run because the file did not exist.

@@ -42,9 +42,9 @@ Status: Waves 1-2 COMPLETE, Wave 3 PENDING
 | 32  | updateModule                                 | 2    | ✓   | ✓     | ✓        | `60bb136` | DONE    |
 | 33  | deleteModule                                 | 2    | ✓   | ✓     | ✓        | `f324594` | DONE    |
 | 34  | Signup form component                        | 3    | ✓   | ✓     | ✓        | `7f59c2f` | DONE    |
-| 35  | Login form component                         | 3    | -   | -     | -        | -         | PENDING |
+| 35  | Login form component                         | 3    | ✓   | ✓     | ✓        | `0d1f387` | DONE    |
 | 36  | Logout button component                      | 3    | ✓   | ✓     | ✓        | `bc6926d` | DONE    |
-| 37  | Dashboard page                               | 3    | -   | -     | -        | -         | PENDING |
+| 37  | Dashboard page                               | 3    | ✓   | ✓     | ✓        | `6c9b8cd` | DONE    |
 | 38  | getGraphForModule                            | 3    | ✓   | ✓     | ✓        | `8f56637` | DONE    |
 | 39  | addNode                                      | 3    | ✓   | ✓     | ✓        | `0cfe8be` | DONE    |
 | 40  | updateNode                                   | 3    | -   | -     | -        | -         | PENDING |
@@ -54,13 +54,13 @@ Status: Waves 1-2 COMPLETE, Wave 3 PENDING
 | 44  | connectModules + disconnectModules           | 3    | ✓   | ✓     | ✓        | `5373297` | DONE    |
 | 45  | addChatMessage + listChatMessages            | 3    | ✓   | ✓     | ✓        | `773d877` | DONE    |
 | 46  | React Flow base canvas                       | 3    | ✓   | ✓     | ✓        | `053c2c1` | DONE    |
-| 47  | Module card custom node                      | 3    | -   | -     | -        | -         | PENDING |
+| 47  | Module card custom node                      | 3    | ✓   | ✓     | ✓        | `834a62b` | DONE    |
 | 48  | Decision node                                | 3    | -   | -     | -        | -         | PENDING |
 | 49  | Process node with pseudocode                 | 3    | ✓   | ✓     | ✓        | `6c9b8cd` | DONE    |
-| 50  | Entry and exit nodes                         | 3    | -   | -     | -        | -         | PENDING |
-| 51  | Start and end nodes                          | 3    | -   | -     | -        | -         | PENDING |
+| 50  | Entry and exit nodes                         | 3    | ✓   | ✓     | ✓        | `48e063e` | DONE    |
+| 51  | Start and end nodes                          | 3    | ✓   | ✓     | ✓        | `834a62b` | DONE    |
 | 52  | Auto-layout (dagre)                          | 3    | ✓   | ✓     | ✓        | `7f59c2f` | DONE    |
-| 53  | Custom condition edge                        | 3    | -   | -     | -        | -         | PENDING |
+| 53  | Custom condition edge                        | 3    | ✓   | ✓     | ✓        | `a269331` | DONE    |
 | 54  | Node color config                            | 3    | ✓   | ✓     | ✓        | `5373297` | DONE    |
 | 55  | Chat store                                   | 4    | -   | -     | -        | -         | PENDING |
 | 56  | System prompt — discovery mode               | 4    | -   | -     | -        | -         | PENDING |
