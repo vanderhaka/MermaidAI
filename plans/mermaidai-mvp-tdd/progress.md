@@ -76,7 +76,7 @@ Status: Waves 1-4 COMPLETE, Wave 5 PENDING
 | 66  | Chat input component                         | 5    | ✓   | ✓     | ✓        | `245c763` | DONE        |
 | 67  | Derive file tree from nodes                  | 5    | ✓   | ✓     | ✓        | `592e63c` | DONE        |
 | 68  | FileTree component                           | 5    | ✓   | ✓     | ✓        | `20baf36` | DONE        |
-| 69  | Module map view                              | 6    | ✓   | ✓     | -        | -         | IN_PROGRESS |
+| 69  | Module map view                              | 6    | ✓   | ✓     | ✓        | -         | IN_PROGRESS |
 | 70  | ModuleDetailView                             | 6    | ✓   | -     | -        | -         | RED         |
 | 71  | Canvas container (drill-down)                | 6    | -   | -     | -        | -         | PENDING     |
 | 72  | useFileTree hook                             | 6    | ✓   | ✓     | ✓        | -         | COMMIT      |
