@@ -1,11 +1,13 @@
 // @vitest-environment node
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { getGraphForModule } from '@/lib/services/graph-service'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const mockEq = vi.fn()
-const mockSelect = vi.fn(() => ({ eq: mockEq }))
+const mockSingle = vi.fn()
+const mockSelect = vi.fn(() => ({ eq: mockEq, single: mockSingle }))
+const mockInsert = vi.fn(() => ({ select: mockSelect }))
 const mockFrom = vi.fn(() => ({
   select: mockSelect,
+  insert: mockInsert,
 }))
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -17,6 +19,12 @@ vi.mock('server-only', () => ({}))
 describe('getGraphForModule', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockFrom.mockReturnValue({ select: mockSelect })
+    mockSelect.mockReturnValue({ eq: mockEq })
+  })
+
+  afterEach(() => {
+    vi.resetModules()
   })
 
   it('returns nodes and edges for a module', async () => {
@@ -50,6 +58,7 @@ describe('getGraphForModule', () => {
       .mockResolvedValueOnce({ data: nodes, error: null })
       .mockResolvedValueOnce({ data: edges, error: null })
 
+    const { getGraphForModule } = await import('@/lib/services/graph-service')
     const result = await getGraphForModule('mod-1')
 
     expect(result).toEqual({ success: true, data: { nodes, edges } })
@@ -63,6 +72,7 @@ describe('getGraphForModule', () => {
       .mockResolvedValueOnce({ data: [], error: null })
       .mockResolvedValueOnce({ data: [], error: null })
 
+    const { getGraphForModule } = await import('@/lib/services/graph-service')
     const result = await getGraphForModule('mod-empty')
 
     expect(result).toEqual({ success: true, data: { nodes: [], edges: [] } })
@@ -74,6 +84,7 @@ describe('getGraphForModule', () => {
       error: { message: 'Node query failed' },
     })
 
+    const { getGraphForModule } = await import('@/lib/services/graph-service')
     const result = await getGraphForModule('mod-1')
 
     expect(result).toEqual({ success: false, error: 'Node query failed' })
@@ -85,8 +96,100 @@ describe('getGraphForModule', () => {
       error: { message: 'Edge query failed' },
     })
 
+    const { getGraphForModule } = await import('@/lib/services/graph-service')
     const result = await getGraphForModule('mod-1')
 
     expect(result).toEqual({ success: false, error: 'Edge query failed' })
+  })
+})
+
+describe('addNode', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFrom.mockReturnValue({ insert: mockInsert })
+    mockInsert.mockReturnValue({ select: mockSelect })
+    mockSelect.mockReturnValue({ single: mockSingle })
+  })
+
+  afterEach(() => {
+    vi.resetModules()
+  })
+
+  it('returns the inserted node on valid input', async () => {
+    const dbRow = {
+      id: 'node-1',
+      module_id: '550e8400-e29b-41d4-a716-446655440000',
+      node_type: 'process',
+      label: 'Handle request',
+      pseudocode: '',
+      position: { x: 0, y: 0 },
+      color: '#000000',
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    }
+
+    mockSingle.mockResolvedValue({ data: dbRow, error: null })
+
+    const { addNode } = await import('@/lib/services/graph-service')
+    const result = await addNode({
+      module_id: '550e8400-e29b-41d4-a716-446655440000',
+      node_type: 'process',
+      label: 'Handle request',
+      pseudocode: '',
+      position: { x: 0, y: 0 },
+      color: '#000000',
+    })
+
+    expect(result).toEqual({ success: true, data: dbRow })
+    expect(mockFrom).toHaveBeenCalledWith('flow_nodes')
+    expect(mockInsert).toHaveBeenCalledWith({
+      module_id: '550e8400-e29b-41d4-a716-446655440000',
+      node_type: 'process',
+      label: 'Handle request',
+      pseudocode: '',
+      position: { x: 0, y: 0 },
+      color: '#000000',
+    })
+  })
+
+  it('returns validation error for invalid input', async () => {
+    const { addNode } = await import('@/lib/services/graph-service')
+    const result = await addNode({
+      module_id: 'not-a-uuid',
+      node_type: 'invalid-type',
+      label: '',
+      pseudocode: '',
+      position: { x: 0, y: 0 },
+      color: '#000',
+    })
+
+    expect(result).toEqual({
+      success: false,
+      error: expect.stringContaining('Validation failed'),
+    })
+
+    expect(mockFrom).not.toHaveBeenCalled()
+  })
+
+  it('returns error when database insert fails', async () => {
+    mockSingle.mockResolvedValue({
+      data: null,
+      error: { message: 'Foreign key violation' },
+    })
+
+    const { addNode } = await import('@/lib/services/graph-service')
+    const result = await addNode({
+      module_id: '550e8400-e29b-41d4-a716-446655440000',
+      node_type: 'decision',
+      label: 'Check auth',
+      pseudocode: '',
+      position: { x: 100, y: 200 },
+      color: '#ff0000',
+    })
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Foreign key violation',
+    })
   })
 })
