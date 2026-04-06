@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createProject } from '@/lib/services/project-service'
 import type { Project } from '@/types/graph'
@@ -12,11 +13,15 @@ interface ProjectListProps {
 
 export function ProjectList({ projects }: ProjectListProps) {
   const router = useRouter()
+  const [error, setError] = useState<string | null>(null)
 
   async function handleNewProject() {
+    setError(null)
     const result = await createProject({ name: 'Untitled Project' })
     if (result.success) {
       router.push(`/dashboard/${result.data.id}`)
+    } else {
+      setError(result.error ?? 'Failed to create project')
     }
   }
 
@@ -31,6 +36,12 @@ export function ProjectList({ projects }: ProjectListProps) {
           New Project
         </button>
       </div>
+
+      {error && (
+        <p className="mt-2 text-sm text-red-600" role="alert">
+          {error}
+        </p>
+      )}
 
       {projects.length === 0 ? (
         <div className="mt-8 flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 py-16 text-center">

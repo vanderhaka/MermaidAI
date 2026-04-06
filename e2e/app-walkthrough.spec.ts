@@ -1,70 +1,49 @@
+import { setupClerkTestingToken, clerk } from '@clerk/testing/playwright'
 import { test, expect } from '@playwright/test'
 
-test.describe('MermaidAI App Walkthrough', () => {
-  test('home page loads with heading', async ({ page }) => {
+test.describe('MermaidAI — unauthenticated', () => {
+  test('home page loads with heading and CTA buttons', async ({ page }) => {
+    await setupClerkTestingToken({ page })
     await page.goto('/')
     await expect(page.locator('h1')).toHaveText('MermaidAI')
-    await page.screenshot({ path: 'e2e/screenshots/home.png' })
+    await expect(page.getByRole('link', { name: /get started/i })).toBeVisible()
+    await expect(page.getByRole('link', { name: /sign in/i })).toBeVisible()
   })
 
-  test('login page renders form', async ({ page }) => {
-    await page.goto('/login')
-    await expect(page.getByLabel('Email')).toBeVisible()
-    await expect(page.getByLabel('Password')).toBeVisible()
-    await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible()
-    await expect(page.getByRole('link', { name: /sign up/i })).toBeVisible()
-    await page.screenshot({ path: 'e2e/screenshots/login.png' })
-  })
-
-  test('signup page renders form', async ({ page }) => {
-    await page.goto('/signup')
-    await expect(page.locator('h1')).toHaveText('Create your account')
-    await expect(page.getByLabel('Email')).toBeVisible()
-    await expect(page.getByLabel('Password')).toBeVisible()
-    await expect(page.getByRole('button', { name: /sign up/i })).toBeVisible()
-    await expect(page.getByRole('link', { name: /log in/i })).toBeVisible()
-    await page.screenshot({ path: 'e2e/screenshots/signup.png' })
-  })
-
-  test('login form validates empty fields', async ({ page }) => {
-    await page.goto('/login')
-    await page.getByRole('button', { name: /sign in/i }).click()
-    await expect(page.getByRole('alert').first()).toBeVisible()
-    await page.screenshot({ path: 'e2e/screenshots/login-validation.png' })
-  })
-
-  test('signup form validates empty fields', async ({ page }) => {
-    await page.goto('/signup')
-    await page.getByRole('button', { name: /sign up/i }).click()
-    await expect(page.getByRole('alert').first()).toBeVisible()
-    await page.screenshot({ path: 'e2e/screenshots/signup-validation.png' })
-  })
-
-  test('login form shows error for invalid credentials', async ({ page }) => {
-    await page.goto('/login')
-    await page.getByLabel('Email').fill('test@example.com')
-    await page.getByLabel('Password').fill('wrongpassword123')
-    await page.getByRole('button', { name: /sign in/i }).click()
-    await page.waitForSelector('[role="alert"], [role="status"]', { timeout: 10_000 })
-    await page.screenshot({ path: 'e2e/screenshots/login-error.png' })
-  })
-
-  test('dashboard redirects to login when not authenticated', async ({ page }) => {
+  test('dashboard redirects to sign-in when not authenticated', async ({ page }) => {
+    await setupClerkTestingToken({ page })
     await page.goto('/dashboard')
-    await page.waitForURL('**/login')
-    await expect(page).toHaveURL(/\/login/)
-    await page.screenshot({ path: 'e2e/screenshots/dashboard-redirect.png' })
+    await page.waitForURL(/\/sign-in/)
+    await expect(page).toHaveURL(/\/sign-in/)
+  })
+})
+
+test.describe('MermaidAI — authenticated', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupClerkTestingToken({ page })
+    await page.goto('/')
+    // Sign in via Backend API sign-in token (bypasses 2FA / new device check)
+    await clerk.signIn({
+      page,
+      emailAddress: process.env.E2E_CLERK_USER_USERNAME!,
+    })
   })
 
-  test('navigate from login to signup and back', async ({ page }) => {
-    await page.goto('/login')
-    await page.getByRole('link', { name: /sign up/i }).click()
-    await page.waitForURL('**/signup')
-    await expect(page.locator('h1')).toHaveText('Create your account')
+  test('can sign in and reach dashboard', async ({ page }) => {
+    await page.goto('/dashboard')
+    await expect(page.locator('h1')).toHaveText('Dashboard')
+    await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
+  })
 
-    await page.getByRole('link', { name: /log in/i }).click()
-    await page.waitForURL('**/login')
-    await expect(page.getByLabel('Email')).toBeVisible()
-    await page.screenshot({ path: 'e2e/screenshots/navigation.png' })
+  test('can create a new project from dashboard', async ({ page }) => {
+    await page.goto('/dashboard')
+    await expect(page.locator('h1')).toHaveText('Dashboard')
+
+    // Click "New Project" button
+    await page.getByRole('button', { name: /new project/i }).click()
+
+    // Should navigate to the new project page
+    await page.waitForURL(/\/dashboard\/[a-f0-9-]+/, { timeout: 10_000 })
+    await expect(page).toHaveURL(/\/dashboard\/[a-f0-9-]+/)
   })
 })
