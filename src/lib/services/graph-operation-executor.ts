@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { GraphOperation } from '@/types/chat'
 import { createModule, updateModule, deleteModule } from '@/lib/services/module-service'
 import { connectModules } from '@/lib/services/module-connection-service'
+import { addNode, updateNode, removeNode, addEdge, removeEdge } from '@/lib/services/graph-service'
 
 export type OperationResult = {
   operation: string
@@ -13,6 +14,7 @@ export type OperationResult = {
 export type ExecutionResult = {
   success: boolean
   results: OperationResult[]
+  error?: string
 }
 
 async function executeOne(op: GraphOperation, _supabase: SupabaseClient): Promise<OperationResult> {
@@ -34,6 +36,52 @@ async function executeOne(op: GraphOperation, _supabase: SupabaseClient): Promis
 
     case 'delete_module': {
       const result = await deleteModule(op.payload.moduleId)
+      return result.success
+        ? { operation: op.type, success: true }
+        : { operation: op.type, success: false, error: result.error }
+    }
+
+    case 'create_node': {
+      const result = await addNode({
+        module_id: op.payload.moduleId,
+        label: op.payload.label,
+        node_type: op.payload.nodeType,
+      })
+      return result.success
+        ? { operation: op.type, success: true }
+        : { operation: op.type, success: false, error: result.error }
+    }
+
+    case 'update_node': {
+      const { nodeId, ...fields } = op.payload
+      const result = await updateNode(nodeId, fields)
+      return result.success
+        ? { operation: op.type, success: true }
+        : { operation: op.type, success: false, error: result.error }
+    }
+
+    case 'delete_node': {
+      const result = await removeNode(op.payload.nodeId)
+      return result.success
+        ? { operation: op.type, success: true }
+        : { operation: op.type, success: false, error: result.error }
+    }
+
+    case 'create_edge': {
+      const result = await addEdge({
+        module_id: op.payload.moduleId,
+        source_node_id: op.payload.sourceNodeId,
+        target_node_id: op.payload.targetNodeId,
+        label: op.payload.label,
+        condition: op.payload.condition,
+      })
+      return result.success
+        ? { operation: op.type, success: true }
+        : { operation: op.type, success: false, error: result.error }
+    }
+
+    case 'delete_edge': {
+      const result = await removeEdge(op.payload.edgeId)
       return result.success
         ? { operation: op.type, success: true }
         : { operation: op.type, success: false, error: result.error }
@@ -73,8 +121,12 @@ export async function executeOperations(
     results.push(result)
   }
 
+  const failed = results.filter((r) => !r.success)
+  const allSucceeded = failed.length === 0
+
   return {
-    success: results.every((r) => r.success),
+    success: allSucceeded,
     results,
+    ...(allSucceeded ? {} : { error: `${failed.length} of ${results.length} operations failed` }),
   }
 }

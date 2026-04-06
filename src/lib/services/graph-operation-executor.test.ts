@@ -8,6 +8,11 @@ import type {
   UpdateModuleOperation,
   DeleteModuleOperation,
   ConnectModulesOperation,
+  CreateNodeOperation,
+  UpdateNodeOperation,
+  DeleteNodeOperation,
+  CreateEdgeOperation,
+  DeleteEdgeOperation,
 } from '@/types/chat'
 
 vi.mock('@/lib/services/module-service', () => ({
@@ -21,8 +26,17 @@ vi.mock('@/lib/services/module-connection-service', () => ({
   disconnectModules: vi.fn(),
 }))
 
+vi.mock('@/lib/services/graph-service', () => ({
+  addNode: vi.fn(),
+  updateNode: vi.fn(),
+  removeNode: vi.fn(),
+  addEdge: vi.fn(),
+  removeEdge: vi.fn(),
+}))
+
 import { createModule, updateModule, deleteModule } from '@/lib/services/module-service'
 import { connectModules } from '@/lib/services/module-connection-service'
+import { addNode, updateNode, removeNode, addEdge, removeEdge } from '@/lib/services/graph-service'
 import { executeOperations } from '@/lib/services/graph-operation-executor'
 import type { ExecutionResult } from '@/lib/services/graph-operation-executor'
 
@@ -296,6 +310,338 @@ describe('executeOperations', () => {
       expect(result.results[0].success).toBe(false)
       expect(result.results[1].success).toBe(true)
       expect(createModule).toHaveBeenCalled()
+    })
+  })
+
+  describe('create_node', () => {
+    it('calls addNode service with operation payload', async () => {
+      const op: CreateNodeOperation = {
+        type: 'create_node',
+        payload: { moduleId: 'mod-1', label: 'Validate Input', nodeType: 'process' },
+      }
+
+      vi.mocked(addNode).mockResolvedValue({
+        success: true,
+        data: { id: 'node-1', label: 'Validate Input' } as any,
+      })
+
+      const result = await executeOperations([op], mockSupabase)
+
+      expect(addNode).toHaveBeenCalledWith({
+        module_id: 'mod-1',
+        label: 'Validate Input',
+        node_type: 'process',
+      })
+      expect(result.success).toBe(true)
+      expect(result.results[0]).toEqual({
+        operation: 'create_node',
+        success: true,
+      })
+    })
+
+    it('records failure when addNode service fails', async () => {
+      const op: CreateNodeOperation = {
+        type: 'create_node',
+        payload: { moduleId: 'mod-1', label: '', nodeType: 'process' },
+      }
+
+      vi.mocked(addNode).mockResolvedValue({
+        success: false,
+        error: 'Validation failed: label required',
+      })
+
+      const result = await executeOperations([op], mockSupabase)
+
+      expect(result.success).toBe(false)
+      expect(result.results[0]).toEqual({
+        operation: 'create_node',
+        success: false,
+        error: 'Validation failed: label required',
+      })
+    })
+  })
+
+  describe('update_node', () => {
+    it('calls updateNode service with node id and fields', async () => {
+      const op: UpdateNodeOperation = {
+        type: 'update_node',
+        payload: { nodeId: 'node-1', label: 'Updated Label', pseudocode: 'return true' },
+      }
+
+      vi.mocked(updateNode).mockResolvedValue({
+        success: true,
+        data: { id: 'node-1', label: 'Updated Label' } as any,
+      })
+
+      const result = await executeOperations([op], mockSupabase)
+
+      expect(updateNode).toHaveBeenCalledWith('node-1', {
+        label: 'Updated Label',
+        pseudocode: 'return true',
+      })
+      expect(result.success).toBe(true)
+      expect(result.results[0]).toEqual({
+        operation: 'update_node',
+        success: true,
+      })
+    })
+
+    it('records failure when updateNode service fails', async () => {
+      const op: UpdateNodeOperation = {
+        type: 'update_node',
+        payload: { nodeId: 'nonexistent', label: 'X' },
+      }
+
+      vi.mocked(updateNode).mockResolvedValue({
+        success: false,
+        error: 'Node not found',
+      })
+
+      const result = await executeOperations([op], mockSupabase)
+
+      expect(result.success).toBe(false)
+      expect(result.results[0]).toEqual({
+        operation: 'update_node',
+        success: false,
+        error: 'Node not found',
+      })
+    })
+  })
+
+  describe('delete_node', () => {
+    it('calls removeNode service with node id', async () => {
+      const op: DeleteNodeOperation = {
+        type: 'delete_node',
+        payload: { nodeId: 'node-1' },
+      }
+
+      vi.mocked(removeNode).mockResolvedValue({ success: true, data: null })
+
+      const result = await executeOperations([op], mockSupabase)
+
+      expect(removeNode).toHaveBeenCalledWith('node-1')
+      expect(result.success).toBe(true)
+      expect(result.results[0]).toEqual({
+        operation: 'delete_node',
+        success: true,
+      })
+    })
+
+    it('records failure when removeNode service fails', async () => {
+      const op: DeleteNodeOperation = {
+        type: 'delete_node',
+        payload: { nodeId: 'node-1' },
+      }
+
+      vi.mocked(removeNode).mockResolvedValue({
+        success: false,
+        error: 'Foreign key violation',
+      })
+
+      const result = await executeOperations([op], mockSupabase)
+
+      expect(result.success).toBe(false)
+      expect(result.results[0]).toEqual({
+        operation: 'delete_node',
+        success: false,
+        error: 'Foreign key violation',
+      })
+    })
+  })
+
+  describe('create_edge', () => {
+    it('calls addEdge service with operation payload', async () => {
+      const op: CreateEdgeOperation = {
+        type: 'create_edge',
+        payload: {
+          moduleId: 'mod-1',
+          sourceNodeId: 'node-1',
+          targetNodeId: 'node-2',
+          label: 'yes',
+          condition: 'isValid',
+        },
+      }
+
+      vi.mocked(addEdge).mockResolvedValue({
+        success: true,
+        data: { id: 'edge-1' } as any,
+      })
+
+      const result = await executeOperations([op], mockSupabase)
+
+      expect(addEdge).toHaveBeenCalledWith({
+        module_id: 'mod-1',
+        source_node_id: 'node-1',
+        target_node_id: 'node-2',
+        label: 'yes',
+        condition: 'isValid',
+      })
+      expect(result.success).toBe(true)
+      expect(result.results[0]).toEqual({
+        operation: 'create_edge',
+        success: true,
+      })
+    })
+
+    it('records failure when addEdge service fails', async () => {
+      const op: CreateEdgeOperation = {
+        type: 'create_edge',
+        payload: {
+          moduleId: 'mod-1',
+          sourceNodeId: 'node-1',
+          targetNodeId: 'node-1',
+        },
+      }
+
+      vi.mocked(addEdge).mockResolvedValue({
+        success: false,
+        error: 'Source and target cannot be the same',
+      })
+
+      const result = await executeOperations([op], mockSupabase)
+
+      expect(result.success).toBe(false)
+      expect(result.results[0]).toEqual({
+        operation: 'create_edge',
+        success: false,
+        error: 'Source and target cannot be the same',
+      })
+    })
+  })
+
+  describe('delete_edge', () => {
+    it('calls removeEdge service with edge id', async () => {
+      const op: DeleteEdgeOperation = {
+        type: 'delete_edge',
+        payload: { edgeId: 'edge-1' },
+      }
+
+      vi.mocked(removeEdge).mockResolvedValue({ success: true, data: null })
+
+      const result = await executeOperations([op], mockSupabase)
+
+      expect(removeEdge).toHaveBeenCalledWith('edge-1')
+      expect(result.success).toBe(true)
+      expect(result.results[0]).toEqual({
+        operation: 'delete_edge',
+        success: true,
+      })
+    })
+
+    it('records failure when removeEdge service fails', async () => {
+      const op: DeleteEdgeOperation = {
+        type: 'delete_edge',
+        payload: { edgeId: 'edge-1' },
+      }
+
+      vi.mocked(removeEdge).mockResolvedValue({
+        success: false,
+        error: 'Edge not found',
+      })
+
+      const result = await executeOperations([op], mockSupabase)
+
+      expect(result.success).toBe(false)
+      expect(result.results[0]).toEqual({
+        operation: 'delete_edge',
+        success: false,
+        error: 'Edge not found',
+      })
+    })
+  })
+
+  describe('partial failure reporting', () => {
+    it('reports which operations succeeded and which failed with error summary', async () => {
+      const ops: GraphOperation[] = [
+        {
+          type: 'create_node',
+          payload: { moduleId: 'mod-1', label: 'Good Node', nodeType: 'process' },
+        },
+        { type: 'delete_node', payload: { nodeId: 'bad-id' } },
+        {
+          type: 'create_edge',
+          payload: { moduleId: 'mod-1', sourceNodeId: 'node-1', targetNodeId: 'node-2' },
+        },
+      ]
+
+      vi.mocked(addNode).mockResolvedValue({
+        success: true,
+        data: { id: 'node-1' } as any,
+      })
+      vi.mocked(removeNode).mockResolvedValue({
+        success: false,
+        error: 'Node not found',
+      })
+      vi.mocked(addEdge).mockResolvedValue({
+        success: true,
+        data: { id: 'edge-1' } as any,
+      })
+
+      const result = await executeOperations(ops, mockSupabase)
+
+      expect(result.success).toBe(false)
+      expect(result.results).toHaveLength(3)
+      expect(result.results[0].success).toBe(true)
+      expect(result.results[1].success).toBe(false)
+      expect(result.results[1].error).toBe('Node not found')
+      expect(result.results[2].success).toBe(true)
+      // error field summarises failures
+      expect(result.error).toBeDefined()
+      expect(result.error).toContain('1 of 3 operations failed')
+    })
+
+    it('does not include error field when all operations succeed', async () => {
+      const ops: GraphOperation[] = [
+        {
+          type: 'create_node',
+          payload: { moduleId: 'mod-1', label: 'Node A', nodeType: 'process' },
+        },
+        {
+          type: 'create_node',
+          payload: { moduleId: 'mod-1', label: 'Node B', nodeType: 'decision' },
+        },
+      ]
+
+      vi.mocked(addNode)
+        .mockResolvedValueOnce({ success: true, data: { id: 'n-1' } as any })
+        .mockResolvedValueOnce({ success: true, data: { id: 'n-2' } as any })
+
+      const result = await executeOperations(ops, mockSupabase)
+
+      expect(result.success).toBe(true)
+      expect(result.error).toBeUndefined()
+    })
+
+    it('mixes module and node/edge operations with partial failure', async () => {
+      const ops: GraphOperation[] = [
+        { type: 'create_module', payload: { name: 'Auth Module' } },
+        {
+          type: 'create_node',
+          payload: { moduleId: 'mod-1', label: 'Check Token', nodeType: 'process' },
+        },
+        { type: 'delete_edge', payload: { edgeId: 'bad-edge' } },
+      ]
+
+      vi.mocked(createModule).mockResolvedValue({
+        success: true,
+        data: { id: 'mod-1' } as any,
+      })
+      vi.mocked(addNode).mockResolvedValue({
+        success: true,
+        data: { id: 'node-1' } as any,
+      })
+      vi.mocked(removeEdge).mockResolvedValue({
+        success: false,
+        error: 'Edge not found',
+      })
+
+      const result = await executeOperations(ops, mockSupabase)
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('1 of 3 operations failed')
+      expect(result.results[0].success).toBe(true)
+      expect(result.results[1].success).toBe(true)
+      expect(result.results[2].success).toBe(false)
     })
   })
 
