@@ -2059,11 +2059,44 @@ Zustand store (`useChatStore`) managing chat state: `messages` (ChatMessage[]), 
 
 ---
 
+## Issue 74: Pseudocode display with keyword highlighting
+
+| Field           | Value                                            |
+| --------------- | ------------------------------------------------ |
+| **Commit**      | `ffa25d2`                                        |
+| **Test file**   | `src/components/canvas/PseudocodeBlock.test.tsx` |
+| **Source file** | `src/components/canvas/PseudocodeBlock.tsx`      |
+| **Tests**       | 12 passed, 0 failed                              |
+| **tsc**         | 0 errors in PseudocodeBlock files                |
+| **Status**      | PASS                                             |
+
+**What was tested:**
+
+- Returns null for null, undefined, and empty string pseudocode
+- Renders `<pre><code>` block structure with monospace font
+- Highlights `if`, `else`, `return`, `function` keywords in styled `<span>` elements (bold, purple-600)
+- Does not highlight non-keyword text
+- Highlights multiple keywords across multiline pseudocode (two `return` instances)
+- Preserves whitespace via `whitespace-pre-wrap` on the `<pre>` element
+
+### Key design decisions
+
+- Module-level compiled regex (`KEYWORD_PATTERN`) with `\b` word boundaries prevents partial matches (e.g. "iffy" does not highlight "if")
+- `lastIndex` reset on each `highlightLine` call — necessary for reusing a global `g` flag regex
+- Each line wrapped in a `<span>` with explicit `\n` between lines for correct rendering inside `<code>`
+- `role="code"` explicitly set on `<code>` element since happy-dom does not expose implicit ARIA roles
+
+**RED phase evidence:** 12 of 12 tests failed against the stub (rendered only `<div>TODO</div>`).
+
+**REFACTOR notes:** Simplify review found no issues — component is 53 lines, single helper function, no duplication, no unnecessary abstraction.
+
+---
+
 ## Issue 72: useFileTree hook reactively derives file tree from graph state
 
 | Field           | Value                           |
 | --------------- | ------------------------------- |
-| **Commit**      | pending                         |
+| **Commit**      | `523ccad`                       |
 | **Test file**   | `src/hooks/useFileTree.test.ts` |
 | **Source file** | `src/hooks/useFileTree.ts`      |
 | **Tests**       | 4 passed, 0 failed              |
@@ -2119,3 +2152,100 @@ Zustand store (`useChatStore`) managing chat state: `messages` (ChatMessage[]), 
 **RED phase evidence:** All 6 tests failed against stub component rendering only `<div>TODO</div>` — no nodes, no empty state text, no layout call.
 
 **REFACTOR notes:** Extracted `toLayoutNode` helper to eliminate double-mapping when converting modules to FlowNode shape for dagre layout. Single-pass position merge replaced two-pass build+merge pattern. 85 lines total.
+
+---
+
+## Issue 70: ModuleDetailView renders nodes and edges with auto-layout
+
+| Field     | Value                                                   |
+| --------- | ------------------------------------------------------- |
+| Component | `src/components/canvas/views/ModuleDetailView.tsx`      |
+| Test file | `src/components/canvas/views/ModuleDetailView.test.tsx` |
+| Commit    | `4d6ea5e`                                               |
+| Tests     | 10 passing                                              |
+| Lines     | 113 (component)                                         |
+
+**What was tested:**
+
+- Renders module name as header text
+- Shows empty state message ("No nodes in this module") when nodes array is empty
+- Does not render ReactFlow canvas when no nodes
+- Renders ReactFlow canvas when nodes exist
+- Converts FlowNodes to React Flow nodes with correct custom types (start, process, decision, entry, exit, end)
+- Applies `computeLayout` to position nodes before rendering
+- Registers all 6 custom `nodeTypes` (decision, process, entry, exit, start, end)
+- Registers custom `edgeTypes` (condition)
+- Fires `onBack` callback when back button is clicked
+- Does not render back button when `onBack` is not provided
+
+**RED phase evidence:** 8 of 10 tests failed against stub component rendering only `<div />` — no module name, no empty state, no ReactFlow, no back button. Two negative-case tests (no ReactFlow when empty, no back button when omitted) passed trivially.
+
+**REFACTOR notes:** Code reviewed for reuse, quality, and efficiency. `nodeTypes`/`edgeTypes` maps correctly placed at module scope to avoid re-creation per render. `toReactFlowNodes` and `toReactFlowEdges` converters are component-local helpers with no existing equivalents in the codebase. No changes needed.
+
+---
+
+## Issue 73: FileTreeSidebar composed panel with header
+
+| Field           | Value                                            |
+| --------------- | ------------------------------------------------ |
+| **Commit**      | `b87618a`                                        |
+| **Test file**   | `src/components/file-tree-sidebar.test.tsx`      |
+| **Source file** | `src/components/file-tree-sidebar.tsx`           |
+| **Tests**       | 4 passed, 0 failed                               |
+| **tsc**         | 0 new errors (pre-existing placeholder DB types) |
+| **Status**      | PASS                                             |
+
+**What was tested:**
+
+- Renders "Files" heading (`h2` role)
+- Renders FileTree component with `root` from `useFileTree` hook
+- Passes `onFileSelect` callback through to FileTree (verified via mock click)
+- Passes `highlightedPaths` through to FileTree (verified via data attribute)
+
+**Key design decisions:**
+
+- Composition-only component: delegates all tree rendering to `FileTree`, all data derivation to `useFileTree`
+- Empty state handled by `FileTree` internally (shows "No files generated yet") — sidebar does not duplicate this logic
+- `'use client'` boundary needed for `useFileTree` hook (Zustand store access)
+- 21 lines total — minimal wrapper, no additional abstraction
+
+**RED phase evidence:** All 4 tests failed against stub `<div />` — no heading found, no `[data-testid="file-tree"]` element, no callback pass-through.
+
+**REFACTOR notes:** Component is already minimal at 21 lines with single responsibility. No reuse opportunities or quality issues found. No changes needed.
+
+---
+
+## Issue 71: Canvas container with drill-down navigation
+
+| Field           | Value                                                       |
+| --------------- | ----------------------------------------------------------- |
+| **Commit**      | `dfbfbf8`                                                   |
+| **Test file**   | `src/components/canvas/CanvasContainer.test.tsx`            |
+| **Source file** | `src/components/canvas/CanvasContainer.tsx`                 |
+| **Tests**       | 9 passed, 0 failed                                          |
+| **tsc**         | 0 new errors (pre-existing placeholder DB type errors only) |
+| **Status**      | PASS                                                        |
+
+**What was tested:**
+
+- Default view renders ModuleMapView when `activeModuleId` is null
+- All modules from graph store are passed to ModuleMapView
+- Clicking a module card calls `setActiveModuleId` with the module ID
+- When `activeModuleId` is set, renders ModuleDetailView (not ModuleMapView)
+- Module name is passed to ModuleDetailView from the matching module
+- Nodes are filtered by `module_id` — only nodes belonging to active module are passed
+- Edges are filtered by `module_id` — only edges belonging to active module are passed
+- Back button calls `setActiveModuleId(null)` to return to map view
+- Falls back to ModuleMapView if `activeModuleId` does not match any module
+
+**Key design decisions:**
+
+- Reads `modules`, `nodes`, `edges`, `activeModuleId`, and `setActiveModuleId` from Zustand graph store via individual selectors (optimal re-render behavior)
+- View switching via conditional: `activeModule` found → detail view, otherwise → map view
+- Filters nodes/edges by `module_id === activeModuleId` before passing to ModuleDetailView
+- Graceful fallback: if `activeModuleId` references a nonexistent module, falls back to map view instead of crashing
+- 33 lines total — pure orchestration component, no business logic
+
+**RED phase evidence:** All 9 tests failed against stub `return null` — no `[data-testid="module-map-view"]` or `[data-testid="module-detail-view"]` elements found.
+
+**REFACTOR notes:** Component is already minimal at 33 lines with single responsibility. No reuse opportunities or quality issues found. No changes needed.
