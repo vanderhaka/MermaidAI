@@ -44,7 +44,8 @@ export async function signIn(email: string, password: string): Promise<AuthResul
     return { success: false, error: error.message }
   }
 
-  return { success: true }
+  revalidatePath('/', 'layout')
+  redirect('/dashboard')
 }
 
 export async function signOut(): Promise<void> {

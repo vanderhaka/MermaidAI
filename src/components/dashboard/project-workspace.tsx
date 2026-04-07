@@ -56,6 +56,8 @@ export function ProjectWorkspace({
   const [isSaving, setIsSaving] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [moduleSidebarCollapsed, setModuleSidebarCollapsed] = useState(false)
+  const [assistantOpen, setAssistantOpen] = useState(false)
 
   const modules = useGraphStore((state) => state.modules)
   const activeModuleId = useGraphStore((state) => state.activeModuleId)
@@ -446,58 +448,125 @@ export function ProjectWorkspace({
           </p>
         )}
 
-        <div className="grid h-[calc(100vh-10rem)] gap-4 lg:grid-cols-[240px_minmax(0,1fr)_minmax(320px,400px)]">
+        <div
+          className={`grid h-[calc(100vh-10rem)] gap-4 transition-[grid-template-columns] duration-200 ease-out ${
+            moduleSidebarCollapsed
+              ? 'lg:grid-cols-[3rem_minmax(0,1fr)]'
+              : 'lg:grid-cols-[240px_minmax(0,1fr)]'
+          }`}
+        >
           <aside
-            className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"
+            className={`flex min-h-0 flex-col rounded-2xl border border-gray-200 bg-white shadow-sm ${
+              moduleSidebarCollapsed ? 'p-2 lg:items-center lg:overflow-hidden' : 'p-4'
+            }`}
             data-testid="module-sidebar"
+            data-collapsed={moduleSidebarCollapsed ? 'true' : 'false'}
           >
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                Modules
-              </h2>
-              {activeModuleId && (
-                <button
-                  type="button"
-                  onClick={() => setActiveModuleId(null)}
-                  className="text-xs font-medium text-gray-500 hover:text-black"
-                >
-                  Module map
-                </button>
+            <div
+              className={`mb-4 flex shrink-0 items-center gap-2 ${
+                moduleSidebarCollapsed
+                  ? 'flex-col lg:mb-0 lg:flex-1 lg:justify-start'
+                  : 'justify-between'
+              }`}
+            >
+              {!moduleSidebarCollapsed && (
+                <>
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                    Modules
+                  </h2>
+                  {activeModuleId && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveModuleId(null)}
+                      className="text-xs font-medium text-gray-500 hover:text-black"
+                    >
+                      Module map
+                    </button>
+                  )}
+                </>
               )}
+              <button
+                type="button"
+                onClick={() => setModuleSidebarCollapsed((open) => !open)}
+                aria-expanded={!moduleSidebarCollapsed}
+                aria-controls="module-sidebar-list"
+                title={moduleSidebarCollapsed ? 'Expand modules' : 'Collapse modules'}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-gray-200 text-gray-600 transition hover:bg-gray-50 hover:text-gray-900 ${
+                  moduleSidebarCollapsed ? 'lg:mt-0' : ''
+                }`}
+              >
+                {moduleSidebarCollapsed ? (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="h-5 w-5"
+                    aria-hidden
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                ) : (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="h-5 w-5"
+                    aria-hidden
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                )}
+                <span className="sr-only">
+                  {moduleSidebarCollapsed ? 'Expand modules sidebar' : 'Collapse modules sidebar'}
+                </span>
+              </button>
             </div>
 
-            {modules.length === 0 ? (
-              <p className="text-sm text-gray-500">
-                Add your first module to start shaping the project.
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {modules.map((module) => {
-                  const isActive = module.id === activeModuleId
+            <div
+              id="module-sidebar-list"
+              className={`min-h-0 flex-1 overflow-y-auto ${moduleSidebarCollapsed ? 'hidden' : ''}`}
+            >
+              {modules.length === 0 ? (
+                <p className="text-sm text-gray-500">
+                  Add your first module to start shaping the project.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {modules.map((module) => {
+                    const isActive = module.id === activeModuleId
 
-                  return (
-                    <li key={module.id}>
-                      <button
-                        type="button"
-                        onClick={() => setActiveModuleId(module.id)}
-                        className={`w-full rounded-xl border px-3 py-3 text-left transition ${
-                          isActive
-                            ? 'border-black bg-gray-900 text-white'
-                            : 'border-gray-200 bg-white text-gray-900 hover:border-gray-400'
-                        }`}
-                      >
-                        <p className="text-sm font-medium">{module.name}</p>
-                        <p
-                          className={`mt-1 line-clamp-2 text-xs ${isActive ? 'text-gray-200' : 'text-gray-500'}`}
+                    return (
+                      <li key={module.id}>
+                        <button
+                          type="button"
+                          onClick={() => setActiveModuleId(module.id)}
+                          className={`w-full rounded-xl border px-3 py-3 text-left transition ${
+                            isActive
+                              ? 'border-black bg-gray-900 text-white'
+                              : 'border-gray-200 bg-white text-gray-900 hover:border-gray-400'
+                          }`}
                         >
-                          {truncateDescription(module.description)}
-                        </p>
-                      </button>
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
+                          <p className="text-sm font-medium">{module.name}</p>
+                          <p
+                            className={`mt-1 line-clamp-2 text-xs ${isActive ? 'text-gray-200' : 'text-gray-500'}`}
+                          >
+                            {truncateDescription(module.description)}
+                          </p>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
           </aside>
 
           <section
@@ -508,32 +577,102 @@ export function ProjectWorkspace({
               <CanvasContainer />
             </div>
           </section>
+        </div>
 
-          <section
-            className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm"
-            data-testid="chat-panel"
+        <div className="fixed bottom-4 left-4 right-4 z-[100] flex flex-col gap-3 sm:left-auto sm:right-6 sm:w-[min(400px,calc(100vw-3rem))]">
+          {assistantOpen && (
+            <section
+              id="assistant-chat-panel"
+              className="flex max-h-[min(70vh,560px)] min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl ring-1 ring-black/5"
+              data-testid="chat-panel"
+              role="dialog"
+              aria-label="Assistant"
+              aria-modal="false"
+            >
+              <div className="flex shrink-0 items-start justify-between gap-3 border-b border-gray-200 px-4 py-3">
+                <div className="min-w-0">
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                    Assistant
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Ask MermaidAI to sketch modules or refine the active module flow.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAssistantOpen(false)}
+                  className="shrink-0 rounded-lg p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-900"
+                  aria-label="Minimize assistant"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="h-5 w-5"
+                    aria-hidden
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </button>
+              </div>
+
+              <ChatMessageList
+                messages={messages}
+                isLoading={isSending || isRefreshing}
+                streamingContent={streamingContent}
+                toolActivity={toolActivity}
+                toolCalls={currentToolCalls}
+              />
+
+              <div className="shrink-0 border-t border-gray-200 p-4">
+                <ChatInput onSend={handleSend} isLoading={isSending} />
+              </div>
+            </section>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setAssistantOpen((o) => !o)}
+            aria-expanded={assistantOpen}
+            aria-controls={assistantOpen ? 'assistant-chat-panel' : undefined}
+            className="ml-auto flex h-14 w-14 items-center justify-center rounded-full bg-black text-white shadow-lg transition hover:bg-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2"
+            title={assistantOpen ? 'Hide assistant' : 'Open assistant'}
           >
-            <div className="border-b border-gray-200 px-4 py-3">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                Assistant
-              </h2>
-              <p className="mt-1 text-sm text-gray-500">
-                Ask MermaidAI to sketch modules or refine the active module flow.
-              </p>
-            </div>
-
-            <ChatMessageList
-              messages={messages}
-              isLoading={isSending || isRefreshing}
-              streamingContent={streamingContent}
-              toolActivity={toolActivity}
-              toolCalls={currentToolCalls}
-            />
-
-            <div className="border-t border-gray-200 p-4">
-              <ChatInput onSend={handleSend} isLoading={isSending} />
-            </div>
-          </section>
+            {assistantOpen ? (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                className="h-7 w-7"
+                aria-hidden
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            ) : (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                className="h-7 w-7"
+                aria-hidden
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            )}
+            <span className="sr-only">{assistantOpen ? 'Hide assistant' : 'Open assistant'}</span>
+          </button>
         </div>
       </div>
     </main>

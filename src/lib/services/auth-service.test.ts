@@ -123,21 +123,26 @@ describe('signOut', () => {
 describe('signIn', () => {
   beforeEach(() => {
     mockSignInWithPassword.mockReset()
+    mockRevalidatePath.mockReset()
+    mockRedirect.mockImplementation(() => {
+      throw new Error('NEXT_REDIRECT')
+    })
   })
 
-  it('returns success when Supabase authenticates the user', async () => {
+  it('revalidates and redirects to dashboard when Supabase authenticates the user', async () => {
     mockSignInWithPassword.mockResolvedValue({
       data: { user: { id: '123' }, session: {} },
       error: null,
     })
 
-    const result = await signIn('test@example.com', 'password123')
+    await expect(signIn('test@example.com', 'password123')).rejects.toThrow('NEXT_REDIRECT')
 
-    expect(result).toEqual({ success: true })
     expect(mockSignInWithPassword).toHaveBeenCalledWith({
       email: 'test@example.com',
       password: 'password123',
     })
+    expect(mockRevalidatePath).toHaveBeenCalledWith('/', 'layout')
+    expect(mockRedirect).toHaveBeenCalledWith('/dashboard')
   })
 
   it('returns error for invalid email without calling Supabase', async () => {
