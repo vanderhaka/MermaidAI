@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 
 import { ProjectWorkspace } from '@/components/dashboard/project-workspace'
 import { listChatMessages } from '@/lib/services/chat-message-service'
-import { getGraphForModule } from '@/lib/services/graph-service'
+import { ensureDefaultModuleGraph } from '@/lib/services/graph-service'
 import { listConnectionsByProject } from '@/lib/services/module-connection-service'
 import { listModulesByProject } from '@/lib/services/module-service'
 import { getProjectById } from '@/lib/services/project-service'
@@ -42,7 +42,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
 
   const connections: ModuleConnection[] = connectionsResult.success ? connectionsResult.data : []
 
-  const graphResults = await Promise.all(modules.map((module) => getGraphForModule(module.id)))
+  const graphResults = await Promise.all(modules.map((module) => ensureDefaultModuleGraph(module)))
   const initialNodes: FlowNode[] = []
   const initialEdges: FlowEdge[] = []
 

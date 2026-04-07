@@ -11,6 +11,7 @@ import { addChatMessage } from '@/lib/services/chat-message-service'
 import { listModulesByProject, getModuleById } from '@/lib/services/module-service'
 import { listConnectionsByProject } from '@/lib/services/module-connection-service'
 import { getGraphForModule } from '@/lib/services/graph-service'
+import { loadModuleNotesForChat } from '@/lib/module-notes/load-for-prompt'
 
 const chatRequestSchema = z.object({
   projectId: z.string().min(1),
@@ -82,6 +83,11 @@ export async function POST(request: Request) {
       const moduleResult = await getModuleById(context.activeModuleId)
       if (moduleResult.success) {
         promptContext.currentModule = moduleResult.data
+        const loaded = await loadModuleNotesForChat(moduleResult.data.name)
+        promptContext.moduleNotes =
+          loaded.source === 'none'
+            ? { source: 'none', markdown: null }
+            : { source: loaded.source, markdown: loaded.markdown }
       }
 
       const graphResult = await getGraphForModule(context.activeModuleId)

@@ -58,6 +58,11 @@ vi.mock('@/lib/services/graph-service', () => ({
   removeEdge: vi.fn(),
 }))
 
+const mockLoadModuleNotesForChat = vi.fn()
+vi.mock('@/lib/module-notes/load-for-prompt', () => ({
+  loadModuleNotesForChat: (...args: unknown[]) => mockLoadModuleNotesForChat(...args),
+}))
+
 // --- Helpers ---
 
 function makeRequest(body: Record<string, unknown>): Request {
@@ -154,6 +159,8 @@ describe('POST /api/chat', () => {
         created_at: '2026-01-01T00:00:00Z',
       },
     })
+
+    mockLoadModuleNotesForChat.mockResolvedValue({ source: 'none' as const, markdown: null })
   })
 
   // --- Input validation ---
@@ -255,6 +262,47 @@ describe('POST /api/chat', () => {
       'discovery',
       expect.objectContaining({
         projectName: 'Test Project',
+      }),
+    )
+  })
+
+  it('loads module notes when activeModuleId is set and module resolves', async () => {
+    mockGetModuleById.mockResolvedValue({
+      success: true,
+      data: {
+        id: 'mod-cart',
+        project_id: 'proj-1',
+        domain: null,
+        name: 'Shopping Cart',
+        description: 'Test',
+        position: { x: 0, y: 0 },
+        color: '#111',
+        entry_points: [],
+        exit_points: [],
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    })
+
+    const { POST } = await import('@/app/api/chat/route')
+    const base = validBody()
+    const body = {
+      ...base,
+      mode: 'module_detail',
+      context: {
+        ...base.context,
+        mode: 'module_detail' as const,
+        activeModuleId: 'mod-cart',
+      },
+    }
+
+    await POST(makeRequest(body))
+
+    expect(mockLoadModuleNotesForChat).toHaveBeenCalledWith('Shopping Cart')
+    expect(mockBuildSystemPrompt).toHaveBeenCalledWith(
+      'module_detail',
+      expect.objectContaining({
+        moduleNotes: { source: 'none', markdown: null },
       }),
     )
   })

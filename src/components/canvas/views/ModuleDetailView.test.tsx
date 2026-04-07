@@ -75,12 +75,12 @@ const sampleEdges: FlowEdge[] = [
 describe('ModuleDetailView', () => {
   it('renders module name as header', () => {
     render(<ModuleDetailView moduleName="Auth Flow" nodes={[]} edges={[]} />)
-    expect(screen.getByText('Auth Flow')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Auth Flow' })).toBeInTheDocument()
   })
 
   it('renders empty state message when no nodes', () => {
     render(<ModuleDetailView moduleName="Empty" nodes={[]} edges={[]} />)
-    expect(screen.getByText(/no nodes/i)).toBeInTheDocument()
+    expect(screen.getByText(/no flow detail yet/i)).toBeInTheDocument()
   })
 
   it('does not render ReactFlow when no nodes', () => {
