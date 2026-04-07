@@ -4,7 +4,6 @@ import type { Node, Edge, OnNodesChange, OnEdgesChange } from '@xyflow/react'
 import {
   ReactFlow,
   ReactFlowProvider,
-  MiniMap,
   Controls,
   Background,
   BackgroundVariant,
@@ -28,7 +27,6 @@ export default function Canvas({ nodes, edges, onNodesChange, onEdgesChange }: C
         onEdgesChange={onEdgesChange}
         fitView
       >
-        <MiniMap />
         <Controls />
         <Background variant={BackgroundVariant.Dots} />
       </ReactFlow>

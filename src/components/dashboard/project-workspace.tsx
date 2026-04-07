@@ -11,6 +11,8 @@ import ChatMessageList from '@/components/chat/ChatMessageList'
 import { createModule } from '@/lib/services/module-service'
 import { updateProject, deleteProject } from '@/lib/services/project-service'
 import { TOOL_EVENT_DELIMITER } from '@/lib/services/llm-client'
+import { ModuleHierarchyIndicator } from '@/components/dashboard/ModuleHierarchyIndicator'
+import { groupModulesByDomain } from '@/lib/module-hierarchy'
 import { useGraphStore } from '@/store/graph-store'
 import type { ChatMessage } from '@/types/chat'
 import type { FlowEdge, FlowNode, Module, ModuleConnection, Project } from '@/types/graph'
@@ -530,6 +532,16 @@ export function ProjectWorkspace({
               </button>
             </div>
 
+            {!moduleSidebarCollapsed && (
+              <div className="mb-3 shrink-0">
+                <ModuleHierarchyIndicator
+                  projectName={projectName}
+                  modules={modules}
+                  activeModuleId={activeModuleId}
+                />
+              </div>
+            )}
+
             <div
               id="module-sidebar-list"
               className={`min-h-0 flex-1 overflow-y-auto ${moduleSidebarCollapsed ? 'hidden' : ''}`}
@@ -539,31 +551,40 @@ export function ProjectWorkspace({
                   Add your first module to start shaping the project.
                 </p>
               ) : (
-                <ul className="space-y-2">
-                  {modules.map((module) => {
-                    const isActive = module.id === activeModuleId
+                <ul className="space-y-4">
+                  {groupModulesByDomain(modules).map(({ domain, modules: group }) => (
+                    <li key={domain}>
+                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                        {domain}
+                      </h3>
+                      <ul className="space-y-2">
+                        {group.map((module) => {
+                          const isActive = module.id === activeModuleId
 
-                    return (
-                      <li key={module.id}>
-                        <button
-                          type="button"
-                          onClick={() => setActiveModuleId(module.id)}
-                          className={`w-full rounded-xl border px-3 py-3 text-left transition ${
-                            isActive
-                              ? 'border-black bg-gray-900 text-white'
-                              : 'border-gray-200 bg-white text-gray-900 hover:border-gray-400'
-                          }`}
-                        >
-                          <p className="text-sm font-medium">{module.name}</p>
-                          <p
-                            className={`mt-1 line-clamp-2 text-xs ${isActive ? 'text-gray-200' : 'text-gray-500'}`}
-                          >
-                            {truncateDescription(module.description)}
-                          </p>
-                        </button>
-                      </li>
-                    )
-                  })}
+                          return (
+                            <li key={module.id}>
+                              <button
+                                type="button"
+                                onClick={() => setActiveModuleId(module.id)}
+                                className={`w-full rounded-xl border px-3 py-3 text-left transition ${
+                                  isActive
+                                    ? 'border-black bg-gray-900 text-white'
+                                    : 'border-gray-200 bg-white text-gray-900 hover:border-gray-400'
+                                }`}
+                              >
+                                <p className="text-sm font-medium">{module.name}</p>
+                                <p
+                                  className={`mt-1 line-clamp-2 text-xs ${isActive ? 'text-gray-200' : 'text-gray-500'}`}
+                                >
+                                  {truncateDescription(module.description)}
+                                </p>
+                              </button>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    </li>
+                  ))}
                 </ul>
               )}
             </div>

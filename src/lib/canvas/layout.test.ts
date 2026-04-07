@@ -35,6 +35,7 @@ function makeModule(overrides: Partial<Module> & { id: string }): Module {
   return {
     id,
     project_id: 'proj-1',
+    domain: null,
     name: 'Module',
     description: 'Description',
     position: { x: 0, y: 0 },

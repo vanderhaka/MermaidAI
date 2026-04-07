@@ -16,7 +16,6 @@ vi.mock('@xyflow/react', () => ({
     </div>
   ),
   ReactFlowProvider: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
-  MiniMap: () => <div data-testid="minimap" />,
   Controls: () => <div data-testid="controls" />,
   Background: () => <div data-testid="background" />,
   BackgroundVariant: { Dots: 'dots' },
@@ -26,6 +25,8 @@ vi.mock('@/lib/canvas/layout', () => ({
   computeLayout: vi.fn((nodes: FlowNode[]) =>
     nodes.map((n, i) => ({ ...n, position: { x: i * 100, y: i * 50 } })),
   ),
+  DEFAULT_NODE_WIDTH: 172,
+  DEFAULT_NODE_HEIGHT: 36,
 }))
 
 import ModuleDetailView from '@/components/canvas/views/ModuleDetailView'

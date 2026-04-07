@@ -199,6 +199,7 @@ export type Database = {
           color: string | null
           created_at: string
           description: string | null
+          domain: string | null
           entry_points: Json | null
           exit_points: Json | null
           id: string
@@ -212,6 +213,7 @@ export type Database = {
           color?: string | null
           created_at?: string
           description?: string | null
+          domain?: string | null
           entry_points?: Json | null
           exit_points?: Json | null
           id?: string
@@ -225,6 +227,7 @@ export type Database = {
           color?: string | null
           created_at?: string
           description?: string | null
+          domain?: string | null
           entry_points?: Json | null
           exit_points?: Json | null
           id?: string

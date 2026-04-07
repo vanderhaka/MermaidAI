@@ -55,6 +55,7 @@ describe('Database types', () => {
     const keys: (keyof Row)[] = [
       'id',
       'project_id',
+      'domain',
       'name',
       'position_x',
       'position_y',

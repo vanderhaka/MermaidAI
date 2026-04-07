@@ -71,7 +71,6 @@ vi.mock('@xyflow/react', () => ({
   ReactFlowProvider: ({ children }: React.PropsWithChildren) => (
     <div data-testid="react-flow-provider">{children}</div>
   ),
-  MiniMap: () => <div data-testid="minimap" />,
   Controls: () => <div data-testid="controls" />,
   Background: () => <div data-testid="background" />,
   BackgroundVariant: { Dots: 'dots' },
@@ -98,6 +97,7 @@ function makeModule(overrides: Partial<Module> = {}): Module {
   return {
     id: 'mod-1',
     project_id: 'proj-1',
+    domain: null,
     name: 'Auth Module',
     description: 'Handles authentication',
     position: { x: 0, y: 0 },

@@ -72,6 +72,7 @@ describe('Module type', () => {
   const validModule: Module = {
     id: 'mod_123',
     project_id: 'proj_456',
+    domain: null,
     name: 'Auth Module',
     description: null,
     position: { x: 100, y: 200 },
@@ -85,6 +86,7 @@ describe('Module type', () => {
   it('has all required fields', () => {
     expect(validModule).toHaveProperty('id')
     expect(validModule).toHaveProperty('project_id')
+    expect(validModule).toHaveProperty('domain')
     expect(validModule).toHaveProperty('name')
     expect(validModule).toHaveProperty('description')
     expect(validModule).toHaveProperty('position')

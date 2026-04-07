@@ -4,14 +4,13 @@ import type { Node, Edge } from '@xyflow/react'
 import {
   ReactFlow,
   ReactFlowProvider,
-  MiniMap,
   Controls,
   Background,
   BackgroundVariant,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import type { FlowNode, FlowEdge } from '@/types/graph'
-import { computeLayout } from '@/lib/canvas/layout'
+import { computeLayout, DEFAULT_NODE_HEIGHT, DEFAULT_NODE_WIDTH } from '@/lib/canvas/layout'
 import DecisionNode from '@/components/canvas/nodes/DecisionNode'
 import ProcessNode from '@/components/canvas/nodes/ProcessNode'
 import EntryNode from '@/components/canvas/nodes/EntryNode'
@@ -35,6 +34,8 @@ const edgeTypes = {
 
 type ModuleDetailViewProps = {
   moduleName: string
+  /** L1 domain label (e.g. Payments) for hierarchy context */
+  domainLabel?: string
   nodes: FlowNode[]
   edges: FlowEdge[]
   onBack?: () => void
@@ -45,6 +46,8 @@ function toReactFlowNodes(nodes: FlowNode[]): Node[] {
     id: n.id,
     type: n.node_type,
     position: n.position,
+    width: DEFAULT_NODE_WIDTH,
+    height: DEFAULT_NODE_HEIGHT,
     data: { label: n.label, pseudocode: n.pseudocode },
   }))
 }
@@ -61,6 +64,7 @@ function toReactFlowEdges(edges: FlowEdge[]): Edge[] {
 
 export default function ModuleDetailView({
   moduleName,
+  domainLabel,
   nodes,
   edges,
   onBack,
@@ -73,18 +77,26 @@ export default function ModuleDetailView({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center gap-2 border-b px-4 py-2">
+      <header className="flex items-start gap-2 border-b px-4 py-2">
         {onBack && (
           <button
             type="button"
             onClick={onBack}
             aria-label="Back"
-            className="rounded px-2 py-1 text-sm hover:bg-gray-100"
+            className="mt-0.5 rounded px-2 py-1 text-sm hover:bg-gray-100"
           >
             Back
           </button>
         )}
-        <h2 className="text-lg font-semibold">{moduleName}</h2>
+        <div className="min-w-0 flex-1">
+          {domainLabel ? (
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+              {domainLabel}
+            </p>
+          ) : null}
+          <h2 className="text-lg font-semibold leading-tight">{moduleName}</h2>
+          <p className="mt-0.5 text-xs text-gray-400">Flow detail</p>
+        </div>
       </header>
 
       {hasNodes ? (
@@ -97,7 +109,6 @@ export default function ModuleDetailView({
               edgeTypes={edgeTypes}
               fitView
             >
-              <MiniMap />
               <Controls />
               <Background variant={BackgroundVariant.Dots} />
             </ReactFlow>

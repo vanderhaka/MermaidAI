@@ -1,5 +1,6 @@
 'use client'
 
+import { displayDomain } from '@/lib/module-hierarchy'
 import { useGraphStore } from '@/store/graph-store'
 import ModuleMapView from '@/components/canvas/views/ModuleMapView'
 import ModuleDetailView from '@/components/canvas/views/ModuleDetailView'
@@ -21,6 +22,7 @@ export default function CanvasContainer() {
     return (
       <ModuleDetailView
         moduleName={activeModule.name}
+        domainLabel={displayDomain(activeModule.domain)}
         nodes={moduleNodes}
         edges={moduleEdges}
         onBack={() => setActiveModuleId(null)}
