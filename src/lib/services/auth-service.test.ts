@@ -74,6 +74,30 @@ describe('signUp', () => {
 
     expect(result).toEqual({ success: false, error: 'User already registered' })
   })
+
+  it('passes through known-safe Supabase error messages', async () => {
+    mockSignUp.mockResolvedValue({
+      data: { user: null },
+      error: { message: 'User already registered' },
+    })
+
+    const result = await signUp('test@example.com', 'password123')
+
+    expect(result).toEqual({ success: false, error: 'User already registered' })
+  })
+
+  it('sanitizes unknown Supabase error messages to a generic fallback', async () => {
+    mockSignUp.mockResolvedValue({
+      data: { user: null },
+      error: {
+        message: 'Database connection pool exhausted: relation "auth.users" timeout after 30s',
+      },
+    })
+
+    const result = await signUp('test@example.com', 'password123')
+
+    expect(result).toEqual({ success: false, error: 'Something went wrong. Please try again.' })
+  })
 })
 
 describe('signOut', () => {
@@ -170,5 +194,30 @@ describe('signIn', () => {
     const result = await signIn('test@example.com', 'wrongpassword')
 
     expect(result).toEqual({ success: false, error: 'Invalid login credentials' })
+  })
+
+  it('passes through known-safe Supabase error messages', async () => {
+    mockSignInWithPassword.mockResolvedValue({
+      data: { user: null, session: null },
+      error: { message: 'Email not confirmed' },
+    })
+
+    const result = await signIn('test@example.com', 'password123')
+
+    expect(result).toEqual({ success: false, error: 'Email not confirmed' })
+  })
+
+  it('sanitizes unknown Supabase error messages to a generic fallback', async () => {
+    mockSignInWithPassword.mockResolvedValue({
+      data: { user: null, session: null },
+      error: {
+        message:
+          'connection to server at "db.xxx.supabase.co" failed: FATAL password authentication failed',
+      },
+    })
+
+    const result = await signIn('test@example.com', 'password123')
+
+    expect(result).toEqual({ success: false, error: 'Something went wrong. Please try again.' })
   })
 })

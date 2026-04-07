@@ -17,4 +17,4 @@
 | 13  | Signup try/catch       | ✓   | ✓     | ✓        |         | DONE        | fix-13 |
 | 14  | Auth error sanitize    | ✓   | ✓     |          |         | IN_PROGRESS | fix-14 |
 | 15  | Rate limiter utility   | ✓   | ✓     | ✓        | 0630999 | DONE        | fix-15 |
-| 16  | Chat rate limit        | ✓   | ✓     | ✓        |         | DONE        | fix-16 |
+| 16  | Chat rate limit        | ✓   | ✓     | ✓        | c1fc879 | DONE        | fix-16 |
