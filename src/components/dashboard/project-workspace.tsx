@@ -10,9 +10,19 @@ import ChatInput from '@/components/chat/ChatInput'
 import ChatMessageList from '@/components/chat/ChatMessageList'
 import { createModule } from '@/lib/services/module-service'
 import { updateProject, deleteProject } from '@/lib/services/project-service'
+import { TOOL_EVENT_DELIMITER } from '@/lib/services/llm-client'
 import { useGraphStore } from '@/store/graph-store'
 import type { ChatMessage } from '@/types/chat'
 import type { FlowEdge, FlowNode, Module, ModuleConnection, Project } from '@/types/graph'
+
+function truncateDescription(desc: string | null | undefined): string {
+  const text = desc?.trim()
+  if (!text) return 'No description yet'
+  // Take only the first sentence
+  const firstSentence = text.split(/[.\n]/)[0]
+  if (firstSentence.length > 80) return firstSentence.slice(0, 77) + '...'
+  return firstSentence + (firstSentence.length < text.length ? '.' : '')
+}
 
 type ProjectWorkspaceProps = {
   project: Pick<Project, 'id' | 'name' | 'description'>
@@ -36,6 +46,8 @@ export function ProjectWorkspace({
   const [isCreatingModule, setIsCreatingModule] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
+  const [toolActivity, setToolActivity] = useState<string | null>(null)
+  const [currentToolCalls, setCurrentToolCalls] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [messages, setMessages] = useState(initialMessages)
   const [showSettings, setShowSettings] = useState(false)
@@ -52,6 +64,8 @@ export function ProjectWorkspace({
   const setEdges = useGraphStore((state) => state.setEdges)
   const setConnections = useGraphStore((state) => state.setConnections)
   const addModuleToStore = useGraphStore((state) => state.addModule)
+  const addConnectionToStore = useGraphStore((state) => state.addConnection)
+  const updateModuleInStore = useGraphStore((state) => state.updateModule)
   const setActiveModuleId = useGraphStore((state) => state.setActiveModuleId)
 
   useEffect(() => {
@@ -127,6 +141,55 @@ export function ProjectWorkspace({
     setActiveModuleId(result.data.id)
   }
 
+  function addToolCall(label: string) {
+    setToolActivity(label)
+    setCurrentToolCalls((prev) => [...prev, label])
+  }
+
+  function handleToolEvent(tool: string, data: Record<string, unknown>) {
+    switch (tool) {
+      case 'create_module': {
+        const mod = data.module as Module
+        if (mod) {
+          addToolCall(`Created ${mod.name} module`)
+          addModuleToStore(mod)
+        }
+        break
+      }
+      case 'update_module': {
+        const mod = data.module as Module
+        if (mod) {
+          addToolCall(`Updated ${mod.name}`)
+          updateModuleInStore(mod.id, mod)
+        }
+        break
+      }
+      case 'delete_module': {
+        addToolCall('Removed module')
+        break
+      }
+      case 'connect_modules': {
+        const conn = data.connection as ModuleConnection
+        if (conn) addConnectionToStore(conn)
+        const srcMod = data.sourceModule as Module | undefined
+        if (srcMod) updateModuleInStore(srcMod.id, srcMod)
+        const tgtMod = data.targetModule as Module | undefined
+        if (tgtMod) updateModuleInStore(tgtMod.id, tgtMod)
+        addToolCall(
+          srcMod && tgtMod ? `Connected ${srcMod.name} → ${tgtMod.name}` : 'Connected modules',
+        )
+        break
+      }
+      case 'lookup_docs': {
+        const lookup = data.lookup as { library: string; topic: string } | undefined
+        if (lookup) {
+          addToolCall(`Looked up ${lookup.library} docs`)
+        }
+        break
+      }
+    }
+  }
+
   async function handleSend(message: string) {
     const optimisticUserMessage: ChatMessage = {
       id: `local-user-${crypto.randomUUID()}`,
@@ -139,6 +202,8 @@ export function ProjectWorkspace({
     setMessages((current) => [...current, optimisticUserMessage])
     setIsSending(true)
     setStreamingContent('')
+    setToolActivity(null)
+    setCurrentToolCalls([])
     setError(null)
 
     try {
@@ -191,8 +256,30 @@ export function ProjectWorkspace({
           break
         }
 
-        assistantText += decoder.decode(value, { stream: true })
+        const chunk = decoder.decode(value, { stream: true })
+
+        // Parse tool events and update store in real-time
+        const lines = chunk.split(TOOL_EVENT_DELIMITER)
+        // First segment is always display text
+        assistantText += lines[0]
         setStreamingContent(assistantText)
+
+        // Remaining segments are tool event JSON payloads
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim()
+          if (!line) continue
+          try {
+            const event = JSON.parse(line) as {
+              tool: string
+              data: Record<string, unknown>
+            }
+            handleToolEvent(event.tool, event.data)
+          } catch {
+            // Not valid JSON — treat as text
+            assistantText += lines[i]
+            setStreamingContent(assistantText)
+          }
+        }
       }
 
       if (assistantText.trim()) {
@@ -401,9 +488,9 @@ export function ProjectWorkspace({
                       >
                         <p className="text-sm font-medium">{module.name}</p>
                         <p
-                          className={`mt-1 text-xs ${isActive ? 'text-gray-200' : 'text-gray-500'}`}
+                          className={`mt-1 line-clamp-2 text-xs ${isActive ? 'text-gray-200' : 'text-gray-500'}`}
                         >
-                          {module.description?.trim() || 'No description yet'}
+                          {truncateDescription(module.description)}
                         </p>
                       </button>
                     </li>
@@ -439,10 +526,12 @@ export function ProjectWorkspace({
               messages={messages}
               isLoading={isSending || isRefreshing}
               streamingContent={streamingContent}
+              toolActivity={toolActivity}
+              toolCalls={currentToolCalls}
             />
 
             <div className="border-t border-gray-200 p-4">
-              <ChatInput onSend={handleSend} isLoading={isSending || isRefreshing} />
+              <ChatInput onSend={handleSend} isLoading={isSending} />
             </div>
           </section>
         </div>

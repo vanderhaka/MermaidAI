@@ -15,9 +15,20 @@ function getClient(): Anthropic {
 export type ToolResult = {
   content: string
   isError: boolean
+  /** Structured data for client-side store updates */
+  data?: Record<string, unknown>
 }
 
 export type ToolExecutor = (name: string, input: Record<string, unknown>) => Promise<ToolResult>
+
+export type ToolEventCallback = (
+  toolName: string,
+  input: Record<string, unknown>,
+  result: ToolResult,
+) => void
+
+/** Delimiter used to embed tool events in the text stream */
+export const TOOL_EVENT_DELIMITER = '\x1ETOOL_EVENT:'
 
 /**
  * Call the LLM with tool definitions and handle the tool-use loop.
@@ -36,6 +47,7 @@ export async function callLLMWithTools(
   messages: Anthropic.MessageParam[],
   tools: Anthropic.Tool[],
   executeTool: ToolExecutor,
+  onToolResult?: ToolEventCallback,
 ): Promise<ReadableStream<string>> {
   const client = getClient()
   const model = process.env.AI_MODEL?.trim() || DEFAULT_MODEL
@@ -76,10 +88,20 @@ export async function callLLMWithTools(
           const toolResults: Anthropic.ToolResultBlockParam[] = []
 
           for (const toolBlock of toolUseBlocks) {
-            const result = await executeTool(
-              toolBlock.name,
-              toolBlock.input as Record<string, unknown>,
-            )
+            const toolInput = toolBlock.input as Record<string, unknown>
+            const result = await executeTool(toolBlock.name, toolInput)
+
+            if (onToolResult) {
+              onToolResult(toolBlock.name, toolInput, result)
+            }
+
+            // Emit tool event into stream so the client can update state in real-time
+            if (result.data) {
+              controller.enqueue(
+                `${TOOL_EVENT_DELIMITER}${JSON.stringify({ tool: toolBlock.name, data: result.data })}\n`,
+              )
+            }
+
             toolResults.push({
               type: 'tool_result',
               tool_use_id: toolBlock.id,

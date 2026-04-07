@@ -17,6 +17,7 @@ type GraphActions = {
   addModule: (module: Module) => void
   addNode: (node: FlowNode) => void
   addEdge: (edge: FlowEdge) => void
+  addConnection: (connection: ModuleConnection) => void
   updateModule: (id: string, partial: Partial<Module>) => void
   updateNode: (id: string, partial: Partial<FlowNode>) => void
   removeModule: (id: string) => void
@@ -45,6 +46,8 @@ export const useGraphStore = create<GraphState & GraphActions>()((set) => ({
   addModule: (module) => set((state) => ({ modules: [...state.modules, module] })),
   addNode: (node) => set((state) => ({ nodes: [...state.nodes, node] })),
   addEdge: (edge) => set((state) => ({ edges: [...state.edges, edge] })),
+  addConnection: (connection) =>
+    set((state) => ({ connections: [...state.connections, connection] })),
 
   updateModule: (id, partial) =>
     set((state) => ({

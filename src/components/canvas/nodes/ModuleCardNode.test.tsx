@@ -61,7 +61,9 @@ describe('ModuleCardNode', () => {
     expect(loginHandle).toBeInTheDocument()
     expect(loginHandle).toHaveAttribute('data-handle-type', 'target')
     expect(loginHandle).toHaveAttribute('data-handle-position', 'left')
+    expect((loginHandle as HTMLDivElement).style.top).toBe(`${(1 / 3) * 100}%`)
     expect(registerHandle).toBeInTheDocument()
+    expect((registerHandle as HTMLDivElement).style.top).toBe(`${(2 / 3) * 100}%`)
   })
 
   it('renders exit handles for each exit point', () => {
@@ -71,7 +73,9 @@ describe('ModuleCardNode', () => {
     expect(dashboardHandle).toBeInTheDocument()
     expect(dashboardHandle).toHaveAttribute('data-handle-type', 'source')
     expect(dashboardHandle).toHaveAttribute('data-handle-position', 'right')
+    expect((dashboardHandle as HTMLDivElement).style.top).toBe(`${(1 / 3) * 100}%`)
     expect(errorHandle).toBeInTheDocument()
+    expect((errorHandle as HTMLDivElement).style.top).toBe(`${(2 / 3) * 100}%`)
   })
 
   it('renders with null description gracefully', () => {
@@ -83,14 +87,13 @@ describe('ModuleCardNode', () => {
     expect(screen.getByText('Auth Module')).toBeInTheDocument()
   })
 
-  it('renders default top/bottom handles when entry/exit points are empty', () => {
+  it('does not render unnamed fallback handles when entry/exit points are empty', () => {
     const props = {
       ...baseProps,
       data: { ...baseProps.data, entry_points: [], exit_points: [] },
     }
     const { container } = render(<ModuleCardNode {...props} />)
-    // Default top (target) and bottom (source) handles always render
     const handles = container.querySelectorAll('[data-testid^="handle-"]')
-    expect(handles).toHaveLength(2)
+    expect(handles).toHaveLength(0)
   })
 })

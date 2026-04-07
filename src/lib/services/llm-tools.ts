@@ -1,7 +1,13 @@
 import type Anthropic from '@anthropic-ai/sdk'
 
-import { createModule, updateModule, deleteModule } from '@/lib/services/module-service'
+import {
+  createModule,
+  updateModule,
+  deleteModule,
+  getModuleById,
+} from '@/lib/services/module-service'
 import { connectModules } from '@/lib/services/module-connection-service'
+import { lookupDocumentation } from '@/lib/services/doc-lookup-service'
 import { addNode, updateNode, removeNode, addEdge, removeEdge } from '@/lib/services/graph-service'
 import type { ToolResult } from '@/lib/services/llm-client'
 import type { FlowNode } from '@/types/graph'
@@ -42,13 +48,24 @@ const createModuleTool: Anthropic.Tool = {
 
 const updateModuleTool: Anthropic.Tool = {
   name: 'update_module',
-  description: 'Update an existing module name or description.',
+  description:
+    'Update an existing module. Can change name, description, entry_points, and exit_points.',
   input_schema: {
     type: 'object' as const,
     properties: {
       moduleId: { type: 'string', description: 'ID of the module to update' },
       name: { type: 'string', description: 'New name for the module' },
       description: { type: 'string', description: 'New description for the module' },
+      entry_points: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Replace entry points with this list',
+      },
+      exit_points: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Replace exit points with this list',
+      },
     },
     required: ['moduleId'],
   },
@@ -165,19 +182,58 @@ const deleteEdgeTool: Anthropic.Tool = {
   },
 }
 
+const lookupDocsTool: Anthropic.Tool = {
+  name: 'lookup_docs',
+  description:
+    'Look up current documentation for a 3rd party library or service (e.g. Stripe, Supabase, Twilio). Use this when designing module flows that involve external integrations to ensure accurate API patterns.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      library: {
+        type: 'string',
+        description: 'Name of the library or service (e.g. "Stripe", "Supabase", "Twilio")',
+      },
+      topic: {
+        type: 'string',
+        description:
+          'Specific topic to look up (e.g. "checkout sessions", "webhook handling", "authentication")',
+      },
+    },
+    required: ['library', 'topic'],
+  },
+}
+
 // ---------------------------------------------------------------------------
 // Tool sets per mode
 // ---------------------------------------------------------------------------
 
-const MODULE_TOOLS = [createModuleTool, updateModuleTool, deleteModuleTool, connectModulesTool]
+const MODULE_TOOLS = [
+  createModuleTool,
+  updateModuleTool,
+  deleteModuleTool,
+  connectModulesTool,
+  lookupDocsTool,
+]
 const NODE_EDGE_TOOLS = [
   createNodeTool,
   updateNodeTool,
   deleteNodeTool,
   createEdgeTool,
   deleteEdgeTool,
+  lookupDocsTool,
 ]
-const ALL_TOOLS = [...MODULE_TOOLS, ...NODE_EDGE_TOOLS]
+const ALL_TOOLS = [
+  createModuleTool,
+  updateModuleTool,
+  deleteModuleTool,
+  connectModulesTool,
+  createNodeTool,
+  updateNodeTool,
+  deleteNodeTool,
+  createEdgeTool,
+  deleteEdgeTool,
+  lookupDocsTool,
+]
 
 export function getToolsForMode(mode: PromptMode): Anthropic.Tool[] {
   switch (mode) {
@@ -196,8 +252,8 @@ export function getToolsForMode(mode: PromptMode): Anthropic.Tool[] {
 
 type ToolInput = Record<string, unknown>
 
-function ok(content: string): ToolResult {
-  return { content, isError: false }
+function ok(content: string, data?: Record<string, unknown>): ToolResult {
+  return { content, isError: false, data }
 }
 
 function fail(message: string): ToolResult {
@@ -223,7 +279,9 @@ export function createToolExecutor(projectId: string) {
             exit_points: exitPoints,
           })
           if (!result.success) return fail(result.error)
-          return ok(`Created module "${result.data.name}" (id: ${result.data.id})`)
+          return ok(`Created module "${result.data.name}" (id: ${result.data.id})`, {
+            module: result.data,
+          })
         }
 
         case 'update_module': {
@@ -231,10 +289,14 @@ export function createToolExecutor(projectId: string) {
             moduleId: string
             name?: string
             description?: string
+            entry_points?: string[]
+            exit_points?: string[]
           }
           const result = await updateModule(moduleId, fields)
           if (!result.success) return fail(result.error)
-          return ok(`Updated module "${result.data.name}" (id: ${result.data.id})`)
+          return ok(`Updated module "${result.data.name}" (id: ${result.data.id})`, {
+            module: result.data,
+          })
         }
 
         case 'delete_module': {
@@ -244,15 +306,47 @@ export function createToolExecutor(projectId: string) {
         }
 
         case 'connect_modules': {
+          const sourceExitPoint = input.sourceExitPoint as string
+          const targetEntryPoint = input.targetEntryPoint as string
+          const sourceModuleId = input.sourceModuleId as string
+          const targetModuleId = input.targetModuleId as string
+
+          // Auto-add missing exit/entry points on the modules so handles exist
+          const [srcRes, tgtRes] = await Promise.all([
+            getModuleById(sourceModuleId),
+            getModuleById(targetModuleId),
+          ])
+          if (srcRes.success && !srcRes.data.exit_points.includes(sourceExitPoint)) {
+            await updateModule(sourceModuleId, {
+              exit_points: [...srcRes.data.exit_points, sourceExitPoint],
+            })
+          }
+          if (tgtRes.success && !tgtRes.data.entry_points.includes(targetEntryPoint)) {
+            await updateModule(targetModuleId, {
+              entry_points: [...tgtRes.data.entry_points, targetEntryPoint],
+            })
+          }
+
           const result = await connectModules({
             project_id: projectId,
-            source_module_id: input.sourceModuleId as string,
-            target_module_id: input.targetModuleId as string,
-            source_exit_point: input.sourceExitPoint as string,
-            target_entry_point: input.targetEntryPoint as string,
+            source_module_id: sourceModuleId,
+            target_module_id: targetModuleId,
+            source_exit_point: sourceExitPoint,
+            target_entry_point: targetEntryPoint,
           })
           if (!result.success) return fail(result.error)
-          return ok(`Connected modules ${input.sourceModuleId} → ${input.targetModuleId}`)
+
+          // Re-fetch both modules so the client gets updated entry/exit points
+          const [updatedSrc, updatedTgt] = await Promise.all([
+            getModuleById(sourceModuleId),
+            getModuleById(targetModuleId),
+          ])
+
+          return ok(`Connected modules ${sourceModuleId} → ${targetModuleId}`, {
+            connection: result.data,
+            ...(updatedSrc.success ? { sourceModule: updatedSrc.data } : {}),
+            ...(updatedTgt.success ? { targetModule: updatedTgt.data } : {}),
+          })
         }
 
         case 'create_node': {
@@ -309,6 +403,15 @@ export function createToolExecutor(projectId: string) {
           const result = await removeEdge(input.edgeId as string)
           if (!result.success) return fail(result.error)
           return ok(`Deleted edge ${input.edgeId}`)
+        }
+
+        case 'lookup_docs': {
+          const library = input.library as string
+          const topic = input.topic as string
+          const result = await lookupDocumentation(library, topic)
+          return ok(result.summary, {
+            lookup: { library, topic },
+          })
         }
 
         default:

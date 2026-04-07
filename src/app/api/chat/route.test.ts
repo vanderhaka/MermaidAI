@@ -12,6 +12,7 @@ vi.mock('@/lib/supabase/server', () => ({
 const mockCallLLMWithTools = vi.fn()
 vi.mock('@/lib/services/llm-client', () => ({
   callLLMWithTools: (...args: unknown[]) => mockCallLLMWithTools(...args),
+  TOOL_EVENT_DELIMITER: '\x1ETOOL_EVENT:',
 }))
 
 const mockBuildSystemPrompt = vi.fn()
@@ -39,6 +40,12 @@ vi.mock('@/lib/services/module-service', () => ({
   createModule: vi.fn(),
   updateModule: vi.fn(),
   deleteModule: vi.fn(),
+}))
+
+const mockListConnectionsByProject = vi.fn()
+vi.mock('@/lib/services/module-connection-service', () => ({
+  listConnectionsByProject: (...args: unknown[]) => mockListConnectionsByProject(...args),
+  connectModules: vi.fn(),
 }))
 
 const mockGetGraphForModule = vi.fn()
@@ -132,6 +139,9 @@ describe('POST /api/chat', () => {
     mockListModulesByProject.mockResolvedValue({ success: true, data: [] })
     mockGetModuleById.mockResolvedValue({ success: false, error: 'Not found' })
     mockGetGraphForModule.mockResolvedValue({ success: true, data: { nodes: [], edges: [] } })
+
+    // Default: connections return empty
+    mockListConnectionsByProject.mockResolvedValue({ success: true, data: [] })
 
     // Default: message persistence succeeds
     mockAddChatMessage.mockResolvedValue({

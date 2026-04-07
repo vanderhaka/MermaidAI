@@ -39,6 +39,8 @@ vi.mock('@xyflow/react', () => ({
   Background: () => <div data-testid="background" />,
   BackgroundVariant: { Dots: 'dots' },
   MarkerType: { ArrowClosed: 'arrowclosed' },
+  Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
+  useReactFlow: () => ({ fitView: vi.fn() }),
 }))
 
 vi.mock('@/lib/canvas/layout', () => ({

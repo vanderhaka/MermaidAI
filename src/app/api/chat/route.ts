@@ -5,10 +5,11 @@ import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { buildSystemPrompt } from '@/lib/services/prompt-builder'
 import type { PromptContext, PromptMode } from '@/lib/services/prompt-builder'
-import { callLLMWithTools } from '@/lib/services/llm-client'
+import { callLLMWithTools, TOOL_EVENT_DELIMITER } from '@/lib/services/llm-client'
 import { getToolsForMode, createToolExecutor } from '@/lib/services/llm-tools'
 import { addChatMessage } from '@/lib/services/chat-message-service'
 import { listModulesByProject, getModuleById } from '@/lib/services/module-service'
+import { listConnectionsByProject } from '@/lib/services/module-connection-service'
 import { getGraphForModule } from '@/lib/services/graph-service'
 
 const chatRequestSchema = z.object({
@@ -66,9 +67,15 @@ export async function POST(request: Request) {
     // Build full prompt context with live data from the database
     const promptContext: PromptContext = { projectName: context.projectName }
 
-    const modulesResult = await listModulesByProject(projectId)
+    const [modulesResult, connectionsResult] = await Promise.all([
+      listModulesByProject(projectId),
+      listConnectionsByProject(projectId),
+    ])
     if (modulesResult.success) {
       promptContext.modules = modulesResult.data
+    }
+    if (connectionsResult.success) {
+      promptContext.connections = connectionsResult.data
     }
 
     if (context.activeModuleId) {
@@ -113,8 +120,14 @@ export async function POST(request: Request) {
         while (true) {
           const { value, done } = await reader.read()
           if (done) break
-          fullText += value
+
+          // Pass everything to the client (including tool events)
           controller.enqueue(encoder.encode(value))
+
+          // Only accumulate display text for persistence (strip tool events)
+          if (!value.startsWith(TOOL_EVENT_DELIMITER)) {
+            fullText += value
+          }
         }
         controller.close()
       } catch (err) {

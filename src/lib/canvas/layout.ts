@@ -6,8 +6,10 @@ import { MODULE_CARD_WIDTH, MODULE_CARD_HEIGHT } from '@/components/canvas/nodes
 export const DEFAULT_NODE_WIDTH = 172
 export const DEFAULT_NODE_HEIGHT = 36
 
-const MODULE_GAP_X = 60
-const MODULE_GAP_Y = 50
+const MODULE_GAP_X = 120
+const MODULE_GAP_Y = 100
+
+const ERROR_KEYWORDS = /failure|fail|error|cancel|retry|return|rollback|reject/i
 
 /**
  * Layout for internal module nodes (process, decision, start, end, etc.).
@@ -44,9 +46,19 @@ export function computeLayout(nodes: FlowNode[], edges: FlowEdge[]): FlowNode[] 
 }
 
 /**
- * Layout for module map view. Uses dagre for connected modules (directed flow),
- * grid for disconnected modules, and combines both when some modules are
- * connected and others aren't.
+ * Semantic layout for the module map view.
+ *
+ * Designed for non-technical users — the happy path flows in a clean
+ * horizontal line (left → right). Error/failure branches drop below
+ * the main flow. Orphan modules sit in a row at the bottom.
+ *
+ * Algorithm:
+ * 1. Find the "happy path" — the longest forward-only chain from a root
+ *    module (one with no incoming forward edges).
+ * 2. Place happy-path modules in a horizontal row at y=0.
+ * 3. Place branch modules (connected via error exits) below their
+ *    parent, aligned to the same column or offset right.
+ * 4. Place orphan modules in a grid below everything.
  */
 export function computeModuleLayout(
   nodes: FlowNode[],
@@ -54,7 +66,6 @@ export function computeModuleLayout(
 ): FlowNode[] {
   if (nodes.length === 0) return []
 
-  // No connections — clean grid
   if (connections.length === 0) {
     return computeGridLayout(
       nodes,
@@ -65,51 +76,117 @@ export function computeModuleLayout(
     )
   }
 
-  // Build connection set to identify connected vs orphan modules
   const connectedIds = new Set<string>()
   for (const conn of connections) {
     connectedIds.add(conn.source_module_id)
     connectedIds.add(conn.target_module_id)
   }
 
-  const connected = nodes.filter((n) => connectedIds.has(n.id))
   const orphans = nodes.filter((n) => !connectedIds.has(n.id))
 
-  // Layout connected modules with dagre
-  const g = new dagre.graphlib.Graph()
-  g.setGraph({ rankdir: 'LR', nodesep: MODULE_GAP_Y, ranksep: MODULE_GAP_X * 2 })
-  g.setDefaultEdgeLabel(() => ({}))
-
-  for (const node of connected) {
-    g.setNode(node.id, { width: MODULE_CARD_WIDTH, height: MODULE_CARD_HEIGHT })
-  }
+  // Build adjacency: only forward (non-error) edges define the happy path
+  const forwardChildren = new Map<string, string[]>()
+  const errorChildren = new Map<string, string[]>()
+  const hasIncomingForward = new Set<string>()
 
   for (const conn of connections) {
-    g.setEdge(conn.source_module_id, conn.target_module_id)
+    const isError = ERROR_KEYWORDS.test(conn.source_exit_point)
+    if (isError) {
+      const list = errorChildren.get(conn.source_module_id) ?? []
+      list.push(conn.target_module_id)
+      errorChildren.set(conn.source_module_id, list)
+    } else {
+      const list = forwardChildren.get(conn.source_module_id) ?? []
+      list.push(conn.target_module_id)
+      forwardChildren.set(conn.source_module_id, list)
+      hasIncomingForward.add(conn.target_module_id)
+    }
   }
 
-  dagre.layout(g)
+  // Find root: a connected module with no incoming forward edges
+  const roots = nodes.filter((n) => connectedIds.has(n.id) && !hasIncomingForward.has(n.id))
+  const startId = roots.length > 0 ? roots[0].id : nodes.find((n) => connectedIds.has(n.id))!.id
 
+  // Walk the forward chain to build the happy path
+  const happyPath: string[] = []
+  const visited = new Set<string>()
+
+  let current: string | undefined = startId
+  while (current && !visited.has(current)) {
+    visited.add(current)
+    happyPath.push(current)
+    const children: string[] = forwardChildren.get(current) ?? []
+    // Pick the first unvisited forward child
+    current = children.find((c: string) => !visited.has(c))
+  }
+
+  // Collect branch modules (reachable via error edges, not on the happy path)
+  const happySet = new Set(happyPath)
+  const branchModules: Array<{ id: string; parentId: string; parentIndex: number }> = []
+
+  for (const conn of connections) {
+    if (!happySet.has(conn.target_module_id) && !visited.has(conn.target_module_id)) {
+      const parentIndex = happyPath.indexOf(conn.source_module_id)
+      branchModules.push({
+        id: conn.target_module_id,
+        parentId: conn.source_module_id,
+        parentIndex: parentIndex >= 0 ? parentIndex : happyPath.length - 1,
+      })
+      visited.add(conn.target_module_id)
+    }
+  }
+
+  // Also catch any connected modules we haven't placed yet
+  for (const node of nodes) {
+    if (connectedIds.has(node.id) && !visited.has(node.id)) {
+      branchModules.push({
+        id: node.id,
+        parentId: happyPath[happyPath.length - 1],
+        parentIndex: happyPath.length - 1,
+      })
+      visited.add(node.id)
+    }
+  }
+
+  // Position happy path: horizontal row
   const positioned = new Map<string, { x: number; y: number }>()
-  let maxX = 0
-  let maxY = 0
+  const stepX = MODULE_CARD_WIDTH + MODULE_GAP_X
 
-  for (const node of connected) {
-    const pos = g.node(node.id)
-    const x = pos.x - MODULE_CARD_WIDTH / 2
-    const y = pos.y - MODULE_CARD_HEIGHT / 2
-    positioned.set(node.id, { x, y })
-    maxX = Math.max(maxX, x + MODULE_CARD_WIDTH)
-    maxY = Math.max(maxY, y + MODULE_CARD_HEIGHT)
+  for (let i = 0; i < happyPath.length; i++) {
+    positioned.set(happyPath[i], { x: i * stepX, y: 0 })
   }
 
-  // Place orphan modules in a row below the connected graph
+  // Position branch modules: below their parent, grouped by column
+  const branchesByColumn = new Map<number, string[]>()
+  for (const branch of branchModules) {
+    const col = branch.parentIndex
+    const list = branchesByColumn.get(col) ?? []
+    list.push(branch.id)
+    branchesByColumn.set(col, list)
+  }
+
+  const branchY = MODULE_CARD_HEIGHT + MODULE_GAP_Y
+
+  for (const [col, ids] of branchesByColumn) {
+    for (let i = 0; i < ids.length; i++) {
+      positioned.set(ids[i], {
+        x: col * stepX + (i > 0 ? (i * stepX) / 2 : 0),
+        y: branchY + i * (MODULE_CARD_HEIGHT + MODULE_GAP_Y / 2),
+      })
+    }
+  }
+
+  // Position orphans: row below everything
   if (orphans.length > 0) {
-    const orphanY = maxY + MODULE_GAP_Y * 2
+    let maxY = 0
+    for (const pos of positioned.values()) {
+      maxY = Math.max(maxY, pos.y + MODULE_CARD_HEIGHT)
+    }
+    const orphanY = maxY + MODULE_GAP_Y
 
     for (let i = 0; i < orphans.length; i++) {
       positioned.set(orphans[i].id, {
-        x: i * (MODULE_CARD_WIDTH + MODULE_GAP_X),
+        x: i * stepX,
         y: orphanY,
       })
     }
