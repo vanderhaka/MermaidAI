@@ -11,21 +11,23 @@ export default function DecisionNode({ data }: NodeProps) {
   const { label } = data as DecisionNodeData
 
   return (
-    <div
-      style={{ transform: 'rotate(45deg)' }}
-      className="h-24 w-24 border-2 border-amber-400 bg-amber-50 shadow-sm"
-    >
+    <div className="relative h-44 w-44">
+      {/* Rotated face only — handles stay on the unrotated box so React Flow measures yes/no separately. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 rotate-45 border-2 border-amber-400 bg-amber-50 shadow-sm"
+      />
+
       <Handle type="target" position={Position.Top} />
 
-      <div
-        style={{ transform: 'rotate(-45deg)' }}
-        className="flex h-full w-full items-center justify-center"
-      >
-        <span className="text-xs font-medium text-amber-900">{label}</span>
+      <div className="relative z-[1] flex h-full min-h-0 w-full min-w-0 items-center justify-center overflow-hidden px-3 py-2">
+        <span className="line-clamp-5 max-w-[8.25rem] whitespace-normal break-words text-center text-[10.5px] font-medium leading-tight text-amber-900 [overflow-wrap:anywhere]">
+          {label}
+        </span>
       </div>
 
       <Handle type="source" position={Position.Bottom} id="yes" />
-      <Handle type="source" position={Position.Left} id="no" />
+      <Handle type="source" position={Position.Right} id="no" />
     </div>
   )
 }

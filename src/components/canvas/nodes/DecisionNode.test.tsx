@@ -33,17 +33,18 @@ describe('DecisionNode', () => {
     expect(screen.getByText('Is Valid?')).toBeInTheDocument()
   })
 
-  it('has diamond shape styling (rotated 45deg)', () => {
+  it('renders a rotated diamond face layer', () => {
     render(<DecisionNode {...defaultProps} />)
-    const innerRotated = screen.getByText('Is Valid?').closest('[style]')!
-    const diamond = innerRotated.parentElement!
-    expect(diamond).toHaveStyle({ transform: 'rotate(45deg)' })
+    const diamond = document.querySelector('[aria-hidden="true"]')
+    expect(diamond).toBeInTheDocument()
+    expect(diamond).toHaveClass('rotate-45')
   })
 
-  it('counter-rotates label content so text is upright', () => {
+  it('keeps the label in the unrotated content layer', () => {
     render(<DecisionNode {...defaultProps} />)
-    const innerRotated = screen.getByText('Is Valid?').closest('[style]')
-    expect(innerRotated).toHaveStyle({ transform: 'rotate(-45deg)' })
+    const label = screen.getByText('Is Valid?')
+    expect(label).toHaveClass('text-center')
+    expect(label).toHaveClass('break-words')
   })
 
   it('has a target handle at the top', () => {
@@ -63,5 +64,6 @@ describe('DecisionNode', () => {
     render(<DecisionNode {...defaultProps} />)
     const handle = screen.getByTestId('handle-source-no')
     expect(handle).toBeInTheDocument()
+    expect(handle).toHaveAttribute('data-position', 'right')
   })
 })
