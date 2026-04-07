@@ -37,20 +37,21 @@ describe('getGraphForModule', () => {
   })
 
   it('returns nodes and edges for a module', async () => {
-    const nodes = [
+    const nodeRows = [
       {
         id: 'node-1',
         module_id: 'mod-1',
         node_type: 'process',
         label: 'Step 1',
-        pseudocode: '',
-        position: { x: 0, y: 0 },
-        color: '',
+        pseudocode: null,
+        position_x: 12,
+        position_y: 24,
+        color: null,
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z',
       },
     ]
-    const edges = [
+    const edgeRows = [
       {
         id: 'edge-1',
         module_id: 'mod-1',
@@ -64,13 +65,31 @@ describe('getGraphForModule', () => {
 
     // First call (flow_nodes) returns nodes, second call (flow_edges) returns edges
     mockEq
-      .mockResolvedValueOnce({ data: nodes, error: null })
-      .mockResolvedValueOnce({ data: edges, error: null })
+      .mockResolvedValueOnce({ data: nodeRows, error: null })
+      .mockResolvedValueOnce({ data: edgeRows, error: null })
 
     const { getGraphForModule } = await import('@/lib/services/graph-service')
     const result = await getGraphForModule('mod-1')
 
-    expect(result).toEqual({ success: true, data: { nodes, edges } })
+    expect(result).toEqual({
+      success: true,
+      data: {
+        nodes: [
+          {
+            id: 'node-1',
+            module_id: 'mod-1',
+            node_type: 'process',
+            label: 'Step 1',
+            pseudocode: '',
+            position: { x: 12, y: 24 },
+            color: '',
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-01T00:00:00Z',
+          },
+        ],
+        edges: edgeRows,
+      },
+    })
     expect(mockFrom).toHaveBeenCalledWith('flow_nodes')
     expect(mockFrom).toHaveBeenCalledWith('flow_edges')
     expect(mockEq).toHaveBeenCalledWith('module_id', 'mod-1')
@@ -136,7 +155,8 @@ describe('addNode', () => {
       node_type: 'process',
       label: 'Handle request',
       pseudocode: '',
-      position: { x: 0, y: 0 },
+      position_x: 0,
+      position_y: 0,
       color: '#000000',
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
@@ -154,14 +174,28 @@ describe('addNode', () => {
       color: '#000000',
     })
 
-    expect(result).toEqual({ success: true, data: dbRow })
+    expect(result).toEqual({
+      success: true,
+      data: {
+        id: 'node-1',
+        module_id: '550e8400-e29b-41d4-a716-446655440000',
+        node_type: 'process',
+        label: 'Handle request',
+        pseudocode: '',
+        position: { x: 0, y: 0 },
+        color: '#000000',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    })
     expect(mockFrom).toHaveBeenCalledWith('flow_nodes')
     expect(mockInsert).toHaveBeenCalledWith({
       module_id: '550e8400-e29b-41d4-a716-446655440000',
       node_type: 'process',
       label: 'Handle request',
       pseudocode: '',
-      position: { x: 0, y: 0 },
+      position_x: 0,
+      position_y: 0,
       color: '#000000',
     })
   })
@@ -233,7 +267,8 @@ describe('updateNode', () => {
       node_type: 'process',
       label: 'Updated label',
       pseudocode: 'do something new',
-      position: { x: 50, y: 75 },
+      position_x: 50,
+      position_y: 75,
       color: '#000000',
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-04-06T00:00:00Z',
@@ -247,7 +282,20 @@ describe('updateNode', () => {
       pseudocode: 'do something new',
     })
 
-    expect(result).toEqual({ success: true, data: updatedRow })
+    expect(result).toEqual({
+      success: true,
+      data: {
+        id: 'node-1',
+        module_id: '550e8400-e29b-41d4-a716-446655440000',
+        node_type: 'process',
+        label: 'Updated label',
+        pseudocode: 'do something new',
+        position: { x: 50, y: 75 },
+        color: '#000000',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-04-06T00:00:00Z',
+      },
+    })
     expect(mockFrom).toHaveBeenCalledWith('flow_nodes')
     expect(mockUpdate).toHaveBeenCalledWith({
       label: 'Updated label',

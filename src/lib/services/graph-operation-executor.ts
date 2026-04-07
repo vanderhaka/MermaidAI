@@ -1,9 +1,8 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
-
 import type { GraphOperation } from '@/types/chat'
 import { createModule, updateModule, deleteModule } from '@/lib/services/module-service'
 import { connectModules } from '@/lib/services/module-connection-service'
 import { addNode, updateNode, removeNode, addEdge, removeEdge } from '@/lib/services/graph-service'
+import type { FlowNode } from '@/types/graph'
 
 export type OperationResult = {
   operation: string
@@ -17,10 +16,25 @@ export type ExecutionResult = {
   error?: string
 }
 
-async function executeOne(op: GraphOperation, _supabase: SupabaseClient): Promise<OperationResult> {
+export type ExecutionContext = {
+  projectId: string
+}
+
+const DEFAULT_MODULE_COLOR = '#111827'
+const DEFAULT_NODE_COLOR = '#2563eb'
+
+async function executeOne(op: GraphOperation, context: ExecutionContext): Promise<OperationResult> {
   switch (op.type) {
     case 'create_module': {
-      const result = await createModule(op.payload)
+      const result = await createModule({
+        project_id: context.projectId,
+        name: op.payload.name,
+        description: op.payload.description,
+        position: { x: 0, y: 0 },
+        color: DEFAULT_MODULE_COLOR,
+        entry_points: [],
+        exit_points: [],
+      })
       return result.success
         ? { operation: op.type, success: true }
         : { operation: op.type, success: false, error: result.error }
@@ -46,6 +60,9 @@ async function executeOne(op: GraphOperation, _supabase: SupabaseClient): Promis
         module_id: op.payload.moduleId,
         label: op.payload.label,
         node_type: op.payload.nodeType,
+        pseudocode: op.payload.pseudocode ?? '',
+        position: { x: 0, y: 0 },
+        color: DEFAULT_NODE_COLOR,
       })
       return result.success
         ? { operation: op.type, success: true }
@@ -53,8 +70,11 @@ async function executeOne(op: GraphOperation, _supabase: SupabaseClient): Promis
     }
 
     case 'update_node': {
-      const { nodeId, ...fields } = op.payload
-      const result = await updateNode(nodeId, fields)
+      const { nodeId, nodeType, ...fields } = op.payload
+      const result = await updateNode(nodeId, {
+        ...fields,
+        ...(nodeType ? { node_type: nodeType as FlowNode['node_type'] } : {}),
+      })
       return result.success
         ? { operation: op.type, success: true }
         : { operation: op.type, success: false, error: result.error }
@@ -89,6 +109,7 @@ async function executeOne(op: GraphOperation, _supabase: SupabaseClient): Promis
 
     case 'connect_modules': {
       const result = await connectModules({
+        project_id: context.projectId,
         source_module_id: op.payload.sourceModuleId,
         target_module_id: op.payload.targetModuleId,
         source_exit_point: op.payload.sourceExitPoint,
@@ -112,12 +133,12 @@ async function executeOne(op: GraphOperation, _supabase: SupabaseClient): Promis
 
 export async function executeOperations(
   operations: GraphOperation[],
-  supabase: SupabaseClient,
+  context: ExecutionContext,
 ): Promise<ExecutionResult> {
   const results: OperationResult[] = []
 
   for (const op of operations) {
-    const result = await executeOne(op, supabase)
+    const result = await executeOne(op, context)
     results.push(result)
   }
 

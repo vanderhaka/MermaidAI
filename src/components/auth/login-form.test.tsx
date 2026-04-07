@@ -5,6 +5,13 @@ import userEvent from '@testing-library/user-event'
 import LoginForm from '@/components/auth/login-form'
 
 const mockSignIn = vi.fn()
+const mockPush = vi.fn()
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: mockPush,
+  }),
+}))
 
 vi.mock('@/lib/services/auth-service', () => ({
   signIn: (...args: unknown[]) => mockSignIn(...args),
@@ -13,6 +20,7 @@ vi.mock('@/lib/services/auth-service', () => ({
 describe('LoginForm', () => {
   beforeEach(() => {
     mockSignIn.mockReset()
+    mockPush.mockReset()
   })
 
   describe('rendering', () => {
@@ -90,6 +98,7 @@ describe('LoginForm', () => {
       await user.click(screen.getByRole('button', { name: /sign in/i }))
 
       expect(await screen.findByRole('status')).toHaveTextContent(/signed in/i)
+      expect(mockPush).toHaveBeenCalledWith('/dashboard')
     })
 
     it('displays server error message on failure', async () => {

@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { signIn } from '@/lib/services/auth-service'
 import { signInSchema } from '@/types/auth'
 import type { AuthResult } from '@/types/auth'
@@ -12,6 +13,7 @@ type FormState = {
 }
 
 export default function LoginForm() {
+  const router = useRouter()
   const [state, setState] = useState<FormState>({})
   const [isPending, setIsPending] = useState(false)
 
@@ -44,6 +46,10 @@ export default function LoginForm() {
     const result = await signIn(parsed.data.email, parsed.data.password)
     setState({ serverResult: result })
     setIsPending(false)
+
+    if (result.success) {
+      router.push('/dashboard')
+    }
   }
 
   return (

@@ -1,7 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
   GraphOperation,
   CreateModuleOperation,
@@ -40,7 +39,7 @@ import { addNode, updateNode, removeNode, addEdge, removeEdge } from '@/lib/serv
 import { executeOperations } from '@/lib/services/graph-operation-executor'
 import type { ExecutionResult } from '@/lib/services/graph-operation-executor'
 
-const mockSupabase = {} as SupabaseClient
+const mockSupabase = { projectId: 'proj-1' }
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -68,8 +67,13 @@ describe('executeOperations', () => {
       const result = await executeOperations([op], mockSupabase)
 
       expect(createModule).toHaveBeenCalledWith({
+        project_id: 'proj-1',
         name: 'Auth Module',
         description: 'Handles authentication',
+        position: { x: 0, y: 0 },
+        color: '#111827',
+        entry_points: [],
+        exit_points: [],
       })
       expect(result.success).toBe(true)
       expect(result.results).toHaveLength(1)
@@ -206,6 +210,7 @@ describe('executeOperations', () => {
       const result = await executeOperations([op], mockSupabase)
 
       expect(connectModules).toHaveBeenCalledWith({
+        project_id: 'proj-1',
         source_module_id: 'mod-1',
         target_module_id: 'mod-2',
         source_exit_point: 'success',
@@ -331,6 +336,9 @@ describe('executeOperations', () => {
         module_id: 'mod-1',
         label: 'Validate Input',
         node_type: 'process',
+        pseudocode: '',
+        position: { x: 0, y: 0 },
+        color: '#2563eb',
       })
       expect(result.success).toBe(true)
       expect(result.results[0]).toEqual({

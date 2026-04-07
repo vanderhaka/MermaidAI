@@ -115,5 +115,6 @@ describe('ProjectList', () => {
 
     expect(mockCreateProject).toHaveBeenCalledOnce()
     expect(mockPush).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert')).toHaveTextContent('Failed to create project')
   })
 })

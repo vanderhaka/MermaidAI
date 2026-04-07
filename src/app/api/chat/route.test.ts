@@ -270,7 +270,7 @@ describe('POST /api/chat', () => {
     await new Promise((r) => setTimeout(r, 50))
 
     expect(mockParseLLMResponse).toHaveBeenCalledWith('Some response')
-    expect(mockExecuteOperations).toHaveBeenCalledWith(ops, mockSupabase)
+    expect(mockExecuteOperations).toHaveBeenCalledWith(ops, { projectId: 'proj-1' })
   })
 
   it('skips executeOperations when no operations are parsed', async () => {

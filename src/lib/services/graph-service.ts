@@ -14,6 +14,35 @@ export type ModuleGraph = {
   edges: FlowEdge[]
 }
 
+function mapRowToNode(row: any): FlowNode {
+  return {
+    id: row.id,
+    module_id: row.module_id,
+    node_type: row.node_type,
+    label: row.label,
+    pseudocode: row.pseudocode ?? '',
+    position: {
+      x: row.position_x ?? 0,
+      y: row.position_y ?? 0,
+    },
+    color: row.color ?? '',
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }
+}
+
+function mapRowToEdge(row: any): FlowEdge {
+  return {
+    id: row.id,
+    module_id: row.module_id,
+    source_node_id: row.source_node_id,
+    target_node_id: row.target_node_id,
+    label: row.label ?? null,
+    condition: row.condition ?? null,
+    created_at: row.created_at,
+  }
+}
+
 export async function getGraphForModule(moduleId: string): Promise<ServiceResult<ModuleGraph>> {
   const supabase = await createClient()
 
@@ -38,8 +67,8 @@ export async function getGraphForModule(moduleId: string): Promise<ServiceResult
   return {
     success: true,
     data: {
-      nodes: nodes as unknown as FlowNode[],
-      edges: edges as FlowEdge[],
+      nodes: nodes.map(mapRowToNode),
+      edges: edges.map(mapRowToEdge),
     },
   }
 }
@@ -50,14 +79,23 @@ export async function addNode(input: Record<string, unknown>): Promise<ServiceRe
     return { success: false, error: `Validation failed: ${parsed.error.issues[0].message}` }
   }
 
+  const { position, ...rest } = parsed.data
   const supabase = await createClient()
-  const { data, error } = await supabase.from('flow_nodes').insert(parsed.data).select().single()
+  const { data, error } = await supabase
+    .from('flow_nodes')
+    .insert({
+      ...rest,
+      position_x: position.x,
+      position_y: position.y,
+    })
+    .select()
+    .single()
 
   if (error) {
     return { success: false, error: error.message }
   }
 
-  return { success: true, data: data as unknown as FlowNode }
+  return { success: true, data: mapRowToNode(data) }
 }
 
 export async function updateNode(
@@ -85,7 +123,7 @@ export async function updateNode(
     return { success: false, error: error.message }
   }
 
-  return { success: true, data: updated as unknown as FlowNode }
+  return { success: true, data: mapRowToNode(updated) }
 }
 
 export async function removeNode(id: string): Promise<ServiceResult<null>> {
@@ -113,7 +151,7 @@ export async function addEdge(input: Record<string, unknown>): Promise<ServiceRe
     return { success: false, error: error.message }
   }
 
-  return { success: true, data: data as FlowEdge }
+  return { success: true, data: mapRowToEdge(data) }
 }
 
 export async function removeEdge(id: string): Promise<ServiceResult<null>> {

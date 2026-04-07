@@ -97,7 +97,7 @@ export async function POST(request: Request) {
       const { message: parsedMessage, operations } = parseLLMResponse(fullText)
 
       if (operations.length > 0) {
-        await executeOperations(operations, supabase)
+        await executeOperations(operations, { projectId })
       }
 
       await addChatMessage({
