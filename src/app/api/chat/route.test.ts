@@ -66,6 +66,11 @@ vi.mock('@/lib/module-notes/load-for-prompt', () => ({
   loadModuleNotesForChat: (...args: unknown[]) => mockLoadModuleNotesForChat(...args),
 }))
 
+const mockRateLimiterCheck = vi.fn()
+vi.mock('@/lib/rate-limiter', () => ({
+  chatRateLimiter: { check: (...args: unknown[]) => mockRateLimiterCheck(...args) },
+}))
+
 // --- Helpers ---
 
 function makeRequest(body: Record<string, unknown>): Request {
@@ -164,6 +169,9 @@ describe('POST /api/chat', () => {
     })
 
     mockLoadModuleNotesForChat.mockResolvedValue({ source: 'none' as const, markdown: null })
+
+    // Default: rate limiter allows requests
+    mockRateLimiterCheck.mockReturnValue({ allowed: true, remaining: 19 })
   })
 
   // --- Input validation ---
@@ -551,5 +559,54 @@ describe('POST /api/chat', () => {
     expect(response.status).toBe(400)
     const json = await response.json()
     expect(json).toHaveProperty('error')
+  })
+
+  // --- Rate limiting ---
+
+  it('returns 429 when rate limit is exceeded', async () => {
+    mockRateLimiterCheck.mockReturnValue({ allowed: false, retryAfterSeconds: 45 })
+
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest(validBody()))
+
+    expect(response.status).toBe(429)
+    const json = await response.json()
+    expect(json).toEqual({ error: 'Too many requests' })
+  })
+
+  it('includes Retry-After header when rate limited', async () => {
+    mockRateLimiterCheck.mockReturnValue({ allowed: false, retryAfterSeconds: 30 })
+
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest(validBody()))
+
+    expect(response.status).toBe(429)
+    expect(response.headers.get('Retry-After')).toBe('30')
+  })
+
+  it('does not call the LLM when rate limited', async () => {
+    mockRateLimiterCheck.mockReturnValue({ allowed: false, retryAfterSeconds: 10 })
+
+    const { POST } = await import('@/app/api/chat/route')
+    await POST(makeRequest(validBody()))
+
+    expect(mockCallLLMWithTools).not.toHaveBeenCalled()
+  })
+
+  it('checks rate limit with the authenticated user ID', async () => {
+    const { POST } = await import('@/app/api/chat/route')
+    await POST(makeRequest(validBody()))
+
+    expect(mockRateLimiterCheck).toHaveBeenCalledWith('user-1')
+  })
+
+  it('proceeds normally when rate limit is not exceeded', async () => {
+    mockRateLimiterCheck.mockReturnValue({ allowed: true, remaining: 15 })
+
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest(validBody()))
+
+    expect(response.status).toBe(200)
+    expect(mockCallLLMWithTools).toHaveBeenCalled()
   })
 })

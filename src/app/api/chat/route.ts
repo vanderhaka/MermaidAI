@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 
 import { createClient } from '@/lib/supabase/server'
+import { chatRateLimiter } from '@/lib/rate-limiter'
 import { buildSystemPrompt } from '@/lib/services/prompt-builder'
 import type { PromptContext, PromptMode } from '@/lib/services/prompt-builder'
 import { callLLMWithTools, sanitizeError, TOOL_EVENT_DELIMITER } from '@/lib/services/llm-client'
@@ -51,6 +52,17 @@ export async function POST(request: Request) {
 
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const rateLimit = chatRateLimiter.check(user.id)
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Too many requests' },
+      {
+        status: 429,
+        headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) },
+      },
+    )
   }
 
   const parsed = chatRequestSchema.safeParse(body)
