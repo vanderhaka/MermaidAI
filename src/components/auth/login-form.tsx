@@ -2,7 +2,6 @@
 
 import { useState, type FormEvent } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { signIn } from '@/lib/services/auth-service'
 import { signInSchema } from '@/types/auth'
 import type { AuthResult } from '@/types/auth'
@@ -13,7 +12,6 @@ type FormState = {
 }
 
 export default function LoginForm() {
-  const router = useRouter()
   const [state, setState] = useState<FormState>({})
   const [isPending, setIsPending] = useState(false)
 
@@ -43,12 +41,11 @@ export default function LoginForm() {
 
     setIsPending(true)
     setState({})
-    const result = await signIn(parsed.data.email, parsed.data.password)
-    setState({ serverResult: result })
-    setIsPending(false)
-
-    if (result.success) {
-      router.push('/dashboard')
+    try {
+      const result = await signIn(parsed.data.email, parsed.data.password)
+      setState({ serverResult: result })
+    } finally {
+      setIsPending(false)
     }
   }
 
@@ -59,7 +56,13 @@ export default function LoginForm() {
         <p className="mt-1 text-sm text-gray-500">Sign in to your account</p>
       </div>
 
-      <form onSubmit={handleSubmit} noValidate aria-label="Login form" className="space-y-4">
+      <form
+        method="post"
+        onSubmit={handleSubmit}
+        noValidate
+        aria-label="Login form"
+        className="space-y-4"
+      >
         <div>
           <label htmlFor="email" className="block text-sm font-medium text-gray-700">
             Email

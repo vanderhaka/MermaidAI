@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
+import { Suspense } from 'react'
 import LoginForm from '@/components/auth/login-form'
+import { StripSensitiveAuthQuery } from '@/components/auth/strip-sensitive-auth-query'
 
 export const metadata: Metadata = {
   title: 'Sign In | MermaidAI',
@@ -7,5 +9,12 @@ export const metadata: Metadata = {
 }
 
 export default function LoginPage() {
-  return <LoginForm />
+  return (
+    <>
+      <Suspense fallback={null}>
+        <StripSensitiveAuthQuery />
+      </Suspense>
+      <LoginForm />
+    </>
+  )
 }

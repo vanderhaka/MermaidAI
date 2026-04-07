@@ -21,3 +21,8 @@ body {
     linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
   color: #0f172a;
 }
+
+/* React Flow paints nodes above the default edge stack; lift edge labels (e.g. tooltips) above nodes */
+.react-flow .react-flow__edgelabel-renderer {
+  z-index: 1000;
+}

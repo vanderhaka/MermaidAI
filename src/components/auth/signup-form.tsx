@@ -55,7 +55,13 @@ export default function SignupForm() {
         <p className="mt-1 text-sm text-gray-500">Get started with MermaidAI</p>
       </div>
 
-      <form onSubmit={handleSubmit} aria-label="Sign up" noValidate className="space-y-4">
+      <form
+        method="post"
+        onSubmit={handleSubmit}
+        aria-label="Sign up"
+        noValidate
+        className="space-y-4"
+      >
         <div>
           <label htmlFor="signup-email" className="block text-sm font-medium text-gray-700">
             Email
