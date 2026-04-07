@@ -28,8 +28,8 @@ const SIDE_TO_POSITION: Record<HandleSide, Position> = {
 }
 
 function distributeHandles(
-  handles: Array<{ id: string; side: HandleSide }>,
-): Array<{ id: string; side: HandleSide; style: React.CSSProperties }> {
+  handles: Array<{ id: string; side: HandleSide; type: 'target' | 'source' }>,
+): Array<{ id: string; side: HandleSide; type: 'target' | 'source'; style: React.CSSProperties }> {
   // Group handles by side, then distribute within each group
   const bySide = new Map<HandleSide, Array<{ id: string; index: number }>>()
 
@@ -58,19 +58,22 @@ export default function ModuleCardNode({ data }: NodeProps) {
   const connectedSet = new Set(connectedEntryPoints ?? [])
   const sides = handleSides ?? {}
 
-  const entryHandles = distributeHandles(
-    entry_points.map((ep) => ({
-      id: `entry-${ep}`,
-      side: (sides[`entry-${ep}`] ?? 'left') as HandleSide,
-    })),
-  )
+  const entryHandles = entry_points.map((ep) => ({
+    id: `entry-${ep}`,
+    type: 'target' as const,
+    side: (sides[`entry-${ep}`] ?? 'left') as HandleSide,
+  }))
 
-  const exitHandles = distributeHandles(
-    exit_points.map((ep) => ({
-      id: `exit-${ep}`,
-      side: (sides[`exit-${ep}`] ?? 'right') as HandleSide,
-    })),
-  )
+  const exitHandles = exit_points.map((ep) => ({
+    id: `exit-${ep}`,
+    type: 'source' as const,
+    side: (sides[`exit-${ep}`] ?? 'right') as HandleSide,
+  }))
+
+  const distributedHandles = distributeHandles([...entryHandles, ...exitHandles])
+
+  const distributedEntryHandles = distributedHandles.filter((h) => h.type === 'target')
+  const distributedExitHandles = distributedHandles.filter((h) => h.type === 'source')
 
   return (
     <div
@@ -84,7 +87,7 @@ export default function ModuleCardNode({ data }: NodeProps) {
         </div>
       )}
 
-      {entryHandles.map((h) => {
+      {distributedEntryHandles.map((h) => {
         const ep = h.id.replace('entry-', '')
         return (
           <Handle
@@ -98,7 +101,7 @@ export default function ModuleCardNode({ data }: NodeProps) {
         )
       })}
 
-      {exitHandles.map((h) => {
+      {distributedExitHandles.map((h) => {
         const ep = h.id.replace('exit-', '')
         return (
           <Handle

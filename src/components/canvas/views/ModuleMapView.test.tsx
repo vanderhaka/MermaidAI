@@ -8,11 +8,18 @@ vi.mock('@xyflow/react', () => ({
   ReactFlow: ({
     children,
     nodes,
+    edges,
     nodeTypes,
+    edgeTypes,
     onNodeClick,
     ...props
   }: React.PropsWithChildren<Record<string, unknown>>) => (
-    <div data-testid="react-flow" {...props}>
+    <div
+      data-testid="react-flow"
+      data-node-types={Object.keys((nodeTypes ?? {}) as Record<string, unknown>).join(',')}
+      data-edge-types={Object.keys((edgeTypes ?? {}) as Record<string, unknown>).join(',')}
+      {...props}
+    >
       {Array.isArray(nodes) &&
         (nodes as Array<{ id: string; data: Record<string, unknown>; type?: string }>).map(
           (node) => (
@@ -21,6 +28,9 @@ vi.mock('@xyflow/react', () => ({
               data-testid={`node-${node.id}`}
               data-node-type={node.type}
               data-node-name={String(node.data.name)}
+              data-entry-points={JSON.stringify(node.data.entry_points ?? [])}
+              data-exit-points={JSON.stringify(node.data.exit_points ?? [])}
+              data-handle-sides={JSON.stringify(node.data.handleSides ?? {})}
               onClick={() =>
                 typeof onNodeClick === 'function' &&
                 (onNodeClick as (event: unknown, node: { id: string }) => void)(null, node)
@@ -28,6 +38,35 @@ vi.mock('@xyflow/react', () => ({
             />
           ),
         )}
+      {Array.isArray(edges) &&
+        (
+          edges as Array<{
+            id: string
+            type?: string
+            sourceHandle?: string
+            targetHandle?: string
+            data?: {
+              routeBias?: string
+              routeBand?: string
+              laneGap?: number
+              offset?: number
+              laneCoordinate?: number
+            }
+          }>
+        ).map((edge) => (
+          <div
+            key={edge.id}
+            data-testid={`edge-${edge.id}`}
+            data-edge-type={edge.type}
+            data-source-handle={edge.sourceHandle}
+            data-target-handle={edge.targetHandle}
+            data-route-bias={edge.data?.routeBias}
+            data-route-band={edge.data?.routeBand}
+            data-lane-gap={String(edge.data?.laneGap ?? '')}
+            data-offset={String(edge.data?.offset ?? '')}
+            data-lane-coordinate={String(edge.data?.laneCoordinate ?? '')}
+          />
+        ))}
       {children}
     </div>
   ),
@@ -77,6 +116,7 @@ describe('ModuleMapView', () => {
 
     expect(screen.getByTestId('node-mod-1')).toBeInTheDocument()
     expect(screen.getByTestId('node-mod-2')).toBeInTheDocument()
+    expect(screen.getByTestId('react-flow')).toHaveAttribute('data-edge-types', 'moduleConnection')
   })
 
   it('uses ModuleCardNode custom node type', () => {
@@ -126,6 +166,155 @@ describe('ModuleMapView', () => {
         expect.objectContaining({ id: 'mod-2' }),
       ]),
       [],
+    )
+  })
+
+  it('routes upward retry connections through top and bottom handles', () => {
+    const modules = [
+      makeModule({
+        id: 'payment',
+        name: 'Payment',
+        position: { x: 300, y: 0 },
+        entry_points: ['checkout_data', 'retry_payment'],
+        exit_points: ['payment_failure'],
+      }),
+      makeModule({
+        id: 'failure',
+        name: 'Payment Failure',
+        position: { x: 300, y: 220 },
+        entry_points: ['payment_failure'],
+        exit_points: ['retry_payment'],
+      }),
+    ]
+
+    render(
+      <ModuleMapView
+        modules={modules}
+        connections={[
+          {
+            id: 'conn-retry',
+            project_id: 'proj-1',
+            source_module_id: 'failure',
+            target_module_id: 'payment',
+            source_exit_point: 'retry_payment',
+            target_entry_point: 'retry_payment',
+            created_at: '2026-01-01T00:00:00Z',
+          },
+        ]}
+      />,
+    )
+
+    const paymentSides = JSON.parse(
+      screen.getByTestId('node-payment').dataset.handleSides ?? '{}',
+    ) as Record<string, string>
+    const failureSides = JSON.parse(
+      screen.getByTestId('node-failure').dataset.handleSides ?? '{}',
+    ) as Record<string, string>
+
+    expect(paymentSides['entry-retry_payment']).toBe('bottom')
+    expect(failureSides['exit-retry_payment']).toBe('top')
+    expect(screen.getByTestId('edge-conn-retry')).toHaveAttribute(
+      'data-edge-type',
+      'moduleConnection',
+    )
+  })
+
+  it('routes upward-left recovery connections through horizontal handles', () => {
+    const modules = [
+      makeModule({
+        id: 'cart',
+        name: 'Cart',
+        position: { x: 0, y: 0 },
+        entry_points: ['cart_items'],
+        exit_points: ['checkout_data'],
+      }),
+      makeModule({
+        id: 'payment',
+        name: 'Payment',
+        position: { x: 380, y: 0 },
+        entry_points: ['checkout_data', 'payment_details'],
+        exit_points: ['payment_failure'],
+      }),
+      makeModule({
+        id: 'failure',
+        name: 'Payment Failure',
+        position: { x: 380, y: 220 },
+        entry_points: ['payment_error'],
+        exit_points: ['retry_payment', 'return_to_cart'],
+      }),
+    ]
+
+    render(
+      <ModuleMapView
+        modules={modules}
+        connections={[
+          {
+            id: 'conn-return',
+            project_id: 'proj-1',
+            source_module_id: 'failure',
+            target_module_id: 'cart',
+            source_exit_point: 'return_to_cart',
+            target_entry_point: 'cart_items',
+            created_at: '2026-01-01T00:00:00Z',
+          },
+        ]}
+      />,
+    )
+
+    const cartSides = JSON.parse(
+      screen.getByTestId('node-cart').dataset.handleSides ?? '{}',
+    ) as Record<string, string>
+    const failureSides = JSON.parse(
+      screen.getByTestId('node-failure').dataset.handleSides ?? '{}',
+    ) as Record<string, string>
+
+    expect(cartSides['entry-cart_items']).toBe('bottom')
+    expect(failureSides['exit-return_to_cart']).toBe('bottom')
+    expect(screen.getByTestId('edge-conn-return')).toHaveAttribute('data-route-band', 'outer-y')
+    expect(screen.getByTestId('edge-conn-return')).toHaveAttribute('data-offset', '32')
+  })
+
+  it('adds missing handle names referenced by connections', () => {
+    const modules = [
+      makeModule({
+        id: 'payment',
+        name: 'Payment',
+        entry_points: ['checkout_data'],
+        exit_points: ['payment_success', 'payment_failure'],
+      }),
+      makeModule({
+        id: 'confirmation',
+        name: 'Order Confirmation',
+        entry_points: ['payment_result'],
+        exit_points: [],
+      }),
+    ]
+
+    render(
+      <ModuleMapView
+        modules={modules}
+        connections={[
+          {
+            id: 'conn-result',
+            project_id: 'proj-1',
+            source_module_id: 'payment',
+            target_module_id: 'confirmation',
+            source_exit_point: 'payment_result',
+            target_entry_point: 'payment_result',
+            created_at: '2026-01-01T00:00:00Z',
+          },
+        ]}
+      />,
+    )
+
+    const paymentExitPoints = JSON.parse(
+      screen.getByTestId('node-payment').dataset.exitPoints ?? '[]',
+    ) as string[]
+
+    expect(paymentExitPoints).toContain('payment_result')
+    expect(screen.getByTestId('edge-conn-result')).toHaveAttribute(
+      'data-source-handle',
+      'exit-payment_result',
     )
   })
 })

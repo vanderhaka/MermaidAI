@@ -96,4 +96,27 @@ describe('ModuleCardNode', () => {
     const handles = container.querySelectorAll('[data-testid^="handle-"]')
     expect(handles).toHaveLength(0)
   })
+
+  it('separates entry and exit handles that share the same side', () => {
+    const props = {
+      ...baseProps,
+      data: {
+        ...baseProps.data,
+        entry_points: ['checkout_data'],
+        exit_points: ['return_to_cart'],
+        handleSides: {
+          'entry-checkout_data': 'left',
+          'exit-return_to_cart': 'left',
+        },
+      },
+    }
+
+    render(<ModuleCardNode {...props} />)
+
+    const entryHandle = screen.getByTestId('handle-target-entry-checkout_data') as HTMLDivElement
+    const exitHandle = screen.getByTestId('handle-source-exit-return_to_cart') as HTMLDivElement
+
+    expect(entryHandle.style.top).toBe(`${(1 / 3) * 100}%`)
+    expect(exitHandle.style.top).toBe(`${(2 / 3) * 100}%`)
+  })
 })
