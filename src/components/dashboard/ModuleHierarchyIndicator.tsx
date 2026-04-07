@@ -17,12 +17,23 @@ export function ModuleHierarchyIndicator({
   const active = activeModuleId ? modules.find((m) => m.id === activeModuleId) : null
   const inFlowDetail = Boolean(activeModuleId)
 
+  /** One primary step only: Module while browsing list, Flow while viewing canvas detail. */
+  type StepTone = 'current' | 'context' | 'idle'
+  const tone = (step: 0 | 1 | 2): StepTone => {
+    if (!inFlowDetail) {
+      if (step === 0) return 'context' // L1 — grouping, not the focused step
+      if (step === 1) return 'current' // L2 — choosing a module
+      return 'idle' // L3 not yet
+    }
+    if (step === 2) return 'current' // L3 — flow editor
+    return 'idle' // L1/L2 — behind you for this view
+  }
+
   const stepClass = (step: 0 | 1 | 2) => {
-    const browsing = !inFlowDetail
-    const activeBrowse = browsing && step <= 1
-    const activeFlow = inFlowDetail && step === 2
-    const on = activeBrowse || activeFlow
-    return on ? 'bg-gray-900 text-white shadow-sm' : 'bg-gray-100 text-gray-500'
+    const t = tone(step)
+    if (t === 'current') return 'bg-gray-900 text-white shadow-sm'
+    if (t === 'context') return 'bg-gray-200 text-gray-800'
+    return 'bg-gray-100 text-gray-500'
   }
 
   const contextLine = active
@@ -50,6 +61,10 @@ export function ModuleHierarchyIndicator({
       </div>
       <p className="line-clamp-2 text-xs leading-snug text-gray-600" title={contextLine}>
         {contextLine}
+      </p>
+      <p className="text-[11px] leading-snug text-gray-500">
+        <span className="font-medium text-gray-600">Domain</span> groups modules; each{' '}
+        <span className="font-medium text-gray-600">module</span> card opens its flow.
       </p>
     </div>
   )
