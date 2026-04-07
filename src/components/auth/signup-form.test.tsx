@@ -80,6 +80,18 @@ describe('SignupForm', () => {
       expect(mockSignUp).toHaveBeenCalledWith('test@example.com', 'password123')
     })
 
+    it('calls signUp with Zod-parsed (trimmed, lowercased) email, not raw input', async () => {
+      const user = userEvent.setup()
+      mockSignUp.mockResolvedValue({ success: true })
+      render(<SignupForm />)
+
+      await user.type(screen.getByLabelText(/email/i), '  Test@Example.com  ')
+      await user.type(screen.getByLabelText(/password/i), 'password123')
+      await user.click(screen.getByRole('button', { name: /sign up/i }))
+
+      expect(mockSignUp).toHaveBeenCalledWith('test@example.com', 'password123')
+    })
+
     it('displays success message after successful signup', async () => {
       const user = userEvent.setup()
       mockSignUp.mockResolvedValue({ success: true })

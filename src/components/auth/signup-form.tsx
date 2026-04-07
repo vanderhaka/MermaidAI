@@ -37,7 +37,7 @@ export default function SignupForm() {
     setPending(true)
     setState({})
 
-    const result = await signUp(email, password)
+    const result = await signUp(parsed.data.email, parsed.data.password)
 
     setPending(false)
 
