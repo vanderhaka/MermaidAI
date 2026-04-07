@@ -3,10 +3,12 @@
 import { createModuleSchema, updateModuleSchema } from '@/lib/schemas/module'
 import { createClient } from '@/lib/supabase/server'
 import type { Module } from '@/types/graph'
+import type { Tables } from '@/types/database'
 
+type ModuleRow = Tables<'modules'>
 type ServiceResult<T> = { success: true; data: T } | { success: false; error: string }
 
-function mapRowToModule(row: any): Module {
+function mapRowToModule(row: ModuleRow): Module {
   return {
     id: row.id,
     project_id: row.project_id,
@@ -14,8 +16,8 @@ function mapRowToModule(row: any): Module {
     description: row.description ?? null,
     position: { x: row.position_x ?? 0, y: row.position_y ?? 0 },
     color: row.color ?? '',
-    entry_points: Array.isArray(row.entry_points) ? row.entry_points : [],
-    exit_points: Array.isArray(row.exit_points) ? row.exit_points : [],
+    entry_points: Array.isArray(row.entry_points) ? (row.entry_points as string[]) : [],
+    exit_points: Array.isArray(row.exit_points) ? (row.exit_points as string[]) : [],
     created_at: row.created_at,
     updated_at: row.updated_at,
   }

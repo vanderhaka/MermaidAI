@@ -123,17 +123,24 @@ export async function POST(request: Request) {
       }
 
       // Persist messages after stream completes
-      await addChatMessage({
-        project_id: projectId,
-        role: 'user',
-        content: message,
-      })
-
-      if (fullText.trim()) {
+      try {
         await addChatMessage({
           project_id: projectId,
-          role: 'assistant',
-          content: fullText.trim(),
+          role: 'user',
+          content: message,
+        })
+
+        if (fullText.trim()) {
+          await addChatMessage({
+            project_id: projectId,
+            role: 'assistant',
+            content: fullText.trim(),
+          })
+        }
+      } catch (persistErr) {
+        console.error('Failed to persist chat messages', {
+          projectId,
+          error: persistErr instanceof Error ? persistErr.message : String(persistErr),
         })
       }
     },

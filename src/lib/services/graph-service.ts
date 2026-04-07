@@ -5,8 +5,11 @@ import 'server-only'
 import { createFlowEdgeSchema } from '@/lib/schemas/flow-edge'
 import { createFlowNodeSchema } from '@/lib/schemas/flow-node'
 import { createClient } from '@/lib/supabase/server'
-import type { FlowEdge, FlowNode } from '@/types/graph'
+import type { FlowEdge, FlowNode, FlowNodeType } from '@/types/graph'
+import type { Tables } from '@/types/database'
 
+type FlowNodeRow = Tables<'flow_nodes'>
+type FlowEdgeRow = Tables<'flow_edges'>
 type ServiceResult<T> = { success: true; data: T } | { success: false; error: string }
 
 export type ModuleGraph = {
@@ -14,11 +17,11 @@ export type ModuleGraph = {
   edges: FlowEdge[]
 }
 
-function mapRowToNode(row: any): FlowNode {
+function mapRowToNode(row: FlowNodeRow): FlowNode {
   return {
     id: row.id,
     module_id: row.module_id,
-    node_type: row.node_type,
+    node_type: row.node_type as FlowNodeType,
     label: row.label,
     pseudocode: row.pseudocode ?? '',
     position: {
@@ -31,7 +34,7 @@ function mapRowToNode(row: any): FlowNode {
   }
 }
 
-function mapRowToEdge(row: any): FlowEdge {
+function mapRowToEdge(row: FlowEdgeRow): FlowEdge {
   return {
     id: row.id,
     module_id: row.module_id,
