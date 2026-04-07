@@ -4,8 +4,9 @@ import 'server-only'
 
 import { createFlowEdgeSchema } from '@/lib/schemas/flow-edge'
 import { createFlowNodeSchema } from '@/lib/schemas/flow-node'
+import { buildCartFlowRows, isCartModuleName } from '@/lib/module-templates'
 import { createClient } from '@/lib/supabase/server'
-import type { FlowEdge, FlowNode, FlowNodeType } from '@/types/graph'
+import type { FlowEdge, FlowNode, FlowNodeType, Module } from '@/types/graph'
 import type { Tables } from '@/types/database'
 
 type FlowNodeRow = Tables<'flow_nodes'>
@@ -74,6 +75,45 @@ export async function getGraphForModule(moduleId: string): Promise<ServiceResult
       edges: edges.map(mapRowToEdge),
     },
   }
+}
+
+/**
+ * When a module has no flow yet, seed a default graph for known module names (e.g. Cart).
+ * Safe to call on every project load: no-ops if nodes already exist or no template matches.
+ */
+export async function ensureDefaultModuleGraph(
+  module: Module,
+): Promise<ServiceResult<ModuleGraph>> {
+  const existing = await getGraphForModule(module.id)
+  if (!existing.success) {
+    return existing
+  }
+  if (existing.data.nodes.length > 0) {
+    return existing
+  }
+
+  if (!isCartModuleName(module.name)) {
+    return existing
+  }
+
+  const { nodes: nodeRows, edges: edgeRows } = buildCartFlowRows(module.id)
+  const supabase = await createClient()
+
+  const { error: nodesError } = await supabase
+    .from('flow_nodes')
+    .upsert(nodeRows, { onConflict: 'id', ignoreDuplicates: true })
+  if (nodesError) {
+    return { success: false, error: nodesError.message }
+  }
+
+  const { error: edgesError } = await supabase
+    .from('flow_edges')
+    .upsert(edgeRows, { onConflict: 'id', ignoreDuplicates: true })
+  if (edgesError) {
+    return { success: false, error: edgesError.message }
+  }
+
+  return getGraphForModule(module.id)
 }
 
 export async function addNode(input: Record<string, unknown>): Promise<ServiceResult<FlowNode>> {

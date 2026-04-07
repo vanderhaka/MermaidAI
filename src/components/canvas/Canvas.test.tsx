@@ -11,7 +11,6 @@ vi.mock('@xyflow/react', () => ({
   ReactFlowProvider: ({ children }: React.PropsWithChildren) => (
     <div data-testid="react-flow-provider">{children}</div>
   ),
-  MiniMap: () => <div data-testid="minimap" />,
   Controls: () => <div data-testid="controls" />,
   Background: () => <div data-testid="background" />,
   BackgroundVariant: { Dots: 'dots' },
@@ -30,11 +29,6 @@ describe('Canvas', () => {
     const provider = screen.getByTestId('react-flow-provider')
     const flow = screen.getByTestId('react-flow')
     expect(provider).toContainElement(flow)
-  })
-
-  it('renders MiniMap', () => {
-    render(<Canvas nodes={[]} edges={[]} />)
-    expect(screen.getByTestId('minimap')).toBeInTheDocument()
   })
 
   it('renders Controls', () => {

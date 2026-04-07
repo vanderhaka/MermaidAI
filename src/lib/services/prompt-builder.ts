@@ -1,4 +1,5 @@
 import type { Module, FlowNode, FlowEdge, ModuleConnection } from '@/types/graph'
+import { moduleNotesFileSlug } from '@/lib/module-notes-slug'
 
 export type PromptMode = 'discovery' | 'module_map' | 'module_detail'
 
@@ -9,16 +10,51 @@ export type PromptContext = {
   currentModule?: Module
   nodes?: FlowNode[]
   edges?: FlowEdge[]
+  /**
+   * Markdown from `public/module-notes/<slug>.md` or `default.md`, loaded on the server for
+   * module_detail only. Third-party library docs use `lookup_docs` (Context7) instead.
+   */
+  moduleNotes?: {
+    source: 'module' | 'default' | 'none'
+    markdown: string | null
+  }
 }
+
+const MAX_PSEUDOCODE_PER_NODE = 450
 
 function buildCurrentNodesSection(nodes?: FlowNode[]): string {
   if (!nodes || nodes.length === 0) {
     return 'No nodes exist yet in this module.'
   }
 
-  const lines = nodes.map((n) => `- **${n.label}** (id: ${n.id}, type: ${n.node_type})`)
+  const lines = nodes.map((n) => {
+    const head = `- **${n.label}** (id: ${n.id}, type: ${n.node_type})`
+    const pc = n.pseudocode?.trim()
+    if (!pc) return head
+    const raw =
+      pc.length > MAX_PSEUDOCODE_PER_NODE ? `${pc.slice(0, MAX_PSEUDOCODE_PER_NODE)}…` : pc
+    const snippet = raw.replace(/`/g, "'")
+    return `${head}\n  Pseudocode:\n  \`\`\`\n  ${snippet}\n  \`\`\``
+  })
 
-  return `Current nodes:\n${lines.join('\n')}`
+  return `Current nodes:\n${lines.join('\n\n')}`
+}
+
+function buildModuleNotesPromptSection(
+  moduleName: string,
+  notes: PromptContext['moduleNotes'],
+): string {
+  const slug = moduleNotesFileSlug(moduleName)
+  if (!notes || notes.source === 'none' || !notes.markdown?.trim()) {
+    return `No module notes file loaded. Authors can add \`public/module-notes/${slug}.md\` (slug from the module title) or \`public/module-notes/default.md\`. That markdown is injected here on each chat message while this module is open.`
+  }
+
+  const fileHint =
+    notes.source === 'module'
+      ? `Source file: public/module-notes/${slug}.md`
+      : 'Source file: public/module-notes/default.md (fallback when no module-specific file exists)'
+
+  return `${fileHint}\n\n${notes.markdown.trim()}`
 }
 
 function buildCurrentEdgesSection(edges?: FlowEdge[]): string {
@@ -201,6 +237,12 @@ You are in **module detail mode** — the user is drilling into this specific mo
 
 ${moduleDesc}
 
+### Authoritative module notes (repo markdown)
+
+Treat this section as product/architecture constraints for this module. It is loaded from static files in the repo, not from Context7.
+
+${buildModuleNotesPromptSection(moduleName, context.moduleNotes)}
+
 ### Connections to Other Modules
 
 ${connectionSection}
@@ -231,7 +273,7 @@ You have tools to create, update, and delete nodes and edges. Use them when the 
 
 ## When to Use lookup_docs
 
-If the module involves a 3rd party service or library (e.g. Stripe, Supabase, Twilio), use the \`lookup_docs\` tool to fetch current documentation before designing the flow. This ensures your node design reflects real API patterns.
+If the module involves a 3rd party service or library (e.g. Stripe, Supabase, Twilio), use the \`lookup_docs\` tool to fetch **library** documentation (Context7-backed in this app). Use that for API shapes and SDK patterns. Use the **Authoritative module notes** section above for this project's cross-module contracts — those come from repo markdown, not from Context7.
 
 ## File Path Instructions
 

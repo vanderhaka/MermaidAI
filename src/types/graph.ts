@@ -17,6 +17,8 @@ export type CreateProjectInput = Omit<Project, 'id' | 'user_id' | 'created_at' |
 export type Module = {
   id: string
   project_id: string
+  /** L1 domain / capability area (e.g. Payments). Null → General in UI. */
+  domain: string | null
   name: string
   description: string | null
   position: Position
@@ -27,7 +29,9 @@ export type Module = {
   updated_at: string
 }
 
-export type CreateModuleInput = Omit<Module, 'id' | 'created_at' | 'updated_at'>
+export type CreateModuleInput = Omit<Module, 'id' | 'created_at' | 'updated_at' | 'domain'> & {
+  domain?: string | null
+}
 
 export type FlowNodeType = 'decision' | 'process' | 'entry' | 'exit' | 'start' | 'end'
 

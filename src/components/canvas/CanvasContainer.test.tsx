@@ -66,6 +66,7 @@ function makeModule(overrides: Partial<Module> = {}): Module {
   return {
     id: 'mod-1',
     project_id: 'proj-1',
+    domain: null,
     name: 'Auth Module',
     description: null,
     position: { x: 0, y: 0 },

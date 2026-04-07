@@ -4,7 +4,6 @@ import { startTransition, useEffect, useMemo, useState } from 'react'
 import {
   ReactFlow,
   ReactFlowProvider,
-  MiniMap,
   Controls,
   Background,
   BackgroundVariant,
@@ -16,7 +15,10 @@ import '@xyflow/react/dist/style.css'
 import ModuleConnectionEdge, {
   type ModuleConnectionEdgeData,
 } from '@/components/canvas/edges/ModuleConnectionEdge'
-import ModuleCardNode from '@/components/canvas/nodes/ModuleCardNode'
+import ModuleCardNode, {
+  MODULE_CARD_HEIGHT,
+  MODULE_CARD_WIDTH,
+} from '@/components/canvas/nodes/ModuleCardNode'
 import {
   computeModuleMapLayout,
   type ModuleMapLayoutResult,
@@ -155,6 +157,8 @@ function ModuleMapInner({ modules, connections, onModuleClick }: ModuleMapViewPr
         id: module.id,
         type: 'moduleCard',
         position: nodeLayout?.position ?? module.position,
+        width: MODULE_CARD_WIDTH,
+        height: MODULE_CARD_HEIGHT,
         data: {
           name: module.name,
           description: module.description,
@@ -227,7 +231,6 @@ function ModuleMapInner({ modules, connections, onModuleClick }: ModuleMapViewPr
       fitView
       fitViewOptions={{ padding: 0.3 }}
     >
-      <MiniMap />
       <Controls />
       <Background variant={BackgroundVariant.Dots} />
     </ReactFlow>

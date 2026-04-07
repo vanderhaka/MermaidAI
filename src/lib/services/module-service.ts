@@ -12,6 +12,7 @@ function mapRowToModule(row: ModuleRow): Module {
   return {
     id: row.id,
     project_id: row.project_id,
+    domain: row.domain ?? null,
     name: row.name,
     description: row.description ?? null,
     position: { x: row.position_x ?? 0, y: row.position_y ?? 0 },

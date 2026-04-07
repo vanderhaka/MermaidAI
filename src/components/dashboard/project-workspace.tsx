@@ -11,6 +11,8 @@ import ChatMessageList from '@/components/chat/ChatMessageList'
 import { createModule } from '@/lib/services/module-service'
 import { updateProject, deleteProject } from '@/lib/services/project-service'
 import { TOOL_EVENT_DELIMITER } from '@/lib/services/llm-client'
+import { ModuleHierarchyIndicator } from '@/components/dashboard/ModuleHierarchyIndicator'
+import { groupModulesByDomain } from '@/lib/module-hierarchy'
 import { useGraphStore } from '@/store/graph-store'
 import type { ChatMessage } from '@/types/chat'
 import type { FlowEdge, FlowNode, Module, ModuleConnection, Project } from '@/types/graph'
@@ -530,6 +532,16 @@ export function ProjectWorkspace({
               </button>
             </div>
 
+            {!moduleSidebarCollapsed && (
+              <div className="mb-3 shrink-0">
+                <ModuleHierarchyIndicator
+                  projectName={projectName}
+                  modules={modules}
+                  activeModuleId={activeModuleId}
+                />
+              </div>
+            )}
+
             <div
               id="module-sidebar-list"
               className={`min-h-0 flex-1 overflow-y-auto ${moduleSidebarCollapsed ? 'hidden' : ''}`}
@@ -539,31 +551,54 @@ export function ProjectWorkspace({
                   Add your first module to start shaping the project.
                 </p>
               ) : (
-                <ul className="space-y-2">
-                  {modules.map((module) => {
-                    const isActive = module.id === activeModuleId
+                <ul className="space-y-5">
+                  {groupModulesByDomain(modules).map(({ domain, modules: group }) => (
+                    <li key={domain}>
+                      <section
+                        className="rounded-xl border border-gray-200 bg-gray-50/90 p-3"
+                        aria-label={`Domain: ${domain}`}
+                      >
+                        <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-gray-200/80 pb-2">
+                          <span className="inline-flex shrink-0 items-center rounded-md border border-gray-300 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-600">
+                            Domain
+                          </span>
+                          <h3 className="text-sm font-semibold leading-tight text-gray-900">
+                            {domain}
+                          </h3>
+                          <span className="text-xs text-gray-500">
+                            {group.length} module{group.length === 1 ? '' : 's'}
+                          </span>
+                        </div>
+                        <p className="sr-only">Modules in this domain:</p>
+                        <ul className="space-y-2">
+                          {group.map((module) => {
+                            const isActive = module.id === activeModuleId
 
-                    return (
-                      <li key={module.id}>
-                        <button
-                          type="button"
-                          onClick={() => setActiveModuleId(module.id)}
-                          className={`w-full rounded-xl border px-3 py-3 text-left transition ${
-                            isActive
-                              ? 'border-black bg-gray-900 text-white'
-                              : 'border-gray-200 bg-white text-gray-900 hover:border-gray-400'
-                          }`}
-                        >
-                          <p className="text-sm font-medium">{module.name}</p>
-                          <p
-                            className={`mt-1 line-clamp-2 text-xs ${isActive ? 'text-gray-200' : 'text-gray-500'}`}
-                          >
-                            {truncateDescription(module.description)}
-                          </p>
-                        </button>
-                      </li>
-                    )
-                  })}
+                            return (
+                              <li key={module.id}>
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveModuleId(module.id)}
+                                  className={`w-full rounded-lg border px-3 py-2.5 text-left shadow-sm transition ${
+                                    isActive
+                                      ? 'border-black bg-gray-900 text-white shadow-md'
+                                      : 'border-gray-200 bg-white text-gray-900 hover:border-gray-400'
+                                  }`}
+                                >
+                                  <p className="text-sm font-medium">{module.name}</p>
+                                  <p
+                                    className={`mt-0.5 line-clamp-2 text-xs ${isActive ? 'text-gray-300' : 'text-gray-500'}`}
+                                  >
+                                    {truncateDescription(module.description)}
+                                  </p>
+                                </button>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      </section>
+                    </li>
+                  ))}
                 </ul>
               )}
             </div>

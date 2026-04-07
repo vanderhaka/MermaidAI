@@ -60,6 +60,7 @@ describe('buildSystemPrompt', () => {
         {
           id: 'mod-1',
           project_id: 'proj-1',
+          domain: null,
           name: 'Auth',
           description: 'Handles user authentication',
           position: { x: 0, y: 0 },
@@ -72,6 +73,7 @@ describe('buildSystemPrompt', () => {
         {
           id: 'mod-2',
           project_id: 'proj-1',
+          domain: null,
           name: 'Dashboard',
           description: null,
           position: { x: 200, y: 0 },
@@ -149,6 +151,7 @@ describe('buildSystemPrompt', () => {
     const currentModule = {
       id: 'mod-1',
       project_id: 'proj-1',
+      domain: null,
       name: 'Auth',
       description: 'Handles user authentication',
       position: { x: 0, y: 0 },

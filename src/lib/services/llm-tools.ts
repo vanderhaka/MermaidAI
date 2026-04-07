@@ -28,6 +28,11 @@ const createModuleTool: Anthropic.Tool = {
     type: 'object' as const,
     properties: {
       name: { type: 'string', description: 'Name of the module (e.g. "Auth", "Payments")' },
+      domain: {
+        type: 'string',
+        description:
+          'High-level domain / capability area for grouping (e.g. "Payments", "Orders", "Notifications"). Omit if unclear.',
+      },
       description: { type: 'string', description: 'Brief description of what the module does' },
       entry_points: {
         type: 'array',
@@ -54,6 +59,11 @@ const updateModuleTool: Anthropic.Tool = {
     type: 'object' as const,
     properties: {
       moduleId: { type: 'string', description: 'ID of the module to update' },
+      domain: {
+        type: 'string',
+        description:
+          'Domain / capability area label for sidebar grouping, or empty string to clear',
+      },
       name: { type: 'string', description: 'New name for the module' },
       description: { type: 'string', description: 'New description for the module' },
       entry_points: {
@@ -269,9 +279,16 @@ export function createToolExecutor(projectId: string) {
             ? (input.entry_points as string[])
             : []
           const exitPoints = Array.isArray(input.exit_points) ? (input.exit_points as string[]) : []
+          const domainRaw = input.domain
+          const domain =
+            typeof domainRaw === 'string' && domainRaw.trim().length > 0
+              ? domainRaw.trim().slice(0, 80)
+              : undefined
+
           const result = await createModule({
             project_id: projectId,
             name: input.name as string,
+            ...(domain !== undefined ? { domain } : {}),
             description: input.description as string | undefined,
             position: { x: 0, y: 0 },
             color: DEFAULT_MODULE_COLOR,
@@ -285,14 +302,21 @@ export function createToolExecutor(projectId: string) {
         }
 
         case 'update_module': {
-          const { moduleId, ...fields } = input as {
+          const raw = input as {
             moduleId: string
+            domain?: string
             name?: string
             description?: string
             entry_points?: string[]
             exit_points?: string[]
           }
-          const result = await updateModule(moduleId, fields)
+          const { moduleId, domain: domainIn, ...rest } = raw
+          const payload: Record<string, unknown> = { ...rest }
+          if (domainIn !== undefined) {
+            const d = domainIn.trim()
+            payload.domain = d.length === 0 ? null : d.slice(0, 80)
+          }
+          const result = await updateModule(moduleId, payload)
           if (!result.success) return fail(result.error)
           return ok(`Updated module "${result.data.name}" (id: ${result.data.id})`, {
             module: result.data,
