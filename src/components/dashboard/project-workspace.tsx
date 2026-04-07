@@ -10,7 +10,7 @@ import ChatInput from '@/components/chat/ChatInput'
 import ChatMessageList from '@/components/chat/ChatMessageList'
 import { createModule } from '@/lib/services/module-service'
 import { updateProject, deleteProject } from '@/lib/services/project-service'
-import { TOOL_EVENT_DELIMITER } from '@/lib/services/llm-client'
+import { createStreamParser } from '@/lib/stream-parser'
 import { ModuleHierarchyIndicator } from '@/components/dashboard/ModuleHierarchyIndicator'
 import { groupModulesByDomain } from '@/lib/module-hierarchy'
 import { useGraphStore } from '@/store/graph-store'
@@ -252,6 +252,7 @@ export function ProjectWorkspace({
       }
 
       const decoder = new TextDecoder()
+      const parser = createStreamParser()
       let assistantText = ''
 
       while (true) {
@@ -261,29 +262,21 @@ export function ProjectWorkspace({
         }
 
         const chunk = decoder.decode(value, { stream: true })
+        const { text, events } = parser.push(chunk)
 
-        // Parse tool events and update store in real-time
-        const lines = chunk.split(TOOL_EVENT_DELIMITER)
-        // First segment is always display text
-        assistantText += lines[0]
+        assistantText += text
         setStreamingContent(assistantText)
 
-        // Remaining segments are tool event JSON payloads
-        for (let i = 1; i < lines.length; i++) {
-          const line = lines[i].trim()
-          if (!line) continue
-          try {
-            const event = JSON.parse(line) as {
-              tool: string
-              data: Record<string, unknown>
-            }
-            handleToolEvent(event.tool, event.data)
-          } catch {
-            // Not valid JSON — treat as text
-            assistantText += lines[i]
-            setStreamingContent(assistantText)
-          }
+        for (const event of events) {
+          handleToolEvent(event.tool, event.data)
         }
+      }
+
+      // Flush any remaining buffered content
+      const { text: flushedText } = parser.flush()
+      if (flushedText) {
+        assistantText += flushedText
+        setStreamingContent(assistantText)
       }
 
       if (assistantText.trim()) {
