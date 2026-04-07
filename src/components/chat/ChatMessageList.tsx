@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import Markdown from 'react-markdown'
 import type { ChatMessage } from '@/types/chat'
 
 interface ChatMessageListProps {
@@ -22,18 +23,20 @@ function ThinkingIndicator() {
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user'
 
+  if (isUser) {
+    return (
+      <article aria-label="user message" data-role="user" className="flex justify-end">
+        <div className="max-w-[80%] rounded-lg bg-blue-600 px-4 py-2 text-white">
+          <p className="whitespace-pre-wrap">{message.content}</p>
+        </div>
+      </article>
+    )
+  }
+
   return (
-    <article
-      aria-label={`${message.role} message`}
-      data-role={message.role}
-      className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
-    >
-      <div
-        className={`max-w-[80%] rounded-lg px-4 py-2 ${
-          isUser ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'
-        }`}
-      >
-        <p className="whitespace-pre-wrap">{message.content}</p>
+    <article aria-label="assistant message" data-role="assistant" className="w-full">
+      <div className="prose prose-sm max-w-none text-gray-900">
+        <Markdown>{message.content}</Markdown>
       </div>
     </article>
   )

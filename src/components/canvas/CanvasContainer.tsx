@@ -8,6 +8,7 @@ export default function CanvasContainer() {
   const modules = useGraphStore((s) => s.modules)
   const nodes = useGraphStore((s) => s.nodes)
   const edges = useGraphStore((s) => s.edges)
+  const connections = useGraphStore((s) => s.connections)
   const activeModuleId = useGraphStore((s) => s.activeModuleId)
   const setActiveModuleId = useGraphStore((s) => s.setActiveModuleId)
 
@@ -28,6 +29,10 @@ export default function CanvasContainer() {
   }
 
   return (
-    <ModuleMapView modules={modules} onModuleClick={(moduleId) => setActiveModuleId(moduleId)} />
+    <ModuleMapView
+      modules={modules}
+      connections={connections}
+      onModuleClick={(moduleId) => setActiveModuleId(moduleId)}
+    />
   )
 }

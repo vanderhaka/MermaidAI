@@ -30,6 +30,22 @@ export async function connectModules(
   return { success: true, data: data as ModuleConnection }
 }
 
+export async function listConnectionsByProject(
+  projectId: string,
+): Promise<ServiceResult<ModuleConnection[]>> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('module_connections')
+    .select()
+    .eq('project_id', projectId)
+
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  return { success: true, data: data as ModuleConnection[] }
+}
+
 export async function disconnectModules(
   id: string,
 ): Promise<{ success: true } | { success: false; error: string }> {

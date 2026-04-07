@@ -38,13 +38,14 @@ vi.mock('@xyflow/react', () => ({
   Controls: () => <div data-testid="controls" />,
   Background: () => <div data-testid="background" />,
   BackgroundVariant: { Dots: 'dots' },
+  MarkerType: { ArrowClosed: 'arrowclosed' },
 }))
 
 vi.mock('@/lib/canvas/layout', () => ({
-  computeLayout: vi.fn((nodes: unknown[]) => nodes),
+  computeModuleLayout: vi.fn((nodes: unknown[]) => nodes),
 }))
 
-import { computeLayout } from '@/lib/canvas/layout'
+import { computeModuleLayout } from '@/lib/canvas/layout'
 
 function makeModule(overrides: Partial<Module> = {}): Module {
   return {
@@ -70,7 +71,7 @@ describe('ModuleMapView', () => {
       makeModule({ id: 'mod-1', name: 'Auth' }),
       makeModule({ id: 'mod-2', name: 'Billing' }),
     ]
-    render(<ModuleMapView modules={modules} />)
+    render(<ModuleMapView modules={modules} connections={[]} />)
 
     expect(screen.getByTestId('node-mod-1')).toBeInTheDocument()
     expect(screen.getByTestId('node-mod-2')).toBeInTheDocument()
@@ -78,7 +79,7 @@ describe('ModuleMapView', () => {
 
   it('uses ModuleCardNode custom node type', () => {
     const modules = [makeModule()]
-    render(<ModuleMapView modules={modules} />)
+    render(<ModuleMapView modules={modules} connections={[]} />)
 
     const node = screen.getByTestId('node-mod-1')
     expect(node.dataset.nodeType).toBe('moduleCard')
@@ -86,14 +87,14 @@ describe('ModuleMapView', () => {
 
   it('passes module data to node', () => {
     const modules = [makeModule({ name: 'Payments' })]
-    render(<ModuleMapView modules={modules} />)
+    render(<ModuleMapView modules={modules} connections={[]} />)
 
     const node = screen.getByTestId('node-mod-1')
     expect(node.dataset.nodeName).toBe('Payments')
   })
 
   it('shows empty state message when no modules', () => {
-    render(<ModuleMapView modules={[]} />)
+    render(<ModuleMapView modules={[]} connections={[]} />)
 
     expect(screen.getByText(/no modules/i)).toBeInTheDocument()
     expect(screen.queryByTestId('react-flow')).not.toBeInTheDocument()
@@ -103,18 +104,18 @@ describe('ModuleMapView', () => {
     const user = userEvent.setup()
     const onClick = vi.fn()
     const modules = [makeModule({ id: 'mod-1' })]
-    render(<ModuleMapView modules={modules} onModuleClick={onClick} />)
+    render(<ModuleMapView modules={modules} connections={[]} onModuleClick={onClick} />)
 
     await user.click(screen.getByTestId('node-mod-1'))
 
     expect(onClick).toHaveBeenCalledWith('mod-1')
   })
 
-  it('applies computeLayout to position nodes', () => {
-    const mockedLayout = vi.mocked(computeLayout)
+  it('applies computeModuleLayout to position nodes', () => {
+    const mockedLayout = vi.mocked(computeModuleLayout)
     mockedLayout.mockClear()
     const modules = [makeModule(), makeModule({ id: 'mod-2', name: 'Billing' })]
-    render(<ModuleMapView modules={modules} />)
+    render(<ModuleMapView modules={modules} connections={[]} />)
 
     expect(mockedLayout).toHaveBeenCalledTimes(1)
     expect(mockedLayout).toHaveBeenCalledWith(

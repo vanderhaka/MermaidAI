@@ -17,12 +17,24 @@ const DEFAULT_NODE_COLOR = '#2563eb'
 const createModuleTool: Anthropic.Tool = {
   name: 'create_module',
   description:
-    'Create a new module in the project. Use when the user describes a feature or component that should become its own module.',
+    'Create a new module in the project. Use when the user describes a feature or component that should become its own module. Always specify entry_points and exit_points so modules can be connected.',
   input_schema: {
     type: 'object' as const,
     properties: {
       name: { type: 'string', description: 'Name of the module (e.g. "Auth", "Payments")' },
       description: { type: 'string', description: 'Brief description of what the module does' },
+      entry_points: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Named entry points into this module (e.g. ["form_data", "api_request"]). These are the inputs the module receives from other modules.',
+      },
+      exit_points: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Named exit points from this module (e.g. ["success", "error", "leads"]). These are the outputs the module sends to other modules.',
+      },
     },
     required: ['name'],
   },
@@ -197,14 +209,18 @@ export function createToolExecutor(projectId: string) {
     try {
       switch (name) {
         case 'create_module': {
+          const entryPoints = Array.isArray(input.entry_points)
+            ? (input.entry_points as string[])
+            : []
+          const exitPoints = Array.isArray(input.exit_points) ? (input.exit_points as string[]) : []
           const result = await createModule({
             project_id: projectId,
             name: input.name as string,
             description: input.description as string | undefined,
             position: { x: 0, y: 0 },
             color: DEFAULT_MODULE_COLOR,
-            entry_points: [],
-            exit_points: [],
+            entry_points: entryPoints,
+            exit_points: exitPoints,
           })
           if (!result.success) return fail(result.error)
           return ok(`Created module "${result.data.name}" (id: ${result.data.id})`)

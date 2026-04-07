@@ -2,7 +2,6 @@ import Anthropic from '@anthropic-ai/sdk'
 
 const DEFAULT_MODEL = 'claude-sonnet-4-6'
 const MAX_TOKENS = 4096
-const MAX_TOOL_ROUNDS = 10
 
 let _client: Anthropic | null = null
 
@@ -44,7 +43,6 @@ export async function callLLMWithTools(
   return new ReadableStream<string>({
     async start(controller) {
       let currentMessages: Anthropic.MessageParam[] = [...messages]
-      let rounds = 0
 
       try {
         while (true) {
@@ -67,14 +65,6 @@ export async function callLLMWithTools(
 
           // If the model didn't call any tools, we're done
           if (response.stop_reason !== 'tool_use') {
-            break
-          }
-
-          // Check round limit BEFORE executing tools to avoid
-          // mutating state without a follow-up summary
-          rounds++
-          if (rounds >= MAX_TOOL_ROUNDS) {
-            controller.enqueue('\n\n(Reached maximum tool rounds — stopping here.)')
             break
           }
 

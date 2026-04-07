@@ -10,9 +10,11 @@ vi.mock('next/navigation', () => ({
 }))
 
 const mockCreateProject = vi.fn()
+const mockDeleteProject = vi.fn()
 const mockListProjectsByUser = vi.fn()
 vi.mock('@/lib/services/project-service', () => ({
   createProject: (...args: unknown[]) => mockCreateProject(...args),
+  deleteProject: (...args: unknown[]) => mockDeleteProject(...args),
   listProjectsByUser: (...args: unknown[]) => mockListProjectsByUser(...args),
 }))
 
@@ -37,6 +39,7 @@ describe('ProjectList', () => {
   beforeEach(() => {
     mockPush.mockReset()
     mockCreateProject.mockReset()
+    mockDeleteProject.mockReset()
     mockListProjectsByUser.mockReset()
   })
 
@@ -61,10 +64,10 @@ describe('ProjectList', () => {
     const user = userEvent.setup()
     render(<ProjectList projects={sampleProjects} />)
 
-    const alphaCard = screen.getByText('Project Alpha').closest('button')
-    expect(alphaCard).toBeInTheDocument()
+    const alphaButton = screen.getByRole('button', { name: /open project alpha/i })
+    expect(alphaButton).toBeInTheDocument()
 
-    await user.click(alphaCard!)
+    await user.click(alphaButton)
 
     expect(mockPush).toHaveBeenCalledWith('/dashboard/p1')
   })

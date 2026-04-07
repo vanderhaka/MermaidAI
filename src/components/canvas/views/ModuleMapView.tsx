@@ -8,17 +8,19 @@ import {
   Controls,
   Background,
   BackgroundVariant,
+  MarkerType,
 } from '@xyflow/react'
-import type { Node, NodeMouseHandler } from '@xyflow/react'
+import type { Edge, Node, NodeMouseHandler } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import ModuleCardNode from '@/components/canvas/nodes/ModuleCardNode'
-import { computeLayout } from '@/lib/canvas/layout'
-import type { Module } from '@/types/graph'
+import { computeModuleLayout } from '@/lib/canvas/layout'
+import type { Module, ModuleConnection } from '@/types/graph'
 
 const nodeTypes = { moduleCard: ModuleCardNode }
 
 interface ModuleMapViewProps {
   modules: Module[]
+  connections: ModuleConnection[]
   onModuleClick?: (moduleId: string) => void
 }
 
@@ -36,11 +38,11 @@ function toLayoutNode(mod: Module) {
   }
 }
 
-export default function ModuleMapView({ modules, onModuleClick }: ModuleMapViewProps) {
+export default function ModuleMapView({ modules, connections, onModuleClick }: ModuleMapViewProps) {
   const nodes = useMemo(() => {
     if (modules.length === 0) return []
 
-    const positioned = computeLayout(modules.map(toLayoutNode), [])
+    const positioned = computeModuleLayout(modules.map(toLayoutNode), connections)
 
     return modules.map<Node>((mod, i) => ({
       id: mod.id,
@@ -53,7 +55,27 @@ export default function ModuleMapView({ modules, onModuleClick }: ModuleMapViewP
         exit_points: mod.exit_points,
       },
     }))
-  }, [modules])
+  }, [modules, connections])
+
+  const edges = useMemo<Edge[]>(
+    () =>
+      connections.map((conn) => ({
+        id: conn.id,
+        source: conn.source_module_id,
+        target: conn.target_module_id,
+        sourceHandle: `exit-${conn.source_exit_point}`,
+        targetHandle: `entry-${conn.target_entry_point}`,
+        label:
+          conn.source_exit_point === conn.target_entry_point
+            ? conn.source_exit_point
+            : `${conn.source_exit_point} → ${conn.target_entry_point}`,
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#818cf8' },
+        style: { stroke: '#818cf8', strokeWidth: 2 },
+        labelStyle: { fontSize: 11, fill: '#6366f1', fontWeight: 500 },
+        animated: true,
+      })),
+    [connections],
+  )
 
   if (modules.length === 0) {
     return (
@@ -71,10 +93,11 @@ export default function ModuleMapView({ modules, onModuleClick }: ModuleMapViewP
     <ReactFlowProvider>
       <ReactFlow
         nodes={nodes}
-        edges={[]}
+        edges={edges}
         nodeTypes={nodeTypes}
         onNodeClick={handleNodeClick}
         fitView
+        fitViewOptions={{ padding: 0.3 }}
       >
         <MiniMap />
         <Controls />

@@ -1,10 +1,11 @@
 import { create } from 'zustand'
-import type { Module, FlowNode, FlowEdge } from '@/types/graph'
+import type { Module, FlowNode, FlowEdge, ModuleConnection } from '@/types/graph'
 
 type GraphState = {
   modules: Module[]
   nodes: FlowNode[]
   edges: FlowEdge[]
+  connections: ModuleConnection[]
   activeModuleId: string | null
 }
 
@@ -12,6 +13,7 @@ type GraphActions = {
   setModules: (modules: Module[]) => void
   setNodes: (nodes: FlowNode[]) => void
   setEdges: (edges: FlowEdge[]) => void
+  setConnections: (connections: ModuleConnection[]) => void
   addModule: (module: Module) => void
   addNode: (node: FlowNode) => void
   addEdge: (edge: FlowEdge) => void
@@ -28,6 +30,7 @@ const initialState: GraphState = {
   modules: [],
   nodes: [],
   edges: [],
+  connections: [],
   activeModuleId: null,
 }
 
@@ -37,6 +40,7 @@ export const useGraphStore = create<GraphState & GraphActions>()((set) => ({
   setModules: (modules) => set({ modules }),
   setNodes: (nodes) => set({ nodes }),
   setEdges: (edges) => set({ edges }),
+  setConnections: (connections) => set({ connections }),
 
   addModule: (module) => set((state) => ({ modules: [...state.modules, module] })),
   addNode: (node) => set((state) => ({ nodes: [...state.nodes, node] })),

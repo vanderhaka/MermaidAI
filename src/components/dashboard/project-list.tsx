@@ -2,13 +2,136 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createProject } from '@/lib/services/project-service'
+import { createProject, deleteProject } from '@/lib/services/project-service'
 import type { Project } from '@/types/graph'
 
 type ProjectSummary = Pick<Project, 'id' | 'name' | 'description' | 'created_at' | 'updated_at'>
 
 interface ProjectListProps {
   projects: ProjectSummary[]
+}
+
+function ProjectCard({ project, onDeleted }: { project: ProjectSummary; onDeleted: () => void }) {
+  const router = useRouter()
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  async function handleDelete(e: React.MouseEvent) {
+    e.stopPropagation()
+
+    if (!confirmingDelete) {
+      setConfirmingDelete(true)
+      return
+    }
+
+    setIsDeleting(true)
+    const result = await deleteProject(project.id)
+    if (result.success) {
+      onDeleted()
+    }
+    setIsDeleting(false)
+    setConfirmingDelete(false)
+  }
+
+  function handleCancelDelete(e: React.MouseEvent) {
+    e.stopPropagation()
+    setConfirmingDelete(false)
+  }
+
+  return (
+    <li>
+      <div className="group relative flex w-full flex-col gap-5 rounded-[2rem] border border-white/70 bg-white/85 p-6 text-left shadow-lg shadow-slate-200/60 transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-xl">
+        <button
+          type="button"
+          onClick={() => router.push(`/dashboard/${project.id}`)}
+          className="absolute inset-0 rounded-[2rem]"
+          aria-label={`Open ${project.name}`}
+        />
+
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-2">
+            <p className="text-lg font-semibold tracking-tight text-slate-950">{project.name}</p>
+            <p className="text-sm leading-6 text-slate-600">
+              {project.description?.trim() ||
+                'Untitled project ready for its first module and flow.'}
+            </p>
+          </div>
+
+          <div className="relative z-10 flex items-center gap-2">
+            {confirmingDelete ? (
+              <>
+                <button
+                  type="button"
+                  onClick={handleCancelDelete}
+                  className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-60"
+                >
+                  {isDeleting ? 'Deleting...' : 'Confirm delete'}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={handleDelete}
+                aria-label={`Delete ${project.name}`}
+                className="rounded-lg p-1.5 text-slate-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  className="h-4 w-4"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Created
+            </p>
+            <time
+              dateTime={project.created_at}
+              className="mt-2 block text-sm font-medium text-slate-800"
+            >
+              {new Date(project.created_at).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+            </time>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Next step
+            </p>
+            <p className="mt-2 text-sm font-medium text-slate-800">
+              Open the workspace and add modules
+            </p>
+          </div>
+        </div>
+
+        <span className="text-sm font-medium text-slate-700 transition group-hover:text-slate-950">
+          Continue to workspace
+        </span>
+      </div>
+    </li>
+  )
 }
 
 export function ProjectList({ projects }: ProjectListProps) {
@@ -103,58 +226,7 @@ export function ProjectList({ projects }: ProjectListProps) {
       ) : (
         <ul className="grid gap-4 lg:grid-cols-2">
           {projects.map((project) => (
-            <li key={project.id}>
-              <button
-                type="button"
-                onClick={() => router.push(`/dashboard/${project.id}`)}
-                className="group flex w-full flex-col gap-5 rounded-[2rem] border border-white/70 bg-white/85 p-6 text-left shadow-lg shadow-slate-200/60 transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-xl"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-2">
-                    <p className="text-lg font-semibold tracking-tight text-slate-950">
-                      {project.name}
-                    </p>
-                    <p className="text-sm leading-6 text-slate-600">
-                      {project.description?.trim() ||
-                        'Untitled project ready for its first module and flow.'}
-                    </p>
-                  </div>
-                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                    Open
-                  </span>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                      Created
-                    </p>
-                    <time
-                      dateTime={project.created_at}
-                      className="mt-2 block text-sm font-medium text-slate-800"
-                    >
-                      {new Date(project.created_at).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric',
-                      })}
-                    </time>
-                  </div>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                      Next step
-                    </p>
-                    <p className="mt-2 text-sm font-medium text-slate-800">
-                      Open the workspace and add modules
-                    </p>
-                  </div>
-                </div>
-
-                <span className="text-sm font-medium text-slate-700 transition group-hover:text-slate-950">
-                  Continue to workspace
-                </span>
-              </button>
-            </li>
+            <ProjectCard key={project.id} project={project} onDeleted={() => router.refresh()} />
           ))}
         </ul>
       )}

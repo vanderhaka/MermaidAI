@@ -9,15 +9,17 @@ import CanvasContainer from '@/components/canvas/CanvasContainer'
 import ChatInput from '@/components/chat/ChatInput'
 import ChatMessageList from '@/components/chat/ChatMessageList'
 import { createModule } from '@/lib/services/module-service'
+import { updateProject, deleteProject } from '@/lib/services/project-service'
 import { useGraphStore } from '@/store/graph-store'
 import type { ChatMessage } from '@/types/chat'
-import type { FlowEdge, FlowNode, Module, Project } from '@/types/graph'
+import type { FlowEdge, FlowNode, Module, ModuleConnection, Project } from '@/types/graph'
 
 type ProjectWorkspaceProps = {
   project: Pick<Project, 'id' | 'name' | 'description'>
   initialModules: Module[]
   initialNodes: FlowNode[]
   initialEdges: FlowEdge[]
+  initialConnections: ModuleConnection[]
   initialMessages: ChatMessage[]
 }
 
@@ -26,6 +28,7 @@ export function ProjectWorkspace({
   initialModules,
   initialNodes,
   initialEdges,
+  initialConnections,
   initialMessages,
 }: ProjectWorkspaceProps) {
   const router = useRouter()
@@ -35,12 +38,19 @@ export function ProjectWorkspace({
   const [streamingContent, setStreamingContent] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [messages, setMessages] = useState(initialMessages)
+  const [showSettings, setShowSettings] = useState(false)
+  const [projectName, setProjectName] = useState(project.name)
+  const [projectDescription, setProjectDescription] = useState(project.description ?? '')
+  const [isSaving, setIsSaving] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const modules = useGraphStore((state) => state.modules)
   const activeModuleId = useGraphStore((state) => state.activeModuleId)
   const setModules = useGraphStore((state) => state.setModules)
   const setNodes = useGraphStore((state) => state.setNodes)
   const setEdges = useGraphStore((state) => state.setEdges)
+  const setConnections = useGraphStore((state) => state.setConnections)
   const addModuleToStore = useGraphStore((state) => state.addModule)
   const setActiveModuleId = useGraphStore((state) => state.setActiveModuleId)
 
@@ -48,11 +58,49 @@ export function ProjectWorkspace({
     setModules(initialModules)
     setNodes(initialNodes)
     setEdges(initialEdges)
-  }, [initialEdges, initialModules, initialNodes, setEdges, setModules, setNodes])
+    setConnections(initialConnections)
+  }, [
+    initialConnections,
+    initialEdges,
+    initialModules,
+    initialNodes,
+    setConnections,
+    setEdges,
+    setModules,
+    setNodes,
+  ])
 
   useEffect(() => {
     setMessages(initialMessages)
   }, [initialMessages])
+
+  async function handleSaveSettings() {
+    setIsSaving(true)
+    setError(null)
+    const result = await updateProject(project.id, {
+      name: projectName.trim() || project.name,
+      description: projectDescription.trim() || null,
+    })
+    setIsSaving(false)
+    if (!result.success) {
+      setError(result.error)
+      return
+    }
+    setShowSettings(false)
+    startRefresh(() => router.refresh())
+  }
+
+  async function handleDeleteProject() {
+    setIsDeleting(true)
+    const result = await deleteProject(project.id)
+    if (result.success) {
+      router.push('/dashboard')
+      return
+    }
+    setError(result.error)
+    setIsDeleting(false)
+    setConfirmingDelete(false)
+  }
 
   async function handleAddModule() {
     setIsCreatingModule(true)
@@ -175,11 +223,8 @@ export function ProjectWorkspace({
       : null
 
   return (
-    <main
-      className="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 lg:px-8"
-      data-testid="project-workspace"
-    >
-      <div className="mx-auto flex max-w-7xl flex-col gap-6">
+    <main className="min-h-screen bg-gray-50 px-4 py-4 sm:px-6" data-testid="project-workspace">
+      <div className="flex flex-col gap-4">
         <header className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-1">
             <div className="flex items-center gap-3 text-sm text-gray-500">
@@ -203,9 +248,107 @@ export function ProjectWorkspace({
             >
               {isCreatingModule ? 'Adding module...' : 'Add module'}
             </button>
+            <button
+              type="button"
+              onClick={() => setShowSettings(!showSettings)}
+              aria-label="Project settings"
+              className="rounded-lg border border-gray-200 p-2 text-gray-500 transition hover:bg-gray-50 hover:text-gray-900"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                className="h-4 w-4"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </button>
             <LogoutButton />
           </div>
         </header>
+
+        {showSettings && (
+          <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:gap-6">
+              <div className="flex-1 space-y-3">
+                <div>
+                  <label
+                    htmlFor="project-name"
+                    className="block text-xs font-semibold uppercase tracking-wide text-gray-500"
+                  >
+                    Project name
+                  </label>
+                  <input
+                    id="project-name"
+                    type="text"
+                    value={projectName}
+                    onChange={(e) => setProjectName(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="project-description"
+                    className="block text-xs font-semibold uppercase tracking-wide text-gray-500"
+                  >
+                    Description
+                  </label>
+                  <input
+                    id="project-description"
+                    type="text"
+                    value={projectDescription}
+                    onChange={(e) => setProjectDescription(e.target.value)}
+                    placeholder="Optional description"
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleSaveSettings}
+                  disabled={isSaving}
+                  className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 disabled:opacity-60"
+                >
+                  {isSaving ? 'Saving...' : 'Save'}
+                </button>
+
+                {confirmingDelete ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingDelete(false)}
+                      className="rounded-lg px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDeleteProject}
+                      disabled={isDeleting}
+                      className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
+                    >
+                      {isDeleting ? 'Deleting...' : 'Confirm delete'}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingDelete(true)}
+                    className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50"
+                  >
+                    Delete project
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {error && (
           <p
@@ -216,7 +359,7 @@ export function ProjectWorkspace({
           </p>
         )}
 
-        <div className="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)_360px]">
+        <div className="grid h-[calc(100vh-10rem)] gap-4 lg:grid-cols-[240px_minmax(0,1fr)_minmax(320px,400px)]">
           <aside
             className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"
             data-testid="module-sidebar"
@@ -274,13 +417,13 @@ export function ProjectWorkspace({
             className="rounded-2xl border border-gray-200 bg-white shadow-sm"
             data-testid="canvas-panel"
           >
-            <div className="h-[65vh] min-h-[480px]">
+            <div className="h-full min-h-0">
               <CanvasContainer />
             </div>
           </section>
 
           <section
-            className="flex h-[65vh] min-h-[480px] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm"
+            className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm"
             data-testid="chat-panel"
           >
             <div className="border-b border-gray-200 px-4 py-3">

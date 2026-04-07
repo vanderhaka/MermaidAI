@@ -5,13 +5,13 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('@xyflow/react', () => ({
   Handle: ({ id, type, position, ...rest }: Record<string, unknown>) => (
     <div
-      data-testid={`handle-${type}-${id}`}
+      data-testid={id ? `handle-${type}-${id}` : `handle-${type}-default`}
       data-handle-type={type}
       data-handle-position={position}
       {...rest}
     />
   ),
-  Position: { Left: 'left', Right: 'right' },
+  Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
 }))
 
 import ModuleCardNode from '@/components/canvas/nodes/ModuleCardNode'
@@ -83,13 +83,14 @@ describe('ModuleCardNode', () => {
     expect(screen.getByText('Auth Module')).toBeInTheDocument()
   })
 
-  it('renders with empty entry/exit points', () => {
+  it('renders default top/bottom handles when entry/exit points are empty', () => {
     const props = {
       ...baseProps,
       data: { ...baseProps.data, entry_points: [], exit_points: [] },
     }
     const { container } = render(<ModuleCardNode {...props} />)
+    // Default top (target) and bottom (source) handles always render
     const handles = container.querySelectorAll('[data-testid^="handle-"]')
-    expect(handles).toHaveLength(0)
+    expect(handles).toHaveLength(2)
   })
 })

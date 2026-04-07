@@ -3,10 +3,11 @@ import { notFound } from 'next/navigation'
 import { ProjectWorkspace } from '@/components/dashboard/project-workspace'
 import { listChatMessages } from '@/lib/services/chat-message-service'
 import { getGraphForModule } from '@/lib/services/graph-service'
+import { listConnectionsByProject } from '@/lib/services/module-connection-service'
 import { listModulesByProject } from '@/lib/services/module-service'
 import { getProjectById } from '@/lib/services/project-service'
 import type { ChatMessage } from '@/types/chat'
-import type { FlowEdge, FlowNode } from '@/types/graph'
+import type { FlowEdge, FlowNode, ModuleConnection } from '@/types/graph'
 
 type ProjectPageProps = {
   params: Promise<{
@@ -17,10 +18,11 @@ type ProjectPageProps = {
 export default async function ProjectPage({ params }: ProjectPageProps) {
   const { projectId } = await params
 
-  const [projectResult, modulesResult, messagesResult] = await Promise.all([
+  const [projectResult, modulesResult, messagesResult, connectionsResult] = await Promise.all([
     getProjectById(projectId),
     listModulesByProject(projectId),
     listChatMessages(projectId),
+    listConnectionsByProject(projectId),
   ])
 
   if (!projectResult.success) {
@@ -37,6 +39,8 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
         createdAt: message.created_at,
       }))
     : []
+
+  const connections: ModuleConnection[] = connectionsResult.success ? connectionsResult.data : []
 
   const graphResults = await Promise.all(modules.map((module) => getGraphForModule(module.id)))
   const initialNodes: FlowNode[] = []
@@ -57,6 +61,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
       initialModules={modules}
       initialNodes={initialNodes}
       initialEdges={initialEdges}
+      initialConnections={connections}
       initialMessages={messages}
     />
   )
