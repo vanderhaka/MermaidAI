@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Node, Edge } from '@xyflow/react'
 import {
   ReactFlow,
@@ -8,10 +8,13 @@ import {
   Controls,
   Background,
   BackgroundVariant,
+  useReactFlow,
+  MarkerType,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import type { FlowNode, FlowEdge } from '@/types/graph'
-import { computeLayout, DEFAULT_NODE_HEIGHT, DEFAULT_NODE_WIDTH } from '@/lib/canvas/layout'
+import { computeLayout, getFlowDetailNodeDimensions } from '@/lib/canvas/layout'
+import { getModuleFlowEdgeStyle, inferDecisionSourceHandle } from '@/lib/canvas/flow-edge-style'
 import DecisionNode from '@/components/canvas/nodes/DecisionNode'
 import ProcessNode from '@/components/canvas/nodes/ProcessNode'
 import EntryNode from '@/components/canvas/nodes/EntryNode'
@@ -62,24 +65,70 @@ type ModuleDetailViewProps = {
 }
 
 function toReactFlowNodes(nodes: FlowNode[]): Node[] {
-  return nodes.map((n) => ({
-    id: n.id,
-    type: n.node_type,
-    position: n.position,
-    width: DEFAULT_NODE_WIDTH,
-    height: DEFAULT_NODE_HEIGHT,
-    data: { label: n.label, pseudocode: n.pseudocode },
-  }))
+  return nodes.map((n) => {
+    const dim = getFlowDetailNodeDimensions(n.node_type)
+    return {
+      id: n.id,
+      type: n.node_type,
+      position: n.position,
+      width: dim.width,
+      height: dim.height,
+      data: { label: n.label, pseudocode: n.pseudocode },
+    }
+  })
 }
 
 function toReactFlowEdges(edges: FlowEdge[]): Edge[] {
-  return edges.map((e) => ({
-    id: e.id,
-    source: e.source_node_id,
-    target: e.target_node_id,
-    type: 'condition',
-    data: { label: e.label },
-  }))
+  return edges.map((e) => {
+    const sourceHandle = inferDecisionSourceHandle(e.label, e.condition)
+    const s = getModuleFlowEdgeStyle({
+      label: e.label,
+      condition: e.condition,
+      sourceHandle: sourceHandle ?? null,
+    })
+    return {
+      id: e.id,
+      source: e.source_node_id,
+      target: e.target_node_id,
+      sourceHandle,
+      type: 'condition',
+      data: { label: e.label, condition: e.condition, labelColor: s.labelColor },
+      markerEnd: { type: MarkerType.ArrowClosed, color: s.markerColor, width: 16, height: 16 },
+      style: {
+        stroke: s.stroke,
+        strokeWidth: s.isErrorPath ? 1.5 : 2,
+        strokeDasharray: s.isErrorPath ? '6 3' : undefined,
+      },
+      animated: !s.isErrorPath,
+    }
+  })
+}
+
+function ModuleDetailFlow({ rfNodes, rfEdges }: { rfNodes: Node[]; rfEdges: Edge[] }) {
+  const { fitView } = useReactFlow()
+
+  useEffect(() => {
+    if (rfNodes.length === 0) return
+    const timer = setTimeout(() => fitView({ padding: 0.34, duration: 320 }), 48)
+    return () => clearTimeout(timer)
+  }, [rfNodes, rfEdges, fitView])
+
+  return (
+    <ReactFlow
+      nodes={rfNodes}
+      edges={rfEdges}
+      nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
+      fitView
+      fitViewOptions={{ padding: 0.34 }}
+      minZoom={0.12}
+      maxZoom={1.6}
+      proOptions={{ hideAttribution: true }}
+    >
+      <Controls />
+      <Background variant={BackgroundVariant.Dots} />
+    </ReactFlow>
+  )
 }
 
 export default function ModuleDetailView({
@@ -138,18 +187,9 @@ export default function ModuleDetailView({
       />
 
       {hasNodes ? (
-        <div className="flex-1">
+        <div className="flex-1 min-h-0">
           <ReactFlowProvider>
-            <ReactFlow
-              nodes={rfNodes}
-              edges={rfEdges}
-              nodeTypes={nodeTypes}
-              edgeTypes={edgeTypes}
-              fitView
-            >
-              <Controls />
-              <Background variant={BackgroundVariant.Dots} />
-            </ReactFlow>
+            <ModuleDetailFlow rfNodes={rfNodes} rfEdges={rfEdges} />
           </ReactFlowProvider>
         </div>
       ) : (

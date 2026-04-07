@@ -7,13 +7,43 @@ import type {
   LayoutOptions,
 } from 'elkjs/lib/elk-api'
 import dagre from 'dagre'
-import type { FlowNode, FlowEdge, Module, ModuleConnection, Position } from '@/types/graph'
+import type {
+  FlowNode,
+  FlowEdge,
+  FlowNodeType,
+  Module,
+  ModuleConnection,
+  Position,
+} from '@/types/graph'
 import { MODULE_CARD_WIDTH, MODULE_CARD_HEIGHT } from '@/components/canvas/nodes/ModuleCardNode'
 import type { HandleSide } from '@/components/canvas/nodes/ModuleCardNode'
 import { expandConnectionHandlePoints } from '@/lib/canvas/handleSlots'
 
+/** Fallback when node type is unknown; prefer {@link getFlowDetailNodeDimensions}. */
 export const DEFAULT_NODE_WIDTH = 172
 export const DEFAULT_NODE_HEIGHT = 36
+
+/** Matches rendered node sizes in the module detail canvas so Dagre spacing is trustworthy. */
+export function getFlowDetailNodeDimensions(nodeType: FlowNodeType): {
+  width: number
+  height: number
+} {
+  switch (nodeType) {
+    case 'decision':
+      /** Matches `DecisionNode` outer box (`h-44 w-44` = 176px). */
+      return { width: 176, height: 176 }
+    case 'process':
+      return { width: 260, height: 56 }
+    case 'entry':
+    case 'exit':
+      return { width: 200, height: 44 }
+    case 'start':
+    case 'end':
+      return { width: 176, height: 44 }
+    default:
+      return { width: DEFAULT_NODE_WIDTH, height: DEFAULT_NODE_HEIGHT }
+  }
+}
 
 const MODULE_GAP_X = 120
 const MODULE_GAP_Y = 100
@@ -68,20 +98,34 @@ export type ModuleMapLayoutResult = {
 /**
  * Layout for internal module nodes (process, decision, start, end, etc.).
  * Uses dagre when edges exist, grid fallback otherwise.
+ * Per-node width/height match canvas nodes so decision diamonds and process steps do not overlap.
  */
 export function computeLayout(nodes: FlowNode[], edges: FlowEdge[]): FlowNode[] {
   if (nodes.length === 0) return []
 
   if (edges.length === 0) {
-    return computeGridLayout(nodes, DEFAULT_NODE_WIDTH, DEFAULT_NODE_HEIGHT, 40, 40)
+    const widths = nodes.map((n) => getFlowDetailNodeDimensions(n.node_type).width)
+    const heights = nodes.map((n) => getFlowDetailNodeDimensions(n.node_type).height)
+    const cellW = Math.max(...widths, DEFAULT_NODE_WIDTH)
+    const cellH = Math.max(...heights, DEFAULT_NODE_HEIGHT)
+    return computeGridLayout(nodes, cellW, cellH, 112, 128)
   }
 
   const g = new dagre.graphlib.Graph()
-  g.setGraph({ rankdir: 'TB', nodesep: 50, ranksep: 60 })
+  g.setGraph({
+    rankdir: 'TB',
+    nodesep: 128,
+    ranksep: 184,
+    edgesep: 64,
+    marginx: 80,
+    marginy: 80,
+    ranker: 'network-simplex',
+  })
   g.setDefaultEdgeLabel(() => ({}))
 
   for (const node of nodes) {
-    g.setNode(node.id, { width: DEFAULT_NODE_WIDTH, height: DEFAULT_NODE_HEIGHT })
+    const dim = getFlowDetailNodeDimensions(node.node_type)
+    g.setNode(node.id, { width: dim.width, height: dim.height })
   }
 
   for (const edge of edges) {
@@ -92,9 +136,10 @@ export function computeLayout(nodes: FlowNode[], edges: FlowEdge[]): FlowNode[] 
 
   return nodes.map((node) => {
     const pos = g.node(node.id)
+    const dim = getFlowDetailNodeDimensions(node.node_type)
     return {
       ...node,
-      position: { x: pos.x - DEFAULT_NODE_WIDTH / 2, y: pos.y - DEFAULT_NODE_HEIGHT / 2 },
+      position: { x: pos.x - dim.width / 2, y: pos.y - dim.height / 2 },
     }
   })
 }

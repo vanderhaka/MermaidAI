@@ -90,7 +90,7 @@ describe('ConditionEdge', () => {
     expect(screen.getByText('No').closest('[data-testid="edge-label-renderer"]')).toBeTruthy()
   })
 
-  it('applies animated style to the edge', () => {
+  it('applies rounded stroke styling to the edge', () => {
     render(
       <svg>
         <ConditionEdge {...baseProps} />
@@ -98,6 +98,7 @@ describe('ConditionEdge', () => {
     )
     const edge = screen.getByTestId('base-edge')
     const style = edge.getAttribute('style') ?? ''
-    expect(style).toContain('animation')
+    expect(style).toContain('stroke-linecap: round')
+    expect(style).toContain('stroke-linejoin: round')
   })
 })
