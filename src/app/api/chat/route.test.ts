@@ -281,6 +281,61 @@ describe('POST /api/chat', () => {
     expect(json).toHaveProperty('error')
   })
 
+  it('returns 401 for unauthenticated request with invalid body (missing fields)', async () => {
+    mockGetUser.mockResolvedValue({
+      data: { user: null },
+      error: { message: 'Not authenticated' },
+    })
+
+    const { POST } = await import('@/app/api/chat/route')
+    // Body missing required fields — should still get 401, not 400
+    const response = await POST(makeRequest({ message: 'hello' }))
+
+    expect(response.status).toBe(401)
+    const json = await response.json()
+    expect(json.error).toBe('Unauthorized')
+  })
+
+  it('returns 401 for unauthenticated request with completely empty body', async () => {
+    mockGetUser.mockResolvedValue({
+      data: { user: null },
+      error: { message: 'Not authenticated' },
+    })
+
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest({}))
+
+    expect(response.status).toBe(401)
+    const json = await response.json()
+    expect(json.error).toBe('Unauthorized')
+  })
+
+  it('does not reveal schema error messages to unauthenticated users', async () => {
+    mockGetUser.mockResolvedValue({
+      data: { user: null },
+      error: { message: 'Not authenticated' },
+    })
+
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest({ mode: 'invalid_mode' }))
+
+    expect(response.status).toBe(401)
+    const json = await response.json()
+    // Must not contain Zod validation details
+    expect(json.error).not.toContain('Required')
+    expect(json.error).not.toContain('Invalid enum value')
+  })
+
+  it('still returns 400 for authenticated request with invalid body', async () => {
+    const { POST } = await import('@/app/api/chat/route')
+    // Authenticated (default mock) but missing required fields
+    const response = await POST(makeRequest({ message: 'hello' }))
+
+    expect(response.status).toBe(400)
+    const json = await response.json()
+    expect(json).toHaveProperty('error')
+  })
+
   // --- Streaming ---
 
   it('returns a streaming response on success', async () => {

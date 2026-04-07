@@ -43,16 +43,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const parsed = chatRequestSchema.safeParse(body)
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues.map((i) => i.message).join(', ') },
-      { status: 400 },
-    )
-  }
-
-  const { projectId, message, mode, context, history } = parsed.data
-
   const supabase = await createClient()
   const {
     data: { user },
@@ -62,6 +52,16 @@ export async function POST(request: Request) {
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  const parsed = chatRequestSchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.issues.map((i) => i.message).join(', ') },
+      { status: 400 },
+    )
+  }
+
+  const { projectId, message, mode, context, history } = parsed.data
 
   let llmStream: ReadableStream<string>
   try {
