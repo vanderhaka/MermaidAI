@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 
 const DEFAULT_MODEL = 'claude-sonnet-4-6'
 const MAX_TOKENS = 4096
+const MAX_TOOL_ROUNDS = 10
 
 let _client: Anthropic | null = null
 
@@ -12,24 +13,122 @@ function getClient(): Anthropic {
   return _client
 }
 
+export type ToolResult = {
+  content: string
+  isError: boolean
+}
+
+export type ToolExecutor = (name: string, input: Record<string, unknown>) => Promise<ToolResult>
+
+/**
+ * Call the LLM with tool definitions and handle the tool-use loop.
+ *
+ * Each turn streams text to the returned ReadableStream in real-time.
+ * When the model calls a tool, the executor runs it server-side and
+ * the conversation continues until the model issues an end_turn or
+ * we hit the max tool rounds.
+ *
+ * Parallel tool use is disabled — operations are executed sequentially
+ * to avoid dependent operations failing (e.g. create_module then
+ * create_node in that module).
+ */
+export async function callLLMWithTools(
+  systemPrompt: string,
+  messages: Anthropic.MessageParam[],
+  tools: Anthropic.Tool[],
+  executeTool: ToolExecutor,
+): Promise<ReadableStream<string>> {
+  const client = getClient()
+  const model = process.env.AI_MODEL?.trim() || DEFAULT_MODEL
+
+  return new ReadableStream<string>({
+    async start(controller) {
+      let currentMessages: Anthropic.MessageParam[] = [...messages]
+      let rounds = 0
+
+      try {
+        while (true) {
+          const stream = client.messages.stream({
+            model,
+            max_tokens: MAX_TOKENS,
+            system: systemPrompt,
+            tools,
+            tool_choice: { type: 'auto', disable_parallel_tool_use: true },
+            messages: currentMessages,
+          })
+
+          // Stream text deltas to the client in real-time
+          stream.on('text', (text: string) => {
+            controller.enqueue(text)
+          })
+
+          // Wait for the full message to determine if tools were called
+          const response = await stream.finalMessage()
+
+          // If the model didn't call any tools, we're done
+          if (response.stop_reason !== 'tool_use') {
+            break
+          }
+
+          // Check round limit BEFORE executing tools to avoid
+          // mutating state without a follow-up summary
+          rounds++
+          if (rounds >= MAX_TOOL_ROUNDS) {
+            controller.enqueue('\n\n(Reached maximum tool rounds — stopping here.)')
+            break
+          }
+
+          // Extract tool use blocks and execute each tool
+          const toolUseBlocks = response.content.filter(
+            (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use',
+          )
+
+          const toolResults: Anthropic.ToolResultBlockParam[] = []
+
+          for (const toolBlock of toolUseBlocks) {
+            const result = await executeTool(
+              toolBlock.name,
+              toolBlock.input as Record<string, unknown>,
+            )
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: toolBlock.id,
+              content: result.content,
+              is_error: result.isError || undefined,
+            })
+          }
+
+          // Append assistant turn + tool results and loop
+          currentMessages = [
+            ...currentMessages,
+            { role: 'assistant', content: response.content },
+            { role: 'user', content: toolResults },
+          ]
+        }
+
+        controller.close()
+      } catch (err) {
+        controller.error(new Error(sanitizeError(err)))
+      }
+    },
+  })
+}
+
+/**
+ * Simple streaming call without tools (kept for backward compatibility).
+ */
 export async function callLLM(
   systemPrompt: string,
   messages: Array<{ role: string; content: string }>,
 ): Promise<ReadableStream<string>> {
   const model = process.env.AI_MODEL?.trim() || DEFAULT_MODEL
 
-  let stream: ReturnType<Anthropic['messages']['stream']>
-
-  try {
-    stream = getClient().messages.stream({
-      model,
-      max_tokens: MAX_TOKENS,
-      system: systemPrompt,
-      messages: messages as Anthropic.MessageParam[],
-    })
-  } catch (error) {
-    throw new Error(sanitizeError(error))
-  }
+  const stream = getClient().messages.stream({
+    model,
+    max_tokens: MAX_TOKENS,
+    system: systemPrompt,
+    messages: messages as Anthropic.MessageParam[],
+  })
 
   return new ReadableStream<string>({
     start(controller) {
@@ -50,7 +149,6 @@ export async function callLLM(
 
 function sanitizeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
-  // Strip anything that looks like an API key
   const sanitized = message.replace(/sk-ant[^\s]*/gi, '[REDACTED]')
   return `LLM request failed: ${sanitized}`
 }

@@ -1,13 +1,15 @@
+import type Anthropic from '@anthropic-ai/sdk'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 
 import { createClient } from '@/lib/supabase/server'
 import { buildSystemPrompt } from '@/lib/services/prompt-builder'
-import { callLLM } from '@/lib/services/llm-client'
-import { parseLLMResponse } from '@/lib/services/llm-response-parser'
-import { executeOperations } from '@/lib/services/graph-operation-executor'
+import type { PromptContext, PromptMode } from '@/lib/services/prompt-builder'
+import { callLLMWithTools } from '@/lib/services/llm-client'
+import { getToolsForMode, createToolExecutor } from '@/lib/services/llm-tools'
 import { addChatMessage } from '@/lib/services/chat-message-service'
-import type { PromptMode } from '@/lib/services/prompt-builder'
+import { listModulesByProject, getModuleById } from '@/lib/services/module-service'
+import { getGraphForModule } from '@/lib/services/graph-service'
 
 const chatRequestSchema = z.object({
   projectId: z.string().min(1),
@@ -61,13 +63,40 @@ export async function POST(request: Request) {
 
   let llmStream: ReadableStream<string>
   try {
-    const systemPrompt = buildSystemPrompt(mode as PromptMode, {
-      projectName: context.projectName,
-    })
+    // Build full prompt context with live data from the database
+    const promptContext: PromptContext = { projectName: context.projectName }
 
-    const messages = [...history, { role: 'user', content: message }]
+    const modulesResult = await listModulesByProject(projectId)
+    if (modulesResult.success) {
+      promptContext.modules = modulesResult.data
+    }
 
-    llmStream = await callLLM(systemPrompt, messages)
+    if (context.activeModuleId) {
+      const moduleResult = await getModuleById(context.activeModuleId)
+      if (moduleResult.success) {
+        promptContext.currentModule = moduleResult.data
+      }
+
+      const graphResult = await getGraphForModule(context.activeModuleId)
+      if (graphResult.success) {
+        promptContext.nodes = graphResult.data.nodes
+        promptContext.edges = graphResult.data.edges
+      }
+    }
+
+    const systemPrompt = buildSystemPrompt(mode as PromptMode, promptContext)
+
+    const messages: Anthropic.MessageParam[] = [
+      ...history.map((h) => ({
+        role: h.role as 'user' | 'assistant',
+        content: h.content,
+      })),
+      { role: 'user' as const, content: message },
+    ]
+    const tools = getToolsForMode(mode as PromptMode)
+    const executeTool = createToolExecutor(projectId)
+
+    llmStream = await callLLMWithTools(systemPrompt, messages, tools, executeTool)
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : 'Internal server error'
     return NextResponse.json({ error: errMsg }, { status: 500 })
@@ -93,24 +122,20 @@ export async function POST(request: Request) {
         return
       }
 
-      // Post-stream processing: parse, execute ops, persist messages
-      const { message: parsedMessage, operations } = parseLLMResponse(fullText)
-
-      if (operations.length > 0) {
-        await executeOperations(operations, { projectId })
-      }
-
+      // Persist messages after stream completes
       await addChatMessage({
         project_id: projectId,
         role: 'user',
         content: message,
       })
 
-      await addChatMessage({
-        project_id: projectId,
-        role: 'assistant',
-        content: parsedMessage,
-      })
+      if (fullText.trim()) {
+        await addChatMessage({
+          project_id: projectId,
+          role: 'assistant',
+          content: fullText.trim(),
+        })
+      }
     },
   })
 

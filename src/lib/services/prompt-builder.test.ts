@@ -22,36 +22,24 @@ describe('buildSystemPrompt', () => {
       expect(prompt).toContain('TaskFlow')
     })
 
-    it('instructs AI to ask clarifying questions about the project', () => {
+    it('instructs AI to ask one question at a time', () => {
       const prompt = buildSystemPrompt(mode, baseContext)
-      // The prompt should instruct the AI to ask discovery/clarifying questions
-      expect(prompt.toLowerCase()).toMatch(/clarif|discover|question/)
+      expect(prompt.toLowerCase()).toContain('one question at a time')
     })
 
-    it('includes the JSON schema for graph operations', () => {
+    it('instructs AI to confirm before using tools', () => {
       const prompt = buildSystemPrompt(mode, baseContext)
-      // Must include the operation types so the AI knows the available operations
-      expect(prompt).toContain('create_module')
-      expect(prompt).toContain('create_node')
-      expect(prompt).toContain('create_edge')
-      expect(prompt).toContain('connect_modules')
-      expect(prompt).toContain('update_module')
-      expect(prompt).toContain('delete_module')
-      expect(prompt).toContain('update_node')
-      expect(prompt).toContain('delete_node')
-      expect(prompt).toContain('update_edge')
-      expect(prompt).toContain('delete_edge')
+      expect(prompt.toLowerCase()).toContain('confirm')
     })
 
-    it('instructs AI to wrap operations in <operations> delimiters', () => {
+    it('does not contain operations delimiters (tools handle operations now)', () => {
       const prompt = buildSystemPrompt(mode, baseContext)
-      expect(prompt).toContain('<operations>')
-      expect(prompt).toContain('</operations>')
+      expect(prompt).not.toContain('<operations>')
+      expect(prompt).not.toContain('</operations>')
     })
 
-    it('instructs AI to include file path comments in pseudocode', () => {
+    it('includes file path instruction for pseudocode', () => {
       const prompt = buildSystemPrompt(mode, baseContext)
-      // Must reference the // file: <path> pattern for file tree derivation
       expect(prompt).toContain('// file:')
     })
 
@@ -60,24 +48,6 @@ describe('buildSystemPrompt', () => {
       const prompt = buildSystemPrompt(mode, ctx)
       expect(prompt).toContain('E-Commerce Platform')
       expect(prompt).not.toContain('TaskFlow')
-    })
-
-    it('includes all operation payload fields in the schema', () => {
-      const prompt = buildSystemPrompt(mode, baseContext)
-      // Key payload fields that the AI needs to know about
-      expect(prompt).toContain('moduleId')
-      expect(prompt).toContain('nodeId')
-      expect(prompt).toContain('edgeId')
-      expect(prompt).toContain('sourceNodeId')
-      expect(prompt).toContain('targetNodeId')
-      expect(prompt).toContain('pseudocode')
-      expect(prompt).toContain('label')
-      expect(prompt).toContain('nodeType')
-    })
-
-    it('references the file tree sidebar so the AI understands the purpose of file paths', () => {
-      const prompt = buildSystemPrompt(mode, baseContext)
-      expect(prompt.toLowerCase()).toMatch(/file.?tree/)
     })
   })
 
@@ -136,22 +106,21 @@ describe('buildSystemPrompt', () => {
       expect(prompt).toContain('Handles user authentication')
     })
 
-    it('describes module-level operations (create/update/delete module, connect_modules)', () => {
+    it('includes module IDs so the AI can reference them in tool calls', () => {
       const prompt = buildSystemPrompt(mode, contextWithModules)
-      expect(prompt).toContain('create_module')
-      expect(prompt).toContain('update_module')
-      expect(prompt).toContain('delete_module')
-      expect(prompt).toContain('connect_modules')
+      expect(prompt).toContain('mod-1')
+      expect(prompt).toContain('mod-2')
     })
 
-    it('does NOT include node-level operations', () => {
+    it('does not contain operations delimiters', () => {
       const prompt = buildSystemPrompt(mode, contextWithModules)
-      expect(prompt).not.toContain('create_node')
-      expect(prompt).not.toContain('update_node')
-      expect(prompt).not.toContain('delete_node')
-      expect(prompt).not.toContain('create_edge')
-      expect(prompt).not.toContain('update_edge')
-      expect(prompt).not.toContain('delete_edge')
+      expect(prompt).not.toContain('<operations>')
+      expect(prompt).not.toContain('</operations>')
+    })
+
+    it('references tools for module operations', () => {
+      const prompt = buildSystemPrompt(mode, contextWithModules)
+      expect(prompt.toLowerCase()).toContain('tool')
     })
 
     it('includes file path instruction for pseudocode', () => {
@@ -159,24 +128,18 @@ describe('buildSystemPrompt', () => {
       expect(prompt).toContain('// file:')
     })
 
-    it('includes operation delimiters', () => {
-      const prompt = buildSystemPrompt(mode, contextWithModules)
-      expect(prompt).toContain('<operations>')
-      expect(prompt).toContain('</operations>')
-    })
-
     it('works with empty modules array', () => {
       const ctx: PromptContext = { projectName: 'EmptyApp', modules: [] }
       const prompt = buildSystemPrompt(mode, ctx)
       expect(prompt).toContain('EmptyApp')
-      expect(prompt).toContain('create_module')
+      expect(prompt).toContain('No modules exist yet')
     })
 
     it('works with undefined modules', () => {
       const ctx: PromptContext = { projectName: 'NewApp' }
       const prompt = buildSystemPrompt(mode, ctx)
       expect(prompt).toContain('NewApp')
-      expect(prompt).toContain('create_module')
+      expect(prompt).toContain('No modules exist yet')
     })
   })
 
@@ -256,23 +219,6 @@ describe('buildSystemPrompt', () => {
       expect(prompt).toContain('Auth')
     })
 
-    it('includes node-level operations', () => {
-      const prompt = buildSystemPrompt(mode, detailContext)
-      expect(prompt).toContain('create_node')
-      expect(prompt).toContain('update_node')
-      expect(prompt).toContain('delete_node')
-      expect(prompt).toContain('create_edge')
-      expect(prompt).toContain('update_edge')
-      expect(prompt).toContain('delete_edge')
-    })
-
-    it('does NOT include module-level create/delete operations', () => {
-      const prompt = buildSystemPrompt(mode, detailContext)
-      expect(prompt).not.toContain('create_module')
-      expect(prompt).not.toContain('delete_module')
-      expect(prompt).not.toContain('connect_modules')
-    })
-
     it('includes current module flow data — node labels', () => {
       const prompt = buildSystemPrompt(mode, detailContext)
       expect(prompt).toContain('Validate Credentials')
@@ -301,15 +247,20 @@ describe('buildSystemPrompt', () => {
       expect(prompt).toContain('end')
     })
 
+    it('does not contain operations delimiters', () => {
+      const prompt = buildSystemPrompt(mode, detailContext)
+      expect(prompt).not.toContain('<operations>')
+      expect(prompt).not.toContain('</operations>')
+    })
+
+    it('references tools for node/edge operations', () => {
+      const prompt = buildSystemPrompt(mode, detailContext)
+      expect(prompt.toLowerCase()).toContain('tool')
+    })
+
     it('includes file path instruction for pseudocode', () => {
       const prompt = buildSystemPrompt(mode, detailContext)
       expect(prompt).toContain('// file:')
-    })
-
-    it('includes operation delimiters', () => {
-      const prompt = buildSystemPrompt(mode, detailContext)
-      expect(prompt).toContain('<operations>')
-      expect(prompt).toContain('</operations>')
     })
 
     it('works with empty nodes and edges', () => {
@@ -321,7 +272,7 @@ describe('buildSystemPrompt', () => {
       }
       const prompt = buildSystemPrompt(mode, ctx)
       expect(prompt).toContain('Auth')
-      expect(prompt).toContain('create_node')
+      expect(prompt).toContain('No nodes exist yet')
     })
 
     it('works with undefined nodes and edges', () => {
@@ -331,7 +282,7 @@ describe('buildSystemPrompt', () => {
       }
       const prompt = buildSystemPrompt(mode, ctx)
       expect(prompt).toContain('Auth')
-      expect(prompt).toContain('create_node')
+      expect(prompt).toContain('No nodes exist yet')
     })
   })
 })

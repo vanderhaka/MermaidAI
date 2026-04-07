@@ -10,104 +10,6 @@ export type PromptContext = {
   edges?: FlowEdge[]
 }
 
-const GRAPH_OPERATIONS_SCHEMA = `
-Graph Operations JSON Schema:
-[
-  {
-    "type": "create_module",
-    "payload": { "name": "string", "description": "string (optional)" }
-  },
-  {
-    "type": "update_module",
-    "payload": { "moduleId": "string", "name": "string (optional)", "description": "string (optional)" }
-  },
-  {
-    "type": "delete_module",
-    "payload": { "moduleId": "string" }
-  },
-  {
-    "type": "create_node",
-    "payload": { "moduleId": "string", "label": "string", "nodeType": "string", "pseudocode": "string (optional)" }
-  },
-  {
-    "type": "update_node",
-    "payload": { "nodeId": "string", "label": "string (optional)", "nodeType": "string (optional)", "pseudocode": "string (optional)" }
-  },
-  {
-    "type": "delete_node",
-    "payload": { "nodeId": "string" }
-  },
-  {
-    "type": "create_edge",
-    "payload": { "moduleId": "string", "sourceNodeId": "string", "targetNodeId": "string", "label": "string (optional)", "condition": "string (optional)" }
-  },
-  {
-    "type": "update_edge",
-    "payload": { "edgeId": "string", "label": "string (optional)", "condition": "string (optional)" }
-  },
-  {
-    "type": "delete_edge",
-    "payload": { "edgeId": "string" }
-  },
-  {
-    "type": "connect_modules",
-    "payload": { "sourceModuleId": "string", "targetModuleId": "string", "sourceExitPoint": "string", "targetEntryPoint": "string" }
-  }
-]
-`.trim()
-
-const MODULE_OPERATIONS_SCHEMA = `
-Module-Level Operations JSON Schema:
-[
-  {
-    "type": "create_module",
-    "payload": { "name": "string", "description": "string (optional)" }
-  },
-  {
-    "type": "update_module",
-    "payload": { "moduleId": "string", "name": "string (optional)", "description": "string (optional)" }
-  },
-  {
-    "type": "delete_module",
-    "payload": { "moduleId": "string" }
-  },
-  {
-    "type": "connect_modules",
-    "payload": { "sourceModuleId": "string", "targetModuleId": "string", "sourceExitPoint": "string", "targetEntryPoint": "string" }
-  }
-]
-`.trim()
-
-const NODE_OPERATIONS_SCHEMA = `
-Node & Edge Operations JSON Schema:
-[
-  {
-    "type": "create_node",
-    "payload": { "moduleId": "string", "label": "string", "nodeType": "string", "pseudocode": "string (optional)" }
-  },
-  {
-    "type": "update_node",
-    "payload": { "nodeId": "string", "label": "string (optional)", "nodeType": "string (optional)", "pseudocode": "string (optional)" }
-  },
-  {
-    "type": "delete_node",
-    "payload": { "nodeId": "string" }
-  },
-  {
-    "type": "create_edge",
-    "payload": { "moduleId": "string", "sourceNodeId": "string", "targetNodeId": "string", "label": "string (optional)", "condition": "string (optional)" }
-  },
-  {
-    "type": "update_edge",
-    "payload": { "edgeId": "string", "label": "string (optional)", "condition": "string (optional)" }
-  },
-  {
-    "type": "delete_edge",
-    "payload": { "edgeId": "string" }
-  }
-]
-`.trim()
-
 function buildCurrentNodesSection(nodes?: FlowNode[]): string {
   if (!nodes || nodes.length === 0) {
     return 'No nodes exist yet in this module.'
@@ -138,7 +40,7 @@ function buildExistingModulesSection(modules?: Module[]): string {
 
   const lines = modules.map((m) => {
     const desc = m.description ? ` — ${m.description}` : ''
-    return `- **${m.name}**${desc}`
+    return `- **${m.name}** (id: ${m.id})${desc}`
   })
 
   return `Existing modules:\n${lines.join('\n')}`
@@ -147,48 +49,41 @@ function buildExistingModulesSection(modules?: Module[]): string {
 function buildDiscoveryPrompt(context: PromptContext): string {
   return `You are an AI assistant helping a user design the software architecture for their project "${context.projectName}".
 
-Your role in discovery mode is to ask clarifying questions about the project to understand its structure, features, and requirements. Ask discovery questions to learn about:
-- The main features and user flows
-- The key modules or components needed
-- Data models and relationships
-- External integrations or APIs
-- Authentication and authorization requirements
+Your role in discovery mode is to have a friendly, guided conversation to understand the project before building anything.
 
-When you have enough understanding, propose graph operations to build out the architecture.
+## Conversation Style
 
-## Graph Operations
+- Ask ONE question at a time. Wait for the user's answer before asking the next.
+- Keep questions short, simple, and jargon-free — the user may not be technical.
+- Start broad ("What does this app do?") and gradually get more specific.
+- After each answer, briefly acknowledge what you heard, then ask the next question.
+- Never present a numbered list of multiple questions. One question per message, always.
 
-You can emit graph operations to create and modify the project's flowchart. Wrap all operations in delimiters:
+## Topics to Explore (one at a time, in natural order)
 
-<operations>
-[
-  { "type": "create_module", "payload": { "name": "Auth", "description": "Handles user authentication" } }
-]
-</operations>
+1. What the app/project does at a high level
+2. Who the users are
+3. The main features or things users can do
+4. How users move through the app (key flows)
+5. Any external services, integrations, or APIs
+6. Authentication and user roles (if applicable)
+7. Data or information the app needs to store
 
-Available operations and their schemas:
+You don't need to ask every topic — use judgement. If the user gives a detailed answer that covers multiple topics, skip ahead.
 
-${GRAPH_OPERATIONS_SCHEMA}
+## When to Propose Architecture
+
+Once you have a clear picture (typically after 3-6 questions), summarise what you've learned in a few bullets and propose creating the initial modules. Ask for confirmation before using any tools.
+
+## Using Tools
+
+You have tools to create modules, nodes, edges, and connections. Only use them after the user confirms your proposal. When you use a tool, briefly tell the user what you're creating.
 
 ## File Path Instructions
 
-When writing pseudocode for process nodes, always include a \`// file: <path>\` comment at the top of each pseudocode block to indicate which source file the code belongs to. This allows the file tree sidebar to derive the project's file structure automatically.
+When writing pseudocode for process nodes, always include a \`// file: <path>\` comment at the top of each pseudocode block to indicate which source file the code belongs to.
 
-Example:
-\`\`\`
-// file: src/lib/services/auth-service.ts
-async function login(email, password) {
-  // validate credentials
-  // create session
-}
-\`\`\`
-
-Multiple file references in one block are allowed:
-\`\`\`
-// file: src/lib/services/user-service.ts
-// file: src/types/user.ts
-\`\`\`
-`.trim()
+${buildExistingModulesSection(context.modules)}`.trim()
 }
 
 function buildModuleMapPrompt(context: PromptContext): string {
@@ -200,33 +95,13 @@ Your role in module map mode is to help the user create, organise, and connect t
 
 ${buildExistingModulesSection(context.modules)}
 
-## Graph Operations
+## Using Tools
 
-You can emit module-level graph operations to create, update, delete, and connect modules. Wrap all operations in delimiters:
-
-<operations>
-[
-  { "type": "create_module", "payload": { "name": "Auth", "description": "Handles user authentication" } }
-]
-</operations>
-
-Available operations and their schemas:
-
-${MODULE_OPERATIONS_SCHEMA}
+You have tools to create, update, delete, and connect modules. Use them when the user asks to modify the architecture. Briefly confirm what you're about to do before making changes.
 
 ## File Path Instructions
 
-When writing pseudocode for module descriptions, always include a \`// file: <path>\` comment at the top of each pseudocode block to indicate which source file the code belongs to. This allows the file tree sidebar to derive the project's file structure automatically.
-
-Example:
-\`\`\`
-// file: src/lib/services/auth-service.ts
-async function login(email, password) {
-  // validate credentials
-  // create session
-}
-\`\`\`
-`.trim()
+When writing pseudocode for module descriptions, always include a \`// file: <path>\` comment at the top of each pseudocode block.`.trim()
 }
 
 function buildModuleDetailPrompt(context: PromptContext): string {
@@ -255,33 +130,13 @@ Available node types: \`process\`, \`decision\`, \`entry\`, \`exit\`, \`start\`,
 - **start** — the beginning of a flow
 - **end** — the termination of a flow
 
-## Graph Operations
+## Using Tools
 
-You can emit node and edge operations to build out the module's internal flow. Wrap all operations in delimiters:
-
-<operations>
-[
-  { "type": "create_node", "payload": { "moduleId": "${context.currentModule?.id ?? 'module-id'}", "label": "Validate Input", "nodeType": "process" } }
-]
-</operations>
-
-Available operations and their schemas:
-
-${NODE_OPERATIONS_SCHEMA}
+You have tools to create, update, and delete nodes and edges. Use them when the user asks to build or modify the flow. Briefly confirm what you're about to do before making changes.
 
 ## File Path Instructions
 
-When writing pseudocode for process nodes, always include a \`// file: <path>\` comment at the top of each pseudocode block to indicate which source file the code belongs to. This allows the file tree sidebar to derive the project's file structure automatically.
-
-Example:
-\`\`\`
-// file: src/lib/services/auth-service.ts
-async function login(email, password) {
-  // validate credentials
-  // create session
-}
-\`\`\`
-`.trim()
+When writing pseudocode for process nodes, always include a \`// file: <path>\` comment at the top of each pseudocode block.`.trim()
 }
 
 export function buildSystemPrompt(mode: PromptMode, context: PromptContext): string {

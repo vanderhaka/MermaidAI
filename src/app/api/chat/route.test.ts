@@ -9,9 +9,9 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(() => Promise.resolve(mockSupabase)),
 }))
 
-const mockCallLLM = vi.fn()
+const mockCallLLMWithTools = vi.fn()
 vi.mock('@/lib/services/llm-client', () => ({
-  callLLM: (...args: unknown[]) => mockCallLLM(...args),
+  callLLMWithTools: (...args: unknown[]) => mockCallLLMWithTools(...args),
 }))
 
 const mockBuildSystemPrompt = vi.fn()
@@ -19,19 +19,36 @@ vi.mock('@/lib/services/prompt-builder', () => ({
   buildSystemPrompt: (...args: unknown[]) => mockBuildSystemPrompt(...args),
 }))
 
-const mockParseLLMResponse = vi.fn()
-vi.mock('@/lib/services/llm-response-parser', () => ({
-  parseLLMResponse: (...args: unknown[]) => mockParseLLMResponse(...args),
-}))
-
-const mockExecuteOperations = vi.fn()
-vi.mock('@/lib/services/graph-operation-executor', () => ({
-  executeOperations: (...args: unknown[]) => mockExecuteOperations(...args),
+const mockGetToolsForMode = vi.fn()
+const mockCreateToolExecutor = vi.fn()
+vi.mock('@/lib/services/llm-tools', () => ({
+  getToolsForMode: (...args: unknown[]) => mockGetToolsForMode(...args),
+  createToolExecutor: (...args: unknown[]) => mockCreateToolExecutor(...args),
 }))
 
 const mockAddChatMessage = vi.fn()
 vi.mock('@/lib/services/chat-message-service', () => ({
   addChatMessage: (...args: unknown[]) => mockAddChatMessage(...args),
+}))
+
+const mockListModulesByProject = vi.fn()
+const mockGetModuleById = vi.fn()
+vi.mock('@/lib/services/module-service', () => ({
+  listModulesByProject: (...args: unknown[]) => mockListModulesByProject(...args),
+  getModuleById: (...args: unknown[]) => mockGetModuleById(...args),
+  createModule: vi.fn(),
+  updateModule: vi.fn(),
+  deleteModule: vi.fn(),
+}))
+
+const mockGetGraphForModule = vi.fn()
+vi.mock('@/lib/services/graph-service', () => ({
+  getGraphForModule: (...args: unknown[]) => mockGetGraphForModule(...args),
+  addNode: vi.fn(),
+  updateNode: vi.fn(),
+  removeNode: vi.fn(),
+  addEdge: vi.fn(),
+  removeEdge: vi.fn(),
 }))
 
 // --- Helpers ---
@@ -86,6 +103,8 @@ async function readStreamToString(response: Response): Promise<string> {
 // --- Tests ---
 
 describe('POST /api/chat', () => {
+  const mockExecutor = vi.fn()
+
   beforeEach(() => {
     vi.clearAllMocks()
 
@@ -98,20 +117,21 @@ describe('POST /api/chat', () => {
     // Default: prompt builder returns a system prompt
     mockBuildSystemPrompt.mockReturnValue('You are a helpful assistant.')
 
-    // Default: LLM returns a simple stream
-    mockCallLLM.mockResolvedValue(makeStream(['Hello', ' world']))
+    // Default: tools for mode
+    mockGetToolsForMode.mockReturnValue([
+      { name: 'create_module', description: 'Create a module', input_schema: {} },
+    ])
 
-    // Default: parser returns message with no ops
-    mockParseLLMResponse.mockReturnValue({
-      message: 'Hello world',
-      operations: [],
-    })
+    // Default: tool executor factory
+    mockCreateToolExecutor.mockReturnValue(mockExecutor)
 
-    // Default: executor succeeds
-    mockExecuteOperations.mockResolvedValue({
-      success: true,
-      results: [],
-    })
+    // Default: LLM returns a simple stream (tool loop handled internally)
+    mockCallLLMWithTools.mockResolvedValue(makeStream(['Hello', ' world']))
+
+    // Default: module/graph lookups return empty
+    mockListModulesByProject.mockResolvedValue({ success: true, data: [] })
+    mockGetModuleById.mockResolvedValue({ success: false, error: 'Not found' })
+    mockGetGraphForModule.mockResolvedValue({ success: true, data: { nodes: [], edges: [] } })
 
     // Default: message persistence succeeds
     mockAddChatMessage.mockResolvedValue({
@@ -201,14 +221,13 @@ describe('POST /api/chat', () => {
     expect(response.body).toBeInstanceOf(ReadableStream)
   })
 
-  it('streams text tokens from the LLM', async () => {
-    mockCallLLM.mockResolvedValue(makeStream(['chunk1', 'chunk2', 'chunk3']))
+  it('streams text from the LLM tool loop', async () => {
+    mockCallLLMWithTools.mockResolvedValue(makeStream(['chunk1', 'chunk2', 'chunk3']))
 
     const { POST } = await import('@/app/api/chat/route')
     const response = await POST(makeRequest(validBody()))
     const text = await readStreamToString(response)
 
-    // The stream should contain the text chunks
     expect(text).toContain('chunk1')
     expect(text).toContain('chunk2')
     expect(text).toContain('chunk3')
@@ -230,58 +249,46 @@ describe('POST /api/chat', () => {
     )
   })
 
-  // --- LLM call ---
+  // --- Tool wiring ---
 
-  it('calls callLLM with system prompt and message history', async () => {
+  it('passes tools for the current mode to callLLMWithTools', async () => {
+    const tools = [{ name: 'create_module', description: 'test', input_schema: {} }]
+    mockGetToolsForMode.mockReturnValue(tools)
+
+    const { POST } = await import('@/app/api/chat/route')
+    await POST(makeRequest(validBody()))
+
+    expect(mockGetToolsForMode).toHaveBeenCalledWith('discovery')
+    expect(mockCallLLMWithTools).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      tools,
+      mockExecutor,
+    )
+  })
+
+  it('creates a tool executor with the project ID', async () => {
+    const { POST } = await import('@/app/api/chat/route')
+    await POST(makeRequest(validBody()))
+
+    expect(mockCreateToolExecutor).toHaveBeenCalledWith('proj-1')
+  })
+
+  it('calls callLLMWithTools with system prompt and message history', async () => {
     mockBuildSystemPrompt.mockReturnValue('System prompt here')
 
     const { POST } = await import('@/app/api/chat/route')
-    const body = validBody()
+    await POST(makeRequest(validBody()))
 
-    await POST(makeRequest(body))
-
-    expect(mockCallLLM).toHaveBeenCalledWith(
+    expect(mockCallLLMWithTools).toHaveBeenCalledWith(
       'System prompt here',
       expect.arrayContaining([
         expect.objectContaining({ role: 'user', content: 'Hello' }),
         expect.objectContaining({ role: 'user', content: 'Create an auth module' }),
       ]),
+      expect.any(Array),
+      expect.any(Function),
     )
-  })
-
-  // --- Response parsing + operations ---
-
-  it('parses the full response and executes operations after stream completes', async () => {
-    const ops = [{ type: 'create_module', payload: { name: 'Auth' } }]
-    mockCallLLM.mockResolvedValue(makeStream(['Some ', 'response']))
-    mockParseLLMResponse.mockReturnValue({ message: 'Some response', operations: ops })
-    mockExecuteOperations.mockResolvedValue({
-      success: true,
-      results: [{ operation: 'create_module', success: true }],
-    })
-
-    const { POST } = await import('@/app/api/chat/route')
-    const response = await POST(makeRequest(validBody()))
-
-    // Consume the entire stream to trigger post-stream processing
-    await readStreamToString(response)
-
-    // Give micro-task queue a chance to flush
-    await new Promise((r) => setTimeout(r, 50))
-
-    expect(mockParseLLMResponse).toHaveBeenCalledWith('Some response')
-    expect(mockExecuteOperations).toHaveBeenCalledWith(ops, { projectId: 'proj-1' })
-  })
-
-  it('skips executeOperations when no operations are parsed', async () => {
-    mockParseLLMResponse.mockReturnValue({ message: 'Just text', operations: [] })
-
-    const { POST } = await import('@/app/api/chat/route')
-    const response = await POST(makeRequest(validBody()))
-    await readStreamToString(response)
-    await new Promise((r) => setTimeout(r, 50))
-
-    expect(mockExecuteOperations).not.toHaveBeenCalled()
   })
 
   // --- Message persistence ---
@@ -302,8 +309,7 @@ describe('POST /api/chat', () => {
   })
 
   it('persists the assistant message to chat_messages after stream', async () => {
-    mockCallLLM.mockResolvedValue(makeStream(['AI ', 'reply']))
-    mockParseLLMResponse.mockReturnValue({ message: 'AI reply', operations: [] })
+    mockCallLLMWithTools.mockResolvedValue(makeStream(['AI ', 'reply']))
 
     const { POST } = await import('@/app/api/chat/route')
     const response = await POST(makeRequest(validBody()))
@@ -322,7 +328,7 @@ describe('POST /api/chat', () => {
   // --- Error handling ---
 
   it('returns 500 JSON error when LLM call fails', async () => {
-    mockCallLLM.mockRejectedValue(new Error('LLM request failed: service down'))
+    mockCallLLMWithTools.mockRejectedValue(new Error('LLM request failed: service down'))
 
     const { POST } = await import('@/app/api/chat/route')
     const response = await POST(makeRequest(validBody()))
