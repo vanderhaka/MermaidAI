@@ -3,6 +3,11 @@
 import { useState } from 'react'
 import { Handle, Position } from '@xyflow/react'
 import type { NodeProps } from '@xyflow/react'
+import {
+  FLOW_DETAIL_HANDLE_BASE_CLASS,
+  FLOW_DETAIL_HANDLE_COLOR,
+  FLOW_DETAIL_HANDLE_POSITION,
+} from '@/components/canvas/nodes/flow-detail-handles'
 
 type ProcessNodeData = {
   label: string
@@ -14,8 +19,13 @@ export default function ProcessNode({ data }: NodeProps) {
   const [expanded, setExpanded] = useState(false)
 
   return (
-    <div className="rounded-lg border border-blue-300 bg-white px-4 py-2 shadow-sm">
-      <Handle type="target" position={Position.Top} />
+    <div className="box-border w-[260px] rounded-lg border border-blue-300 bg-white px-4 py-2 shadow-sm">
+      <Handle
+        type="target"
+        position={Position.Top}
+        className={`${FLOW_DETAIL_HANDLE_BASE_CLASS} ${FLOW_DETAIL_HANDLE_COLOR.success}`}
+        style={FLOW_DETAIL_HANDLE_POSITION.top}
+      />
 
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-medium">{label}</span>
@@ -37,7 +47,12 @@ export default function ProcessNode({ data }: NodeProps) {
         </pre>
       )}
 
-      <Handle type="source" position={Position.Bottom} />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className={`${FLOW_DETAIL_HANDLE_BASE_CLASS} ${FLOW_DETAIL_HANDLE_COLOR.success}`}
+        style={FLOW_DETAIL_HANDLE_POSITION.bottom}
+      />
     </div>
   )
 }

@@ -10,14 +10,19 @@ function buildLeftExitOrthogonalPath(
   sourceY: number,
   targetX: number,
   targetY: number,
+  targetPosition: EdgeProps['targetPosition'],
 ): { path: string; labelX: number; labelY: number } {
   const extendLeft = 88
-  const clearanceBelow = 72
   const x1 = sourceX - extendLeft
-  const yLane = Math.max(sourceY, targetY) + clearanceBelow
-  const path = `M ${sourceX} ${sourceY} L ${x1} ${sourceY} L ${x1} ${yLane} L ${targetX} ${yLane} L ${targetX} ${targetY}`
+  const enterGap = 34
+  const yLane =
+    targetPosition === Position.Top ? targetY - enterGap : Math.max(sourceY, targetY) + 72
+  const path =
+    targetPosition === Position.Top
+      ? `M ${sourceX} ${sourceY} L ${x1} ${sourceY} L ${x1} ${yLane} L ${targetX} ${yLane} L ${targetX} ${targetY}`
+      : `M ${sourceX} ${sourceY} L ${x1} ${sourceY} L ${x1} ${yLane} L ${targetX} ${yLane} L ${targetX} ${targetY}`
   const labelX = (x1 + targetX) / 2
-  const labelY = (sourceY + yLane) / 2
+  const labelY = targetPosition === Position.Top ? yLane : (sourceY + yLane) / 2
   return { path, labelX, labelY }
 }
 
@@ -27,12 +32,19 @@ function buildRightExitOrthogonalPath(
   sourceY: number,
   targetX: number,
   targetY: number,
+  targetPosition: EdgeProps['targetPosition'],
 ): { path: string; labelX: number; labelY: number } {
   const extendRight = 72
   const x1 = sourceX + extendRight
-  const path = `M ${sourceX} ${sourceY} L ${x1} ${sourceY} L ${x1} ${targetY} L ${targetX} ${targetY}`
+  const enterGap = 34
+  const yLane =
+    targetPosition === Position.Top ? targetY - enterGap : Math.max(sourceY, targetY) + 48
+  const path =
+    targetPosition === Position.Top
+      ? `M ${sourceX} ${sourceY} L ${x1} ${sourceY} L ${x1} ${yLane} L ${targetX} ${yLane} L ${targetX} ${targetY}`
+      : `M ${sourceX} ${sourceY} L ${x1} ${sourceY} L ${x1} ${targetY} L ${targetX} ${targetY}`
   const labelX = (x1 + targetX) / 2
-  const labelY = (sourceY + targetY) / 2
+  const labelY = targetPosition === Position.Top ? yLane : (sourceY + targetY) / 2
   return { path, labelX, labelY }
 }
 
@@ -133,9 +145,9 @@ export default function ConditionEdge({
     labelX,
     labelY,
   } = useLeftOrtho
-    ? buildLeftExitOrthogonalPath(sourceX, sourceY, targetX, targetY)
+    ? buildLeftExitOrthogonalPath(sourceX, sourceY, targetX, targetY, targetPosition)
     : useRightOrtho
-      ? buildRightExitOrthogonalPath(sourceX, sourceY, targetX, targetY)
+      ? buildRightExitOrthogonalPath(sourceX, sourceY, targetX, targetY, targetPosition)
       : (() => {
           const [p, lx, ly] = getSmoothStepPath({
             sourceX,
