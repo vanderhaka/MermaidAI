@@ -22,6 +22,7 @@ import {
   type ModuleMapLayoutResult,
   type ModulePortLayout,
 } from '@/lib/canvas/layout'
+import { expandConnectionHandlePoints } from '@/lib/canvas/handleSlots'
 import type { Module, ModuleConnection } from '@/types/graph'
 
 const nodeTypes = { moduleCard: ModuleCardNode }
@@ -66,17 +67,23 @@ function getConnectedEntryPoints(connections: ModuleConnection[]) {
   return connectedEntries
 }
 
-function getDerivedHandles(connections: ModuleConnection[]) {
+function getDerivedSlottedHandles(
+  connections: ModuleConnection[],
+  sourcePointByConnectionId: Map<string, string>,
+  targetPointByConnectionId: Map<string, string>,
+) {
   const derivedEntries = new Map<string, Set<string>>()
   const derivedExits = new Map<string, Set<string>>()
 
   for (const connection of connections) {
+    const entryName = targetPointByConnectionId.get(connection.id) ?? connection.target_entry_point
     const entries = derivedEntries.get(connection.target_module_id) ?? new Set<string>()
-    entries.add(connection.target_entry_point)
+    entries.add(entryName)
     derivedEntries.set(connection.target_module_id, entries)
 
+    const exitName = sourcePointByConnectionId.get(connection.id) ?? connection.source_exit_point
     const exits = derivedExits.get(connection.source_module_id) ?? new Set<string>()
-    exits.add(connection.source_exit_point)
+    exits.add(exitName)
     derivedExits.set(connection.source_module_id, exits)
   }
 
@@ -127,11 +134,18 @@ function ModuleMapInner({ modules, connections, onModuleClick }: ModuleMapViewPr
   const { nodes, edges } = useMemo(() => {
     if (modules.length === 0) return { nodes: [] as Node[], edges: [] as Edge[] }
 
+    const { sourcePointByConnectionId, targetPointByConnectionId } =
+      expandConnectionHandlePoints(connections)
+    const { derivedEntries, derivedExits } = getDerivedSlottedHandles(
+      connections,
+      sourcePointByConnectionId,
+      targetPointByConnectionId,
+    )
+
     const modulesById = new Map(modules.map((module) => [module.id, module]))
     const layoutNodes = new Map(layout.nodes.map((node) => [node.id, node]))
     const layoutEdges = new Map(layout.edges.map((edge) => [edge.id, edge]))
     const connectedEntries = getConnectedEntryPoints(connections)
-    const { derivedEntries, derivedExits } = getDerivedHandles(connections)
 
     const builtNodes = modules.map<Node>((module) => {
       const nodeLayout = layoutNodes.get(module.id)
@@ -160,6 +174,11 @@ function ModuleMapInner({ modules, connections, onModuleClick }: ModuleMapViewPr
       const sourceName = modulesById.get(connection.source_module_id)?.name ?? 'Unknown source'
       const targetName = modulesById.get(connection.target_module_id)?.name ?? 'Unknown target'
 
+      const sourcePort =
+        sourcePointByConnectionId.get(connection.id) ?? connection.source_exit_point
+      const targetPort =
+        targetPointByConnectionId.get(connection.id) ?? connection.target_entry_point
+
       const data: ModuleConnectionEdgeData = {
         label: connection.source_exit_point,
         labelColor,
@@ -172,8 +191,8 @@ function ModuleMapInner({ modules, connections, onModuleClick }: ModuleMapViewPr
         type: 'moduleConnection',
         source: connection.source_module_id,
         target: connection.target_module_id,
-        sourceHandle: `exit-${connection.source_exit_point}`,
-        targetHandle: `entry-${connection.target_entry_point}`,
+        sourceHandle: `exit-${sourcePort}`,
+        targetHandle: `entry-${targetPort}`,
         markerEnd: { type: MarkerType.ArrowClosed, color: markerColor, width: 16, height: 16 },
         style: {
           stroke,

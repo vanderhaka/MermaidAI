@@ -2,6 +2,7 @@
 
 import { Handle, Position } from '@xyflow/react'
 import type { NodeProps } from '@xyflow/react'
+import { stripHandleSlotSuffix } from '@/lib/canvas/handleSlots'
 
 export type HandleSide = 'left' | 'right' | 'top' | 'bottom'
 
@@ -138,7 +139,7 @@ export default function ModuleCardNode({ data }: NodeProps) {
       )}
 
       {distributedEntryHandles.map((h) => {
-        const ep = h.id.replace('entry-', '')
+        const ep = stripHandleSlotSuffix(h.id.replace('entry-', ''))
         return (
           <Handle
             key={h.id}
@@ -152,7 +153,7 @@ export default function ModuleCardNode({ data }: NodeProps) {
       })}
 
       {distributedExitHandles.map((h) => {
-        const ep = h.id.replace('exit-', '')
+        const ep = stripHandleSlotSuffix(h.id.replace('exit-', ''))
         return (
           <Handle
             key={h.id}

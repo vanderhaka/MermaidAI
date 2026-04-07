@@ -10,6 +10,7 @@ import dagre from 'dagre'
 import type { FlowNode, FlowEdge, Module, ModuleConnection, Position } from '@/types/graph'
 import { MODULE_CARD_WIDTH, MODULE_CARD_HEIGHT } from '@/components/canvas/nodes/ModuleCardNode'
 import type { HandleSide } from '@/components/canvas/nodes/ModuleCardNode'
+import { expandConnectionHandlePoints } from '@/lib/canvas/handleSlots'
 
 export const DEFAULT_NODE_WIDTH = 172
 export const DEFAULT_NODE_HEIGHT = 36
@@ -110,18 +111,8 @@ export async function computeModuleMapLayout(
     return buildFallbackModuleMapLayout(modules, connections)
   }
 
-  const incomingEntryPoints = new Map<string, Set<string>>()
-  const outgoingExitPoints = new Map<string, Set<string>>()
-
-  for (const connection of connections) {
-    const entryPoints = incomingEntryPoints.get(connection.target_module_id) ?? new Set<string>()
-    entryPoints.add(connection.target_entry_point)
-    incomingEntryPoints.set(connection.target_module_id, entryPoints)
-
-    const exitPoints = outgoingExitPoints.get(connection.source_module_id) ?? new Set<string>()
-    exitPoints.add(connection.source_exit_point)
-    outgoingExitPoints.set(connection.source_module_id, exitPoints)
-  }
+  const { sourcePointByConnectionId, targetPointByConnectionId } =
+    expandConnectionHandlePoints(connections)
 
   const orderedModules = buildPreferredModuleOrder(modules, connections)
   const portMetadata = new Map<string, { moduleId: string; handleId: string; side: HandleSide }>()
@@ -130,12 +121,30 @@ export async function computeModuleMapLayout(
     id: 'module-map',
     layoutOptions: MODULE_MAP_LAYOUT_OPTIONS,
     children: orderedModules.map((module) =>
-      buildElkModuleNode(module, incomingEntryPoints, outgoingExitPoints, portMetadata),
+      buildElkModuleNode(
+        module,
+        connections,
+        sourcePointByConnectionId,
+        targetPointByConnectionId,
+        portMetadata,
+      ),
     ),
     edges: connections.map<ElkExtendedEdge>((connection) => ({
       id: connection.id,
-      sources: [getPortId(connection.source_module_id, 'exit', connection.source_exit_point)],
-      targets: [getPortId(connection.target_module_id, 'entry', connection.target_entry_point)],
+      sources: [
+        getPortId(
+          connection.source_module_id,
+          'exit',
+          sourcePointByConnectionId.get(connection.id) ?? connection.source_exit_point,
+        ),
+      ],
+      targets: [
+        getPortId(
+          connection.target_module_id,
+          'entry',
+          targetPointByConnectionId.get(connection.id) ?? connection.target_entry_point,
+        ),
+      ],
     })),
   }
 
@@ -162,10 +171,20 @@ export async function computeModuleMapLayout(
         portLayout:
           laidOutNode != null
             ? {
-                ...buildDefaultPortLayout(module, connections),
+                ...buildDefaultPortLayout(
+                  module,
+                  connections,
+                  sourcePointByConnectionId,
+                  targetPointByConnectionId,
+                ),
                 ...extractPortLayout(laidOutNode, portMetadata),
               }
-            : buildDefaultPortLayout(module, connections),
+            : buildDefaultPortLayout(
+                module,
+                connections,
+                sourcePointByConnectionId,
+                targetPointByConnectionId,
+              ),
       }
     }),
     edges: connections.map((connection) => ({
@@ -201,6 +220,9 @@ function buildFallbackModuleMapLayout(
   modules: Module[],
   connections: ModuleConnection[],
 ): ModuleMapLayoutResult {
+  const { sourcePointByConnectionId, targetPointByConnectionId } =
+    expandConnectionHandlePoints(connections)
+
   return {
     nodes: computeGridLayout(
       modules,
@@ -211,7 +233,12 @@ function buildFallbackModuleMapLayout(
     ).map((module) => ({
       id: module.id,
       position: module.position,
-      portLayout: buildDefaultPortLayout(module, connections),
+      portLayout: buildDefaultPortLayout(
+        module,
+        connections,
+        sourcePointByConnectionId,
+        targetPointByConnectionId,
+      ),
     })),
     edges: connections.map((connection) => ({
       id: connection.id,
@@ -277,19 +304,68 @@ function buildPreferredModuleOrder(modules: Module[], connections: ModuleConnect
   return ordered
 }
 
+function collectSlottedEntryPointsForModule(
+  moduleId: string,
+  module: Module,
+  connections: ModuleConnection[],
+  targetPointByConnectionId: Map<string, string>,
+): string[] {
+  const names = new Set<string>()
+  const logicalConnected = new Set<string>()
+  for (const c of connections) {
+    if (c.target_module_id === moduleId) {
+      names.add(targetPointByConnectionId.get(c.id) ?? c.target_entry_point)
+      logicalConnected.add(c.target_entry_point)
+    }
+  }
+  for (const ep of module.entry_points) {
+    if (!logicalConnected.has(ep)) {
+      names.add(ep)
+    }
+  }
+  return Array.from(names).sort((a, b) => a.localeCompare(b))
+}
+
+function collectSlottedExitPointsForModule(
+  moduleId: string,
+  module: Module,
+  connections: ModuleConnection[],
+  sourcePointByConnectionId: Map<string, string>,
+): string[] {
+  const names = new Set<string>()
+  const logicalConnected = new Set<string>()
+  for (const c of connections) {
+    if (c.source_module_id === moduleId) {
+      names.add(sourcePointByConnectionId.get(c.id) ?? c.source_exit_point)
+      logicalConnected.add(c.source_exit_point)
+    }
+  }
+  for (const ep of module.exit_points) {
+    if (!logicalConnected.has(ep)) {
+      names.add(ep)
+    }
+  }
+  return Array.from(names).sort((a, b) => a.localeCompare(b))
+}
+
 function buildElkModuleNode(
   module: Module,
-  incomingEntryPoints: Map<string, Set<string>>,
-  outgoingExitPoints: Map<string, Set<string>>,
+  connections: ModuleConnection[],
+  sourcePointByConnectionId: Map<string, string>,
+  targetPointByConnectionId: Map<string, string>,
   portMetadata: Map<string, { moduleId: string; handleId: string; side: HandleSide }>,
 ): ElkNode {
-  const entryPoints = mergeHandleNames(
-    module.entry_points,
-    incomingEntryPoints.get(module.id) ?? new Set<string>(),
+  const entryPoints = collectSlottedEntryPointsForModule(
+    module.id,
+    module,
+    connections,
+    targetPointByConnectionId,
   )
-  const exitPoints = mergeHandleNames(
-    module.exit_points,
-    outgoingExitPoints.get(module.id) ?? new Set<string>(),
+  const exitPoints = collectSlottedExitPointsForModule(
+    module.id,
+    module,
+    connections,
+    sourcePointByConnectionId,
   )
 
   const ports: ElkPort[] = [
@@ -336,20 +412,24 @@ function buildElkPort(
   }
 }
 
-function buildDefaultPortLayout(module: Module, connections: ModuleConnection[]) {
-  const incoming = new Set(
-    connections
-      .filter((connection) => connection.target_module_id === module.id)
-      .map((connection) => connection.target_entry_point),
+function buildDefaultPortLayout(
+  module: Module,
+  connections: ModuleConnection[],
+  sourcePointByConnectionId: Map<string, string>,
+  targetPointByConnectionId: Map<string, string>,
+) {
+  const entryPoints = collectSlottedEntryPointsForModule(
+    module.id,
+    module,
+    connections,
+    targetPointByConnectionId,
   )
-  const outgoing = new Set(
-    connections
-      .filter((connection) => connection.source_module_id === module.id)
-      .map((connection) => connection.source_exit_point),
+  const exitPoints = collectSlottedExitPointsForModule(
+    module.id,
+    module,
+    connections,
+    sourcePointByConnectionId,
   )
-
-  const entryPoints = mergeHandleNames(module.entry_points, incoming)
-  const exitPoints = mergeHandleNames(module.exit_points, outgoing)
 
   return {
     ...buildSidePortLayout(entryPoints, 'entry', 'top'),
