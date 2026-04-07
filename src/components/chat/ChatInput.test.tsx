@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import ChatInput from '@/components/chat/ChatInput'
 
@@ -84,6 +84,55 @@ describe('ChatInput', () => {
       await user.click(screen.getByRole('button', { name: /send/i }))
 
       expect(onSend).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('IME composition', () => {
+    function dispatchKeyDown(element: Element, isComposing: boolean): KeyboardEvent {
+      const event = new KeyboardEvent('keydown', {
+        key: 'Enter',
+        bubbles: true,
+        cancelable: true,
+        isComposing,
+      } as KeyboardEventInit)
+      element.dispatchEvent(event)
+      return event
+    }
+
+    it('does not send when Enter is pressed during IME composition', async () => {
+      const user = userEvent.setup()
+      render(<ChatInput onSend={onSend} isLoading={false} />)
+
+      const input = screen.getByRole('textbox')
+      await user.type(input, 'テスト')
+
+      dispatchKeyDown(input, true)
+
+      expect(onSend).not.toHaveBeenCalled()
+    })
+
+    it('does not preventDefault during IME composition', async () => {
+      const user = userEvent.setup()
+      render(<ChatInput onSend={onSend} isLoading={false} />)
+
+      const input = screen.getByRole('textbox')
+      await user.type(input, 'テスト')
+
+      const event = dispatchKeyDown(input, true)
+
+      expect(event.defaultPrevented).toBe(false)
+    })
+
+    it('still sends on Enter when not composing', async () => {
+      const user = userEvent.setup()
+      render(<ChatInput onSend={onSend} isLoading={false} />)
+
+      const input = screen.getByRole('textbox')
+      await user.type(input, 'Hello')
+
+      dispatchKeyDown(input, false)
+
+      expect(onSend).toHaveBeenCalledWith('Hello')
     })
   })
 

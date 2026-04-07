@@ -23,7 +23,7 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
       send()
     }
