@@ -10,10 +10,13 @@ vi.mock('@/lib/supabase/server', () => ({
 }))
 
 const mockCallLLMWithTools = vi.fn()
-vi.mock('@/lib/services/llm-client', () => ({
-  callLLMWithTools: (...args: unknown[]) => mockCallLLMWithTools(...args),
-  TOOL_EVENT_DELIMITER: '\x1ETOOL_EVENT:',
-}))
+vi.mock('@/lib/services/llm-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/services/llm-client')>()
+  return {
+    ...actual,
+    callLLMWithTools: (...args: unknown[]) => mockCallLLMWithTools(...args),
+  }
+})
 
 const mockBuildSystemPrompt = vi.fn()
 vi.mock('@/lib/services/prompt-builder', () => ({
@@ -446,6 +449,39 @@ describe('POST /api/chat', () => {
     const json = await response.json()
     expect(json).toHaveProperty('error')
     expect(json.error).not.toContain('sk-ant')
+  })
+
+  it('sanitizes sensitive data from error responses (file paths, connection strings, keys)', async () => {
+    mockCallLLMWithTools.mockRejectedValue(
+      new Error(
+        'Failed at /Users/dev/app/secret.ts: postgresql://admin:pass@db.supabase.co:5432/postgres with key sk_live_abc123',
+      ),
+    )
+
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest(validBody()))
+
+    expect(response.status).toBe(500)
+    const json = await response.json()
+    expect(json.error).not.toContain('/Users/')
+    expect(json.error).not.toContain('postgresql://')
+    expect(json.error).not.toContain('sk_live_')
+    expect(json.error).not.toContain('supabase.co')
+  })
+
+  it('does not leak raw err.message to client (uses sanitizeError)', async () => {
+    mockCallLLMWithTools.mockRejectedValue(
+      new Error('Connection to 192.168.1.50:5432 refused for sk-ant-api03-secret'),
+    )
+
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest(validBody()))
+
+    expect(response.status).toBe(500)
+    const json = await response.json()
+    expect(json.error).not.toContain('192.168.1.50')
+    expect(json.error).not.toContain('sk-ant')
+    expect(json.error).toContain('LLM request failed')
   })
 
   it('returns error JSON when request body is not valid JSON', async () => {

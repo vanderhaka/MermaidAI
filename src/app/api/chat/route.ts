@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { buildSystemPrompt } from '@/lib/services/prompt-builder'
 import type { PromptContext, PromptMode } from '@/lib/services/prompt-builder'
-import { callLLMWithTools, TOOL_EVENT_DELIMITER } from '@/lib/services/llm-client'
+import { callLLMWithTools, sanitizeError, TOOL_EVENT_DELIMITER } from '@/lib/services/llm-client'
 import { getToolsForMode, createToolExecutor } from '@/lib/services/llm-tools'
 import { addChatMessage } from '@/lib/services/chat-message-service'
 import { listModulesByProject, getModuleById } from '@/lib/services/module-service'
@@ -111,8 +111,7 @@ export async function POST(request: Request) {
 
     llmStream = await callLLMWithTools(systemPrompt, messages, tools, executeTool)
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : 'Internal server error'
-    return NextResponse.json({ error: errMsg }, { status: 500 })
+    return NextResponse.json({ error: sanitizeError(err) }, { status: 500 })
   }
 
   let fullText = ''

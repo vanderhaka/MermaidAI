@@ -30,6 +30,87 @@ vi.mock('@anthropic-ai/sdk', () => {
   return { default: MockAnthropic }
 })
 
+describe('sanitizeError', () => {
+  it('redacts Anthropic API keys (sk-ant-...)', async () => {
+    const { sanitizeError } = await import('@/lib/services/llm-client')
+    const result = sanitizeError(new Error('Auth failed for sk-ant-api03-secret-key'))
+    expect(result).not.toContain('sk-ant')
+    expect(result).toContain('[REDACTED]')
+  })
+
+  it('redacts Supabase/Postgres connection strings', async () => {
+    const { sanitizeError } = await import('@/lib/services/llm-client')
+    const result = sanitizeError(
+      new Error('Connection failed: postgresql://user:pass@db.supabase.co:5432/postgres'),
+    )
+    expect(result).not.toContain('postgresql://')
+    expect(result).not.toContain('supabase.co')
+    expect(result).toContain('[REDACTED]')
+  })
+
+  it('redacts absolute file paths (/Users/...)', async () => {
+    const { sanitizeError } = await import('@/lib/services/llm-client')
+    const result = sanitizeError(
+      new Error('File not found: /Users/james/projects/secret/config.ts'),
+    )
+    expect(result).not.toContain('/Users/')
+    expect(result).toContain('[REDACTED]')
+  })
+
+  it('redacts absolute file paths (/home/...)', async () => {
+    const { sanitizeError } = await import('@/lib/services/llm-client')
+    const result = sanitizeError(new Error('ENOENT: /home/deploy/.env.local'))
+    expect(result).not.toContain('/home/')
+    expect(result).toContain('[REDACTED]')
+  })
+
+  it('redacts Stripe live keys (sk_live_...)', async () => {
+    const { sanitizeError } = await import('@/lib/services/llm-client')
+    const result = sanitizeError(new Error('Stripe error with key sk_live_abc123def456'))
+    expect(result).not.toContain('sk_live_')
+    expect(result).toContain('[REDACTED]')
+  })
+
+  it('redacts Stripe test keys (sk_test_...)', async () => {
+    const { sanitizeError } = await import('@/lib/services/llm-client')
+    const result = sanitizeError(new Error('Invalid key sk_test_xyz789'))
+    expect(result).not.toContain('sk_test_')
+    expect(result).toContain('[REDACTED]')
+  })
+
+  it('redacts internal hostnames', async () => {
+    const { sanitizeError } = await import('@/lib/services/llm-client')
+    const result = sanitizeError(new Error('Cannot connect to api.internal.company.io:8080'))
+    expect(result).not.toContain('api.internal.company.io')
+    expect(result).toContain('[REDACTED]')
+  })
+
+  it('redacts IPv4 addresses', async () => {
+    const { sanitizeError } = await import('@/lib/services/llm-client')
+    const result = sanitizeError(new Error('Connection refused at 192.168.1.100:5432'))
+    expect(result).not.toContain('192.168.1.100')
+    expect(result).toContain('[REDACTED]')
+  })
+
+  it('handles non-Error inputs gracefully', async () => {
+    const { sanitizeError } = await import('@/lib/services/llm-client')
+    const result = sanitizeError('string error with sk-ant-api03-key')
+    expect(result).not.toContain('sk-ant')
+    expect(result).toContain('LLM request failed')
+  })
+
+  it('redacts multiple sensitive items in a single message', async () => {
+    const { sanitizeError } = await import('@/lib/services/llm-client')
+    const result = sanitizeError(
+      new Error('Failed at /Users/dev/app: postgresql://u:p@10.0.0.5:5432/db key=sk_live_abc'),
+    )
+    expect(result).not.toContain('/Users/')
+    expect(result).not.toContain('postgresql://')
+    expect(result).not.toContain('10.0.0.5')
+    expect(result).not.toContain('sk_live_')
+  })
+})
+
 describe('llm-client', () => {
   const originalEnv = process.env
 

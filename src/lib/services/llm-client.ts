@@ -159,8 +159,20 @@ export async function callLLM(
   })
 }
 
-function sanitizeError(error: unknown): string {
+export function sanitizeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
-  const sanitized = message.replace(/sk-ant[^\s]*/gi, '[REDACTED]')
+  const sanitized = message
+    // Anthropic API keys
+    .replace(/sk-ant[^\s]*/gi, '[REDACTED]')
+    // Stripe keys (sk_live_, sk_test_)
+    .replace(/sk_(live|test)_[^\s]*/gi, '[REDACTED]')
+    // Postgres/Supabase connection strings
+    .replace(/postgresql:\/\/[^\s]*/gi, '[REDACTED]')
+    // Absolute file paths (Unix)
+    .replace(/\/(Users|home)\/[^\s]*/g, '[REDACTED]')
+    // IPv4 addresses (with optional port)
+    .replace(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?\b/g, '[REDACTED]')
+    // Internal hostnames (multi-segment with .internal., .local, .io, .co with port)
+    .replace(/\b[a-zA-Z0-9-]+\.[a-zA-Z0-9.-]*\b(:\d+)/g, '[REDACTED]')
   return `LLM request failed: ${sanitized}`
 }
