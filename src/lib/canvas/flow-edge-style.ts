@@ -2,7 +2,7 @@
  * Aligns module-detail flow edges with {@link ModuleMapView} connection styling:
  * green for primary / yes paths, orange for adverse exits, “no” branches, or error-related labels.
  */
-export const FLOW_EDGE_ERROR_KEYWORDS =
+export const ERROR_KEYWORDS =
   /failure|fail|error|cancel|retry|return|rollback|reject|out of stock|low stock|deny|denied|invalid/i
 
 export type ModuleFlowEdgeStyle = {
@@ -18,7 +18,7 @@ export function getModuleFlowEdgeStyle(args: {
   sourceHandle?: string | null
 }): ModuleFlowEdgeStyle {
   const combined = `${args.label ?? ''} ${args.condition ?? ''} ${args.sourceHandle ?? ''}`
-  if (FLOW_EDGE_ERROR_KEYWORDS.test(combined)) {
+  if (ERROR_KEYWORDS.test(combined)) {
     return {
       stroke: '#f97316',
       markerColor: '#f97316',
@@ -40,6 +40,19 @@ export function getModuleFlowEdgeStyle(args: {
     labelColor: '#16a34a',
     isErrorPath: false,
   }
+}
+
+/** Simplified edge style for module-map connections keyed only on exit-point name. */
+export function getEdgeStyle(sourceExitPoint: string): {
+  stroke: string
+  markerColor: string
+  labelColor: string
+  isErrorPath: boolean
+} {
+  if (ERROR_KEYWORDS.test(sourceExitPoint)) {
+    return { stroke: '#f97316', markerColor: '#f97316', labelColor: '#ea580c', isErrorPath: true }
+  }
+  return { stroke: '#22c55e', markerColor: '#22c55e', labelColor: '#16a34a', isErrorPath: false }
 }
 
 /**

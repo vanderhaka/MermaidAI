@@ -9,11 +9,14 @@ vi.mock('@xyflow/react', () => ({
   Position: { Top: 'top', Bottom: 'bottom', Left: 'left', Right: 'right' },
 }))
 
+import type { ComponentProps } from 'react'
 import StartNode from '@/components/canvas/nodes/StartNode'
 import EndNode from '@/components/canvas/nodes/EndNode'
 
 describe('StartNode', () => {
-  const defaultProps = { data: { label: 'Start' }, id: 'start-1' }
+  const defaultProps = { data: { label: 'Start' }, id: 'start-1' } as unknown as ComponentProps<
+    typeof StartNode
+  >
 
   it('renders the label', () => {
     render(<StartNode {...defaultProps} />)
@@ -38,7 +41,9 @@ describe('StartNode', () => {
 })
 
 describe('EndNode', () => {
-  const defaultProps = { data: { label: 'End' }, id: 'end-1' }
+  const defaultProps = { data: { label: 'End' }, id: 'end-1' } as unknown as ComponentProps<
+    typeof EndNode
+  >
 
   it('renders the label', () => {
     render(<EndNode {...defaultProps} />)

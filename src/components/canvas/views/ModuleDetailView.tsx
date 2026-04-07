@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { startTransition, useEffect, useMemo, useState } from 'react'
 import type { Node, Edge } from '@xyflow/react'
 import {
   ReactFlow,
@@ -13,8 +13,13 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import type { FlowNode, FlowEdge } from '@/types/graph'
-import { computeLayout, getFlowDetailNodeDimensions } from '@/lib/canvas/layout'
+import {
+  computeFlowDetailLayout,
+  getFlowDetailNodeDimensions,
+  type FlowDetailLayoutResult,
+} from '@/lib/canvas/layout'
 import { getModuleFlowEdgeStyle, inferDecisionSourceHandle } from '@/lib/canvas/flow-edge-style'
+import type { ModuleConnectionSection } from '@/lib/canvas/layout'
 import DecisionNode from '@/components/canvas/nodes/DecisionNode'
 import ProcessNode from '@/components/canvas/nodes/ProcessNode'
 import EntryNode from '@/components/canvas/nodes/EntryNode'
@@ -64,13 +69,17 @@ type ModuleDetailViewProps = {
   onBack?: () => void
 }
 
-function toReactFlowNodes(nodes: FlowNode[]): Node[] {
+function toReactFlowNodes(
+  nodes: FlowNode[],
+  layoutNodes: Map<string, { id: string; position: { x: number; y: number } }>,
+): Node[] {
   return nodes.map((n) => {
     const dim = getFlowDetailNodeDimensions(n.node_type)
+    const layoutPos = layoutNodes.get(n.id)?.position ?? n.position
     return {
       id: n.id,
       type: n.node_type,
-      position: n.position,
+      position: layoutPos,
       width: dim.width,
       height: dim.height,
       data: { label: n.label, pseudocode: n.pseudocode },
@@ -78,7 +87,10 @@ function toReactFlowNodes(nodes: FlowNode[]): Node[] {
   })
 }
 
-function toReactFlowEdges(edges: FlowEdge[]): Edge[] {
+function toReactFlowEdges(
+  edges: FlowEdge[],
+  layoutEdges: Map<string, ModuleConnectionSection[]>,
+): Edge[] {
   return edges.map((e) => {
     const sourceHandle = inferDecisionSourceHandle(e.label, e.condition)
     const s = getModuleFlowEdgeStyle({
@@ -92,24 +104,45 @@ function toReactFlowEdges(edges: FlowEdge[]): Edge[] {
       target: e.target_node_id,
       sourceHandle,
       type: 'condition',
-      data: { label: e.label, condition: e.condition, labelColor: s.labelColor },
+      data: {
+        label: e.label,
+        condition: e.condition,
+        labelColor: s.labelColor,
+        sections: layoutEdges.get(e.id) ?? [],
+      },
       markerEnd: { type: MarkerType.ArrowClosed, color: s.markerColor, width: 16, height: 16 },
       style: {
         stroke: s.stroke,
         strokeWidth: s.isErrorPath ? 1.5 : 2,
         strokeDasharray: s.isErrorPath ? '6 3' : undefined,
       },
-      animated: !s.isErrorPath,
     }
   })
 }
 
-function ModuleDetailFlow({ rfNodes, rfEdges }: { rfNodes: Node[]; rfEdges: Edge[] }) {
+function ModuleDetailFlow({
+  nodes,
+  edges,
+  layout,
+}: {
+  nodes: FlowNode[]
+  edges: FlowEdge[]
+  layout: FlowDetailLayoutResult
+}) {
   const { fitView } = useReactFlow()
+
+  const { rfNodes, rfEdges } = useMemo(() => {
+    const layoutNodesMap = new Map(layout.nodes.map((n) => [n.id, n]))
+    const layoutEdgesMap = new Map(layout.edges.map((e) => [e.id, e.sections]))
+    return {
+      rfNodes: toReactFlowNodes(nodes, layoutNodesMap),
+      rfEdges: toReactFlowEdges(edges, layoutEdgesMap),
+    }
+  }, [nodes, edges, layout])
 
   useEffect(() => {
     if (rfNodes.length === 0) return
-    const timer = setTimeout(() => fitView({ padding: 0.34, duration: 320 }), 48)
+    const timer = setTimeout(() => fitView({ padding: 0.3, duration: 300 }), 50)
     return () => clearTimeout(timer)
   }, [rfNodes, rfEdges, fitView])
 
@@ -120,7 +153,7 @@ function ModuleDetailFlow({ rfNodes, rfEdges }: { rfNodes: Node[]; rfEdges: Edge
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
       fitView
-      fitViewOptions={{ padding: 0.34 }}
+      fitViewOptions={{ padding: 0.3 }}
       minZoom={0.12}
       maxZoom={1.6}
       proOptions={{ hideAttribution: true }}
@@ -139,11 +172,29 @@ export default function ModuleDetailView({
   onBack,
 }: ModuleDetailViewProps) {
   const [notesOpen, setNotesOpen] = useState(false)
+  const [layout, setLayout] = useState<FlowDetailLayoutResult>({ nodes: [], edges: [] })
   const hasNodes = nodes.length > 0
 
-  const layoutNodes = hasNodes ? computeLayout(nodes, edges) : []
-  const rfNodes = toReactFlowNodes(layoutNodes)
-  const rfEdges = toReactFlowEdges(edges)
+  useEffect(() => {
+    if (!hasNodes) return
+
+    let cancelled = false
+
+    async function runLayout() {
+      const nextLayout = await computeFlowDetailLayout(nodes, edges)
+      if (cancelled) return
+
+      startTransition(() => {
+        setLayout(nextLayout)
+      })
+    }
+
+    void runLayout()
+
+    return () => {
+      cancelled = true
+    }
+  }, [nodes, edges, hasNodes])
 
   return (
     <div className="flex h-full flex-col">
@@ -189,7 +240,7 @@ export default function ModuleDetailView({
       {hasNodes ? (
         <div className="flex-1 min-h-0">
           <ReactFlowProvider>
-            <ModuleDetailFlow rfNodes={rfNodes} rfEdges={rfEdges} />
+            <ModuleDetailFlow nodes={nodes} edges={edges} layout={layout} />
           </ReactFlowProvider>
         </div>
       ) : (

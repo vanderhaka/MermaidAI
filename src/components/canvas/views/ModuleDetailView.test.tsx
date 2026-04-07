@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { render, screen } from '@testing-library/react'
+import { render, screen, act, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { FlowNode, FlowEdge } from '@/types/graph'
@@ -27,6 +27,10 @@ vi.mock('@/lib/canvas/layout', () => ({
   computeLayout: vi.fn((nodes: FlowNode[]) =>
     nodes.map((n, i) => ({ ...n, position: { x: i * 100, y: i * 50 } })),
   ),
+  computeFlowDetailLayout: vi.fn(async (nodes: FlowNode[]) => ({
+    nodes: nodes.map((n, i) => ({ id: n.id, position: { x: i * 100, y: i * 50 } })),
+    edges: [],
+  })),
   getFlowDetailNodeDimensions: (nodeType: FlowNode['node_type']) =>
     nodeType === 'decision' ? { width: 176, height: 176 } : { width: 172, height: 36 },
 }))
@@ -95,30 +99,35 @@ describe('ModuleDetailView', () => {
     expect(screen.getByTestId('react-flow')).toBeInTheDocument()
   })
 
-  it('converts FlowNodes to React Flow nodes with correct types', () => {
+  it('converts FlowNodes to React Flow nodes with correct types', async () => {
     render(<ModuleDetailView moduleName="Auth" nodes={sampleNodes} edges={sampleEdges} />)
-    const flow = screen.getByTestId('react-flow')
-    const rfNodes = JSON.parse(flow.getAttribute('data-nodes') ?? '[]')
-    expect(rfNodes).toHaveLength(6)
-    expect(rfNodes[0]).toMatchObject({ id: 'n1', type: 'start' })
-    expect(rfNodes[1]).toMatchObject({ id: 'n2', type: 'process' })
-    expect(rfNodes[2]).toMatchObject({ id: 'n3', type: 'decision' })
-    expect(rfNodes[3]).toMatchObject({ id: 'n4', type: 'entry' })
-    expect(rfNodes[4]).toMatchObject({ id: 'n5', type: 'exit' })
-    expect(rfNodes[5]).toMatchObject({ id: 'n6', type: 'end' })
+    await waitFor(() => {
+      const flow = screen.getByTestId('react-flow')
+      const rfNodes = JSON.parse(flow.getAttribute('data-nodes') ?? '[]')
+      expect(rfNodes).toHaveLength(6)
+      expect(rfNodes[0]).toMatchObject({ id: 'n1', type: 'start' })
+      expect(rfNodes[1]).toMatchObject({ id: 'n2', type: 'process' })
+      expect(rfNodes[2]).toMatchObject({ id: 'n3', type: 'decision' })
+      expect(rfNodes[3]).toMatchObject({ id: 'n4', type: 'entry' })
+      expect(rfNodes[4]).toMatchObject({ id: 'n5', type: 'exit' })
+      expect(rfNodes[5]).toMatchObject({ id: 'n6', type: 'end' })
+    })
   })
 
-  it('applies computeLayout to position nodes', async () => {
-    const { computeLayout } = (await import('@/lib/canvas/layout')) as unknown as {
-      computeLayout: ReturnType<typeof vi.fn>
+  it('applies computeFlowDetailLayout to position nodes', async () => {
+    const { computeFlowDetailLayout } = (await import('@/lib/canvas/layout')) as unknown as {
+      computeFlowDetailLayout: ReturnType<typeof vi.fn>
     }
-    render(<ModuleDetailView moduleName="Auth" nodes={sampleNodes} edges={sampleEdges} />)
-    expect(computeLayout).toHaveBeenCalledWith(sampleNodes, sampleEdges)
-    const flow = screen.getByTestId('react-flow')
-    const rfNodes = JSON.parse(flow.getAttribute('data-nodes') ?? '[]')
-    // Layout mock assigns x: i*100, y: i*50
-    expect(rfNodes[0].position).toEqual({ x: 0, y: 0 })
-    expect(rfNodes[1].position).toEqual({ x: 100, y: 50 })
+    await act(async () => {
+      render(<ModuleDetailView moduleName="Auth" nodes={sampleNodes} edges={sampleEdges} />)
+    })
+    expect(computeFlowDetailLayout).toHaveBeenCalledWith(sampleNodes, sampleEdges)
+    await waitFor(() => {
+      const flow = screen.getByTestId('react-flow')
+      const rfNodes = JSON.parse(flow.getAttribute('data-nodes') ?? '[]')
+      expect(rfNodes[0].position).toEqual({ x: 0, y: 0 })
+      expect(rfNodes[1].position).toEqual({ x: 100, y: 50 })
+    })
   })
 
   it('registers all custom nodeTypes', () => {

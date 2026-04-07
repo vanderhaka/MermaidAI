@@ -3,6 +3,11 @@
 import { Handle, Position } from '@xyflow/react'
 import type { NodeProps } from '@xyflow/react'
 import { stripHandleSlotSuffix } from '@/lib/canvas/handleSlots'
+import { ERROR_KEYWORDS } from '@/lib/canvas/flow-edge-style'
+import {
+  FLOW_DETAIL_HANDLE_BASE_CLASS,
+  FLOW_DETAIL_HANDLE_COLOR,
+} from '@/components/canvas/nodes/flow-detail-handles'
 
 export type HandleSide = 'left' | 'right' | 'top' | 'bottom'
 
@@ -22,8 +27,6 @@ type ModuleCardNodeData = {
 
 export const MODULE_CARD_WIDTH = 260
 export const MODULE_CARD_HEIGHT = 100
-
-const ERROR_KEYWORDS = /failure|fail|error|cancel|retry|return|rollback|reject/i
 
 const SIDE_TO_POSITION: Record<HandleSide, Position> = {
   left: Position.Left,
@@ -140,13 +143,16 @@ export default function ModuleCardNode({ data }: NodeProps) {
 
       {distributedEntryHandles.map((h) => {
         const ep = stripHandleSlotSuffix(h.id.replace('entry-', ''))
+        const colorClass = connectedSet.has(ep)
+          ? FLOW_DETAIL_HANDLE_COLOR.success
+          : FLOW_DETAIL_HANDLE_COLOR.neutral
         return (
           <Handle
             key={h.id}
             id={h.id}
             type="target"
             position={SIDE_TO_POSITION[h.side]}
-            className={connectedSet.has(ep) ? '!bg-green-500' : '!bg-purple-400'}
+            className={`${FLOW_DETAIL_HANDLE_BASE_CLASS} ${colorClass}`}
             style={h.style}
           />
         )
@@ -154,13 +160,16 @@ export default function ModuleCardNode({ data }: NodeProps) {
 
       {distributedExitHandles.map((h) => {
         const ep = stripHandleSlotSuffix(h.id.replace('exit-', ''))
+        const colorClass = ERROR_KEYWORDS.test(ep)
+          ? FLOW_DETAIL_HANDLE_COLOR.warning
+          : FLOW_DETAIL_HANDLE_COLOR.success
         return (
           <Handle
             key={h.id}
             id={h.id}
             type="source"
             position={SIDE_TO_POSITION[h.side]}
-            className={ERROR_KEYWORDS.test(ep) ? '!bg-orange-400' : '!bg-green-500'}
+            className={`${FLOW_DETAIL_HANDLE_BASE_CLASS} ${colorClass}`}
             style={h.style}
           />
         )

@@ -18,6 +18,7 @@ import type {
 import { MODULE_CARD_WIDTH, MODULE_CARD_HEIGHT } from '@/components/canvas/nodes/ModuleCardNode'
 import type { HandleSide } from '@/components/canvas/nodes/ModuleCardNode'
 import { expandConnectionHandlePoints } from '@/lib/canvas/handleSlots'
+import { inferDecisionSourceHandle } from '@/lib/canvas/flow-edge-style'
 
 /** Fallback when node type is unknown; prefer {@link getFlowDetailNodeDimensions}. */
 export const DEFAULT_NODE_WIDTH = 172
@@ -39,7 +40,7 @@ export function getFlowDetailNodeDimensions(nodeType: FlowNodeType): {
       return { width: 200, height: 44 }
     case 'start':
     case 'end':
-      return { width: 176, height: 44 }
+      return { width: 64, height: 64 }
     default:
       return { width: DEFAULT_NODE_WIDTH, height: DEFAULT_NODE_HEIGHT }
   }
@@ -237,6 +238,165 @@ export async function computeModuleMapLayout(
       sections: extractSections(laidOutEdges.get(connection.id)),
     })),
   }
+}
+
+// ─── Flow detail ELK layout ────────────────────────────────────────────
+
+const FLOW_DETAIL_LAYOUT_OPTIONS: LayoutOptions = {
+  'elk.algorithm': 'layered',
+  'elk.direction': 'DOWN',
+  'elk.edgeRouting': 'ORTHOGONAL',
+  'elk.padding': '[top=40,left=40,bottom=40,right=40]',
+  'elk.spacing.nodeNode': '60',
+  'elk.layered.spacing.nodeNodeBetweenLayers': '100',
+  'elk.layered.spacing.edgeNodeBetweenLayers': '40',
+  'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
+  'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+  'elk.separateConnectedComponents': 'true',
+}
+
+export type FlowDetailLayoutResult = {
+  nodes: Array<{ id: string; position: Position }>
+  edges: Array<{ id: string; sections: ModuleConnectionSection[] }>
+}
+
+/**
+ * ELK-based layout for flow detail nodes/edges.
+ * Produces both node positions AND orthogonal edge sections,
+ * matching the module map's routing quality.
+ */
+export async function computeFlowDetailLayout(
+  nodes: FlowNode[],
+  edges: FlowEdge[],
+): Promise<FlowDetailLayoutResult> {
+  if (nodes.length === 0) return { nodes: [], edges: [] }
+
+  if (edges.length === 0) {
+    const widths = nodes.map((n) => getFlowDetailNodeDimensions(n.node_type).width)
+    const heights = nodes.map((n) => getFlowDetailNodeDimensions(n.node_type).height)
+    const cellW = Math.max(...widths, DEFAULT_NODE_WIDTH)
+    const cellH = Math.max(...heights, DEFAULT_NODE_HEIGHT)
+    const gridNodes = computeGridLayout(nodes, cellW, cellH, 112, 128)
+    return {
+      nodes: gridNodes.map((n) => ({ id: n.id, position: n.position })),
+      edges: [],
+    }
+  }
+
+  const nodesById = new Map(nodes.map((n) => [n.id, n]))
+
+  const graph: ElkNode = {
+    id: 'flow-detail',
+    layoutOptions: FLOW_DETAIL_LAYOUT_OPTIONS,
+    children: nodes.map((node) => {
+      const dim = getFlowDetailNodeDimensions(node.node_type)
+      const ports: ElkPort[] = buildFlowNodePorts(node)
+
+      return {
+        id: node.id,
+        width: dim.width,
+        height: dim.height,
+        layoutOptions: {
+          'elk.portConstraints': 'FIXED_SIDE',
+        },
+        ports,
+      }
+    }),
+    edges: edges.map<ElkExtendedEdge>((edge) => {
+      const sourceNode = nodesById.get(edge.source_node_id)
+      const sourcePortId = getFlowNodeSourcePortId(edge, sourceNode)
+      return {
+        id: edge.id,
+        sources: [sourcePortId],
+        targets: [`${edge.target_node_id}::in`],
+      }
+    }),
+  }
+
+  let laidOutGraph: ElkNode
+
+  try {
+    laidOutGraph = await elk.layout(graph)
+  } catch {
+    const dagreNodes = computeLayout(nodes, edges)
+    return {
+      nodes: dagreNodes.map((n) => ({ id: n.id, position: n.position })),
+      edges: [],
+    }
+  }
+
+  const laidOutNodes = new Map((laidOutGraph.children ?? []).map((n) => [n.id, n]))
+  const laidOutEdges = new Map((laidOutGraph.edges ?? []).map((e) => [e.id, e]))
+
+  return {
+    nodes: nodes.map((node) => {
+      const layoutNode = laidOutNodes.get(node.id)
+      return {
+        id: node.id,
+        position: {
+          x: layoutNode?.x ?? node.position.x,
+          y: layoutNode?.y ?? node.position.y,
+        },
+      }
+    }),
+    edges: edges.map((edge) => ({
+      id: edge.id,
+      sections: extractSections(laidOutEdges.get(edge.id)),
+    })),
+  }
+}
+
+function buildFlowNodePorts(node: FlowNode): ElkPort[] {
+  const ports: ElkPort[] = []
+
+  const hasTarget = node.node_type !== 'start' && node.node_type !== 'entry'
+  const hasSource = node.node_type !== 'end' && node.node_type !== 'exit'
+
+  if (hasTarget) {
+    ports.push({
+      id: `${node.id}::in`,
+      width: DEFAULT_PORT_SIZE,
+      height: DEFAULT_PORT_SIZE,
+      layoutOptions: { 'elk.port.side': 'NORTH' },
+    })
+  }
+
+  if (node.node_type === 'decision') {
+    ports.push(
+      {
+        id: `${node.id}::yes`,
+        width: DEFAULT_PORT_SIZE,
+        height: DEFAULT_PORT_SIZE,
+        layoutOptions: { 'elk.port.side': 'SOUTH' },
+      },
+      {
+        id: `${node.id}::no`,
+        width: DEFAULT_PORT_SIZE,
+        height: DEFAULT_PORT_SIZE,
+        layoutOptions: { 'elk.port.side': 'EAST' },
+      },
+    )
+  } else if (hasSource) {
+    ports.push({
+      id: `${node.id}::out`,
+      width: DEFAULT_PORT_SIZE,
+      height: DEFAULT_PORT_SIZE,
+      layoutOptions: { 'elk.port.side': 'SOUTH' },
+    })
+  }
+
+  return ports
+}
+
+function getFlowNodeSourcePortId(edge: FlowEdge, sourceNode: FlowNode | undefined): string {
+  if (sourceNode?.node_type === 'decision') {
+    const handle = inferDecisionSourceHandle(edge.label, edge.condition)
+    if (handle === 'yes' || handle === 'no') {
+      return `${edge.source_node_id}::${handle}`
+    }
+    return `${edge.source_node_id}::yes`
+  }
+  return `${edge.source_node_id}::out`
 }
 
 function computeGridLayout<T extends { id: string; position: Position }>(

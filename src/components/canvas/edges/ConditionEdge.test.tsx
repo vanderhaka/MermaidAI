@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('@xyflow/react', () => ({
@@ -40,33 +40,47 @@ describe('ConditionEdge', () => {
     expect(screen.getByTestId('base-edge')).toBeInTheDocument()
   })
 
-  it('displays label text when provided', () => {
+  it('has an accessible label via the hitbox aria-label', () => {
     render(
       <svg>
         <ConditionEdge {...baseProps} data={{ label: 'Yes' }} />
       </svg>,
     )
-    expect(screen.getByText('Yes')).toBeInTheDocument()
+    const hitbox = screen.getByTestId('condition-edge-hitbox')
+    expect(hitbox).toHaveAttribute('aria-label', 'Yes')
   })
 
-  it('shows no label element when label is null', () => {
+  it('shows tooltip on hover when label is provided', () => {
     render(
       <svg>
-        <ConditionEdge {...baseProps} data={{ label: null }} />
+        <ConditionEdge {...baseProps} data={{ label: 'No' }} />
       </svg>,
     )
-    const renderer = screen.getByTestId('edge-label-renderer')
-    expect(renderer.querySelector('[data-testid="edge-label"]')).not.toBeInTheDocument()
+    const hitbox = screen.getByTestId('condition-edge-hitbox')
+    fireEvent.mouseEnter(hitbox)
+    const tooltip = screen.getByTestId('condition-edge-tooltip')
+    expect(tooltip).toBeInTheDocument()
+    expect(tooltip.textContent).toContain('No')
   })
 
-  it('shows no label element when data is empty', () => {
+  it('hides tooltip when not hovered', () => {
+    render(
+      <svg>
+        <ConditionEdge {...baseProps} data={{ label: 'No' }} />
+      </svg>,
+    )
+    expect(screen.queryByTestId('condition-edge-tooltip')).not.toBeInTheDocument()
+  })
+
+  it('shows no tooltip when label and condition are both absent', () => {
     render(
       <svg>
         <ConditionEdge {...baseProps} data={{}} />
       </svg>,
     )
-    const renderer = screen.getByTestId('edge-label-renderer')
-    expect(renderer.querySelector('[data-testid="edge-label"]')).not.toBeInTheDocument()
+    const hitbox = screen.getByTestId('condition-edge-hitbox')
+    fireEvent.mouseEnter(hitbox)
+    expect(screen.queryByTestId('condition-edge-tooltip')).not.toBeInTheDocument()
   })
 
   it('renders an animated path via BaseEdge', () => {
@@ -79,15 +93,16 @@ describe('ConditionEdge', () => {
     expect(edge).toHaveAttribute('data-path', 'M0 0 L100 100')
   })
 
-  it('uses EdgeLabelRenderer for label positioning', () => {
+  it('shows tooltip inside EdgeLabelRenderer on hover', () => {
     render(
       <svg>
         <ConditionEdge {...baseProps} data={{ label: 'No' }} />
       </svg>,
     )
-    const renderer = screen.getByTestId('edge-label-renderer')
-    expect(renderer).toBeInTheDocument()
-    expect(screen.getByText('No').closest('[data-testid="edge-label-renderer"]')).toBeTruthy()
+    const hitbox = screen.getByTestId('condition-edge-hitbox')
+    fireEvent.mouseEnter(hitbox)
+    const tooltip = screen.getByTestId('condition-edge-tooltip')
+    expect(tooltip.closest('[data-testid="edge-label-renderer"]')).toBeTruthy()
   })
 
   it('applies rounded stroke styling to the edge', () => {
@@ -100,5 +115,18 @@ describe('ConditionEdge', () => {
     const style = edge.getAttribute('style') ?? ''
     expect(style).toContain('stroke-linecap: round')
     expect(style).toContain('stroke-linejoin: round')
+  })
+
+  it('shows condition text in tooltip', () => {
+    render(
+      <svg>
+        <ConditionEdge {...baseProps} data={{ label: 'Yes', condition: 'User is authenticated' }} />
+      </svg>,
+    )
+    const hitbox = screen.getByTestId('condition-edge-hitbox')
+    fireEvent.mouseEnter(hitbox)
+    const tooltip = screen.getByTestId('condition-edge-tooltip')
+    expect(tooltip.textContent).toContain('Yes')
+    expect(tooltip.textContent).toContain('User is authenticated')
   })
 })

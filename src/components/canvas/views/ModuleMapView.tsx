@@ -25,23 +25,11 @@ import {
   type ModulePortLayout,
 } from '@/lib/canvas/layout'
 import { expandConnectionHandlePoints } from '@/lib/canvas/handleSlots'
+import { ERROR_KEYWORDS, getEdgeStyle } from '@/lib/canvas/flow-edge-style'
 import type { Module, ModuleConnection } from '@/types/graph'
 
 const nodeTypes = { moduleCard: ModuleCardNode }
 const edgeTypes = { moduleConnection: ModuleConnectionEdge }
-
-const ERROR_KEYWORDS = /failure|fail|error|cancel|retry|return|rollback|reject/i
-
-function getEdgeStyle(sourceExitPoint: string): {
-  stroke: string
-  markerColor: string
-  labelColor: string
-} {
-  if (ERROR_KEYWORDS.test(sourceExitPoint)) {
-    return { stroke: '#f97316', markerColor: '#f97316', labelColor: '#ea580c' }
-  }
-  return { stroke: '#22c55e', markerColor: '#22c55e', labelColor: '#16a34a' }
-}
 
 interface ModuleMapViewProps {
   modules: Module[]
@@ -173,8 +161,9 @@ function ModuleMapInner({ modules, connections, onModuleClick }: ModuleMapViewPr
     })
 
     const builtEdges = connections.map<Edge>((connection) => {
-      const { stroke, markerColor, labelColor } = getEdgeStyle(connection.source_exit_point)
-      const isErrorPath = ERROR_KEYWORDS.test(connection.source_exit_point)
+      const { stroke, markerColor, labelColor, isErrorPath } = getEdgeStyle(
+        connection.source_exit_point,
+      )
       const sourceName = modulesById.get(connection.source_module_id)?.name ?? 'Unknown source'
       const targetName = modulesById.get(connection.target_module_id)?.name ?? 'Unknown target'
 
@@ -203,7 +192,6 @@ function ModuleMapInner({ modules, connections, onModuleClick }: ModuleMapViewPr
           strokeWidth: isErrorPath ? 1.5 : 2,
           strokeDasharray: isErrorPath ? '6 3' : undefined,
         },
-        animated: !isErrorPath,
         data,
       }
     })
@@ -230,6 +218,9 @@ function ModuleMapInner({ modules, connections, onModuleClick }: ModuleMapViewPr
       onNodeClick={handleNodeClick}
       fitView
       fitViewOptions={{ padding: 0.3 }}
+      minZoom={0.12}
+      maxZoom={1.6}
+      proOptions={{ hideAttribution: true }}
     >
       <Controls />
       <Background variant={BackgroundVariant.Dots} />
