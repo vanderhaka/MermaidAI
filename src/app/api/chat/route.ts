@@ -27,7 +27,7 @@ const chatRequestSchema = z.object({
   history: z
     .array(
       z.object({
-        role: z.string(),
+        role: z.enum(['user', 'assistant']),
         content: z.string(),
       }),
     )
