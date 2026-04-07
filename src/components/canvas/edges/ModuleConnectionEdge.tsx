@@ -110,10 +110,97 @@ function dedupePoints(points: Array<{ x: number; y: number }>) {
   })
 }
 
+function getRouteAxisForPosition(
+  position: EdgeProps['sourcePosition'] | EdgeProps['targetPosition'],
+) {
+  return position === 'left' || position === 'right' ? 'horizontal' : 'vertical'
+}
+
+function getRouteAxis(start: { x: number; y: number }, end: { x: number; y: number }) {
+  if (start.x === end.x && start.y !== end.y) return 'vertical'
+  if (start.y === end.y && start.x !== end.x) return 'horizontal'
+  return null
+}
+
+function collapseLinearPoints(points: Array<{ x: number; y: number }>) {
+  const collapsed: Array<{ x: number; y: number }> = []
+
+  for (const point of points) {
+    const last = collapsed[collapsed.length - 1]
+    if (last && last.x === point.x && last.y === point.y) continue
+
+    collapsed.push(point)
+
+    while (collapsed.length >= 3) {
+      const first = collapsed[collapsed.length - 3]
+      const middle = collapsed[collapsed.length - 2]
+      const lastPoint = collapsed[collapsed.length - 1]
+
+      const isVerticalLine = first.x === middle.x && middle.x === lastPoint.x
+      const isHorizontalLine = first.y === middle.y && middle.y === lastPoint.y
+
+      if (!isVerticalLine && !isHorizontalLine) break
+      collapsed.splice(collapsed.length - 2, 1)
+    }
+  }
+
+  return collapsed
+}
+
+function orthogonalizePoints(
+  points: Array<{ x: number; y: number }>,
+  sourcePosition: EdgeProps['sourcePosition'],
+  targetPosition: EdgeProps['targetPosition'],
+) {
+  const deduped = dedupePoints(points)
+  if (deduped.length < 2) return deduped
+
+  const orthogonal: Array<{ x: number; y: number }> = [deduped[0]]
+
+  for (let index = 1; index < deduped.length; index++) {
+    const current = deduped[index]
+    const previous = orthogonal[orthogonal.length - 1]
+
+    if (previous.x === current.x || previous.y === current.y) {
+      orthogonal.push(current)
+      continue
+    }
+
+    const previousAxis =
+      orthogonal.length > 1 ? getRouteAxis(orthogonal[orthogonal.length - 2], previous) : null
+    const isLastPoint = index === deduped.length - 1
+    const preferredFirstAxis = isLastPoint
+      ? getRouteAxisForPosition(targetPosition) === 'vertical'
+        ? 'horizontal'
+        : 'vertical'
+      : (previousAxis ?? getRouteAxisForPosition(sourcePosition))
+    const elbow =
+      preferredFirstAxis === 'vertical'
+        ? { x: previous.x, y: current.y }
+        : { x: current.x, y: previous.y }
+
+    if (elbow.x !== previous.x || elbow.y !== previous.y) {
+      orthogonal.push(elbow)
+    }
+
+    orthogonal.push(current)
+
+    const collapsed = collapseLinearPoints(orthogonal)
+    orthogonal.splice(0, orthogonal.length, ...collapsed)
+  }
+
+  return collapseLinearPoints(orthogonal)
+}
+
 function buildRoundedOrthogonalPath(points: Array<{ x: number; y: number }>, borderRadius: number) {
   const deduped = dedupePoints(points)
   if (deduped.length === 0) return ''
   if (deduped.length === 1) return `M${deduped[0].x} ${deduped[0].y}`
+  if (borderRadius <= 0) {
+    return deduped
+      .map((point, index) => (index === 0 ? `M${point.x} ${point.y}` : `L${point.x} ${point.y}`))
+      .join(' ')
+  }
 
   let path = `M${deduped[0].x} ${deduped[0].y}`
 
@@ -325,6 +412,7 @@ export default function ModuleConnectionEdge({
 }: EdgeProps) {
   const [isHovered, setIsHovered] = useState(false)
   const edgeData = (data as ModuleConnectionEdgeData) ?? {}
+  const hasExplicitSections = (edgeData.sections?.length ?? 0) > 0
   const routeBias = edgeData.routeBias ?? 'none'
   const routeBand = edgeData.routeBand ?? 'direct'
   const laneGap = edgeData.laneGap ?? 0
@@ -338,11 +426,16 @@ export default function ModuleConnectionEdge({
     targetX,
     targetY,
   )
-  const borderRadius = edgeData.borderRadius ?? 12
+  const borderRadius = edgeData.borderRadius ?? (hasExplicitSections ? 0 : 12)
   const offset = edgeData.offset ?? 24
   const route = (() => {
-    if ((edgeData.sections?.length ?? 0) > 0) {
-      const points = getSectionPathPoints(edgeData.sections ?? [])
+    if (hasExplicitSections) {
+      // ELK sections can include small diagonal stitching gaps between consecutive points.
+      const points = orthogonalizePoints(
+        getSectionPathPoints(edgeData.sections ?? []),
+        sourcePosition,
+        targetPosition,
+      )
       const midpoint = getPathMidpoint(points)
       return {
         edgePath: buildRoundedOrthogonalPath(points, borderRadius),

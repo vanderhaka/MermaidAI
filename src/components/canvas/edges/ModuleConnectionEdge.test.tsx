@@ -84,7 +84,50 @@ describe('ModuleConnectionEdge', () => {
     )
 
     expect(getSmoothStepPath).not.toHaveBeenCalled()
-    expect(screen.getByTestId('base-edge').getAttribute('data-path')).toContain('120 160')
+    expect(screen.getByTestId('base-edge')).toHaveAttribute(
+      'data-path',
+      'M120 100 L120 160 L200 160',
+    )
+  })
+
+  it('orthogonalizes stitched layout sections into square corners', () => {
+    render(
+      <svg>
+        <ModuleConnectionEdge
+          {...baseProps}
+          sourceX={40}
+          sourceY={100}
+          targetX={-32}
+          targetY={280}
+          sourcePosition={'bottom' as never}
+          targetPosition={'top' as never}
+          data={{
+            label: 'payment_confirmed',
+            sections: [
+              {
+                startPoint: { x: 40, y: 100 },
+                bendPoints: [
+                  { x: 52, y: 150 },
+                  { x: 40, y: 162 },
+                  { x: -20, y: 162 },
+                ],
+                endPoint: { x: -32, y: 162 },
+              },
+              {
+                startPoint: { x: -20, y: 174 },
+                endPoint: { x: -32, y: 280 },
+              },
+            ],
+          }}
+        />
+      </svg>,
+    )
+
+    expect(getSmoothStepPath).not.toHaveBeenCalled()
+    expect(screen.getByTestId('base-edge')).toHaveAttribute(
+      'data-path',
+      'M40 100 L40 162 L-20 162 L-20 174 L-32 174 L-32 280',
+    )
   })
 
   it('uses a straight vertical route for aligned top-to-bottom connectors', () => {
