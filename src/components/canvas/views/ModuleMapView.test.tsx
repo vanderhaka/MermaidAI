@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { Module } from '@/types/graph'
 
 vi.mock('@xyflow/react', () => ({
@@ -31,6 +31,8 @@ vi.mock('@xyflow/react', () => ({
               data-entry-points={JSON.stringify(node.data.entry_points ?? [])}
               data-exit-points={JSON.stringify(node.data.exit_points ?? [])}
               data-handle-sides={JSON.stringify(node.data.handleSides ?? {})}
+              data-handle-order={JSON.stringify(node.data.handleOrder ?? {})}
+              data-handle-positions={JSON.stringify(node.data.handlePositions ?? {})}
               onClick={() =>
                 typeof onNodeClick === 'function' &&
                 (onNodeClick as (event: unknown, node: { id: string }) => void)(null, node)
@@ -46,11 +48,9 @@ vi.mock('@xyflow/react', () => ({
             sourceHandle?: string
             targetHandle?: string
             data?: {
-              routeBias?: string
-              routeBand?: string
-              laneGap?: number
-              offset?: number
-              laneCoordinate?: number
+              label?: string
+              tooltipDescription?: string
+              sections?: Array<unknown>
             }
           }>
         ).map((edge) => (
@@ -60,11 +60,9 @@ vi.mock('@xyflow/react', () => ({
             data-edge-type={edge.type}
             data-source-handle={edge.sourceHandle}
             data-target-handle={edge.targetHandle}
-            data-route-bias={edge.data?.routeBias}
-            data-route-band={edge.data?.routeBand}
-            data-lane-gap={String(edge.data?.laneGap ?? '')}
-            data-offset={String(edge.data?.offset ?? '')}
-            data-lane-coordinate={String(edge.data?.laneCoordinate ?? '')}
+            data-label={edge.data?.label}
+            data-tooltip-description={edge.data?.tooltipDescription}
+            data-sections={JSON.stringify(edge.data?.sections ?? [])}
           />
         ))}
       {children}
@@ -83,10 +81,18 @@ vi.mock('@xyflow/react', () => ({
 }))
 
 vi.mock('@/lib/canvas/layout', () => ({
-  computeModuleLayout: vi.fn((nodes: unknown[]) => nodes),
+  computeModuleMapLayout: vi.fn(async (modules: Module[]) => ({
+    nodes: modules.map((module, index) => ({
+      id: module.id,
+      position: { x: index * 320, y: index * 180 },
+      portLayout: {},
+    })),
+    edges: [],
+  })),
 }))
 
-import { computeModuleLayout } from '@/lib/canvas/layout'
+import { computeModuleMapLayout } from '@/lib/canvas/layout'
+import ModuleMapView from '@/components/canvas/views/ModuleMapView'
 
 function makeModule(overrides: Partial<Module> = {}): Module {
   return {
@@ -104,34 +110,37 @@ function makeModule(overrides: Partial<Module> = {}): Module {
   }
 }
 
-import ModuleMapView from '@/components/canvas/views/ModuleMapView'
-
 describe('ModuleMapView', () => {
-  it('renders each module as a node on the canvas', () => {
+  beforeEach(() => {
+    vi.mocked(computeModuleMapLayout).mockClear()
+  })
+
+  it('renders each module as a node on the canvas', async () => {
     const modules = [
       makeModule({ id: 'mod-1', name: 'Auth' }),
       makeModule({ id: 'mod-2', name: 'Billing' }),
     ]
+
     render(<ModuleMapView modules={modules} connections={[]} />)
 
-    expect(screen.getByTestId('node-mod-1')).toBeInTheDocument()
+    expect(await screen.findByTestId('node-mod-1')).toBeInTheDocument()
     expect(screen.getByTestId('node-mod-2')).toBeInTheDocument()
     expect(screen.getByTestId('react-flow')).toHaveAttribute('data-edge-types', 'moduleConnection')
   })
 
-  it('uses ModuleCardNode custom node type', () => {
+  it('uses ModuleCardNode custom node type', async () => {
     const modules = [makeModule()]
     render(<ModuleMapView modules={modules} connections={[]} />)
 
-    const node = screen.getByTestId('node-mod-1')
+    const node = await screen.findByTestId('node-mod-1')
     expect(node.dataset.nodeType).toBe('moduleCard')
   })
 
-  it('passes module data to node', () => {
+  it('passes module data to node', async () => {
     const modules = [makeModule({ name: 'Payments' })]
     render(<ModuleMapView modules={modules} connections={[]} />)
 
-    const node = screen.getByTestId('node-mod-1')
+    const node = await screen.findByTestId('node-mod-1')
     expect(node.dataset.nodeName).toBe('Payments')
   })
 
@@ -148,157 +157,117 @@ describe('ModuleMapView', () => {
     const modules = [makeModule({ id: 'mod-1' })]
     render(<ModuleMapView modules={modules} connections={[]} onModuleClick={onClick} />)
 
-    await user.click(screen.getByTestId('node-mod-1'))
+    await user.click(await screen.findByTestId('node-mod-1'))
 
     expect(onClick).toHaveBeenCalledWith('mod-1')
   })
 
-  it('applies computeModuleLayout to position nodes', () => {
-    const mockedLayout = vi.mocked(computeModuleLayout)
-    mockedLayout.mockClear()
+  it('requests a downward module-map layout from the layout layer', async () => {
     const modules = [makeModule(), makeModule({ id: 'mod-2', name: 'Billing' })]
     render(<ModuleMapView modules={modules} connections={[]} />)
 
-    expect(mockedLayout).toHaveBeenCalledTimes(1)
-    expect(mockedLayout).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({ id: 'mod-1' }),
-        expect.objectContaining({ id: 'mod-2' }),
-      ]),
-      [],
-    )
+    await waitFor(() => {
+      expect(computeModuleMapLayout).toHaveBeenCalledTimes(1)
+    })
+
+    expect(computeModuleMapLayout).toHaveBeenCalledWith(modules, [])
   })
 
-  it('routes upward retry connections through top and bottom handles', () => {
-    const modules = [
-      makeModule({
-        id: 'payment',
-        name: 'Payment',
-        position: { x: 300, y: 0 },
-        entry_points: ['checkout_data', 'retry_payment'],
-        exit_points: ['payment_failure'],
-      }),
-      makeModule({
-        id: 'failure',
-        name: 'Payment Failure',
-        position: { x: 300, y: 220 },
-        entry_points: ['payment_failure'],
-        exit_points: ['retry_payment'],
-      }),
-    ]
-
-    render(
-      <ModuleMapView
-        modules={modules}
-        connections={[
-          {
-            id: 'conn-retry',
-            project_id: 'proj-1',
-            source_module_id: 'failure',
-            target_module_id: 'payment',
-            source_exit_point: 'retry_payment',
-            target_entry_point: 'retry_payment',
-            created_at: '2026-01-01T00:00:00Z',
+  it('renders layout-derived handle sides, order, and positions', async () => {
+    vi.mocked(computeModuleMapLayout).mockResolvedValueOnce({
+      nodes: [
+        {
+          id: 'payment',
+          position: { x: 80, y: 40 },
+          portLayout: {
+            'entry-checkout_data': { side: 'top', order: 0, position: 38 },
+            'entry-settlement_event': { side: 'top', order: 1, position: 62 },
+            'exit-payment_succeeded': { side: 'bottom', order: 0, position: 50 },
           },
-        ]}
-      />,
-    )
-
-    const paymentSides = JSON.parse(
-      screen.getByTestId('node-payment').dataset.handleSides ?? '{}',
-    ) as Record<string, string>
-    const failureSides = JSON.parse(
-      screen.getByTestId('node-failure').dataset.handleSides ?? '{}',
-    ) as Record<string, string>
-
-    expect(paymentSides['entry-retry_payment']).toBe('bottom')
-    expect(failureSides['exit-retry_payment']).toBe('top')
-    expect(screen.getByTestId('edge-conn-retry')).toHaveAttribute(
-      'data-edge-type',
-      'moduleConnection',
-    )
-  })
-
-  it('routes upward-left recovery connections through horizontal handles', () => {
-    const modules = [
-      makeModule({
-        id: 'cart',
-        name: 'Cart',
-        position: { x: 0, y: 0 },
-        entry_points: ['cart_items'],
-        exit_points: ['checkout_data'],
-      }),
-      makeModule({
-        id: 'payment',
-        name: 'Payment',
-        position: { x: 380, y: 0 },
-        entry_points: ['checkout_data', 'payment_details'],
-        exit_points: ['payment_failure'],
-      }),
-      makeModule({
-        id: 'failure',
-        name: 'Payment Failure',
-        position: { x: 380, y: 220 },
-        entry_points: ['payment_error'],
-        exit_points: ['retry_payment', 'return_to_cart'],
-      }),
-    ]
+        },
+      ],
+      edges: [],
+    })
 
     render(
       <ModuleMapView
-        modules={modules}
-        connections={[
-          {
-            id: 'conn-return',
-            project_id: 'proj-1',
-            source_module_id: 'failure',
-            target_module_id: 'cart',
-            source_exit_point: 'return_to_cart',
-            target_entry_point: 'cart_items',
-            created_at: '2026-01-01T00:00:00Z',
-          },
+        modules={[
+          makeModule({
+            id: 'payment',
+            name: 'Payment',
+            entry_points: ['checkout_data'],
+            exit_points: ['payment_succeeded'],
+          }),
         ]}
-      />,
-    )
-
-    const cartSides = JSON.parse(
-      screen.getByTestId('node-cart').dataset.handleSides ?? '{}',
-    ) as Record<string, string>
-    const failureSides = JSON.parse(
-      screen.getByTestId('node-failure').dataset.handleSides ?? '{}',
-    ) as Record<string, string>
-
-    expect(cartSides['entry-cart_items']).toBe('bottom')
-    expect(failureSides['exit-return_to_cart']).toBe('bottom')
-    expect(screen.getByTestId('edge-conn-return')).toHaveAttribute('data-route-band', 'outer-y')
-    expect(screen.getByTestId('edge-conn-return')).toHaveAttribute('data-offset', '32')
-  })
-
-  it('adds missing handle names referenced by connections', () => {
-    const modules = [
-      makeModule({
-        id: 'payment',
-        name: 'Payment',
-        entry_points: ['checkout_data'],
-        exit_points: ['payment_success', 'payment_failure'],
-      }),
-      makeModule({
-        id: 'confirmation',
-        name: 'Order Confirmation',
-        entry_points: ['payment_result'],
-        exit_points: [],
-      }),
-    ]
-
-    render(
-      <ModuleMapView
-        modules={modules}
         connections={[
           {
-            id: 'conn-result',
+            id: 'edge-1',
             project_id: 'proj-1',
             source_module_id: 'payment',
-            target_module_id: 'confirmation',
+            target_module_id: 'payment',
+            source_exit_point: 'payment_succeeded',
+            target_entry_point: 'settlement_event',
+            created_at: '2026-01-01T00:00:00Z',
+          },
+        ]}
+      />,
+    )
+
+    const node = await screen.findByTestId('node-payment')
+    expect(node.dataset.handleSides).toBe(
+      JSON.stringify({
+        'entry-checkout_data': 'top',
+        'entry-settlement_event': 'top',
+        'exit-payment_succeeded': 'bottom',
+      }),
+    )
+    expect(node.dataset.handleOrder).toBe(
+      JSON.stringify({
+        'entry-checkout_data': 0,
+        'entry-settlement_event': 1,
+        'exit-payment_succeeded': 0,
+      }),
+    )
+    expect(node.dataset.handlePositions).toBe(
+      JSON.stringify({
+        'entry-checkout_data': 38,
+        'entry-settlement_event': 62,
+        'exit-payment_succeeded': 50,
+      }),
+    )
+  })
+
+  it('keeps saved connection handles visible even when module metadata drifted', async () => {
+    vi.mocked(computeModuleMapLayout).mockResolvedValueOnce({
+      nodes: [
+        {
+          id: 'payment',
+          position: { x: 0, y: 0 },
+          portLayout: {
+            'entry-checkout_data': { side: 'top', order: 0, position: 40 },
+            'entry-payment_result': { side: 'top', order: 1, position: 60 },
+          },
+        },
+      ],
+      edges: [],
+    })
+
+    render(
+      <ModuleMapView
+        modules={[
+          makeModule({
+            id: 'payment',
+            name: 'Payment',
+            entry_points: ['checkout_data'],
+            exit_points: [],
+          }),
+        ]}
+        connections={[
+          {
+            id: 'edge-1',
+            project_id: 'proj-1',
+            source_module_id: 'payment',
+            target_module_id: 'payment',
             source_exit_point: 'payment_result',
             target_entry_point: 'payment_result',
             created_at: '2026-01-01T00:00:00Z',
@@ -307,14 +276,60 @@ describe('ModuleMapView', () => {
       />,
     )
 
-    const paymentExitPoints = JSON.parse(
-      screen.getByTestId('node-payment').dataset.exitPoints ?? '[]',
-    ) as string[]
+    const node = await screen.findByTestId('node-payment')
+    expect(node.dataset.entryPoints).toBe(JSON.stringify(['checkout_data', 'payment_result']))
+  })
 
-    expect(paymentExitPoints).toContain('payment_result')
-    expect(screen.getByTestId('edge-conn-result')).toHaveAttribute(
-      'data-source-handle',
-      'exit-payment_result',
+  it('passes ELK edge sections through to the custom edge renderer', async () => {
+    vi.mocked(computeModuleMapLayout).mockResolvedValueOnce({
+      nodes: [
+        { id: 'checkout', position: { x: 0, y: 0 }, portLayout: {} },
+        { id: 'payment', position: { x: 0, y: 220 }, portLayout: {} },
+      ],
+      edges: [
+        {
+          id: 'edge-1',
+          sections: [
+            {
+              startPoint: { x: 130, y: 100 },
+              bendPoints: [{ x: 130, y: 150 }],
+              endPoint: { x: 130, y: 220 },
+            },
+          ],
+        },
+      ],
+    })
+
+    render(
+      <ModuleMapView
+        modules={[
+          makeModule({ id: 'checkout', name: 'Checkout' }),
+          makeModule({ id: 'payment', name: 'Payment' }),
+        ]}
+        connections={[
+          {
+            id: 'edge-1',
+            project_id: 'proj-1',
+            source_module_id: 'checkout',
+            target_module_id: 'payment',
+            source_exit_point: 'checkout_data',
+            target_entry_point: 'checkout_data',
+            created_at: '2026-01-01T00:00:00Z',
+          },
+        ]}
+      />,
+    )
+
+    const edge = await screen.findByTestId('edge-edge-1')
+    expect(edge.dataset.label).toBe('checkout_data')
+    expect(edge.dataset.sections).toBe(
+      JSON.stringify([
+        {
+          startPoint: { x: 130, y: 100 },
+          bendPoints: [{ x: 130, y: 150 }],
+          endPoint: { x: 130, y: 220 },
+        },
+      ]),
     )
   })
 })

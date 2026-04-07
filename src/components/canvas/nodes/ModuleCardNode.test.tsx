@@ -14,7 +14,10 @@ vi.mock('@xyflow/react', () => ({
   Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
 }))
 
-import ModuleCardNode from '@/components/canvas/nodes/ModuleCardNode'
+import ModuleCardNode, {
+  MODULE_CARD_HEIGHT,
+  MODULE_CARD_WIDTH,
+} from '@/components/canvas/nodes/ModuleCardNode'
 
 const baseProps = {
   id: 'node-1',
@@ -52,6 +55,15 @@ describe('ModuleCardNode', () => {
   it('renders the module description', () => {
     render(<ModuleCardNode {...baseProps} />)
     expect(screen.getByText('Handles user authentication')).toBeInTheDocument()
+  })
+
+  it('uses fixed dimensions so the rendered node matches layout math', () => {
+    const { container } = render(<ModuleCardNode {...baseProps} />)
+    const node = container.firstElementChild as HTMLDivElement
+
+    expect(node.style.width).toBe(`${MODULE_CARD_WIDTH}px`)
+    expect(node.style.height).toBe(`${MODULE_CARD_HEIGHT}px`)
+    expect(node.style.boxSizing).toBe('border-box')
   })
 
   it('renders entry handles for each entry point', () => {
@@ -118,5 +130,86 @@ describe('ModuleCardNode', () => {
 
     expect(entryHandle.style.top).toBe(`${(1 / 3) * 100}%`)
     expect(exitHandle.style.top).toBe(`${(2 / 3) * 100}%`)
+  })
+
+  it('orders shared-side handles by point name to keep paired routes aligned', () => {
+    const props = {
+      ...baseProps,
+      data: {
+        ...baseProps.data,
+        entry_points: ['retry_payment'],
+        exit_points: ['payment_failure'],
+        handleSides: {
+          'entry-retry_payment': 'bottom',
+          'exit-payment_failure': 'bottom',
+        },
+      },
+    }
+
+    render(<ModuleCardNode {...props} />)
+
+    const failureHandle = screen.getByTestId('handle-source-exit-payment_failure') as HTMLDivElement
+    const retryHandle = screen.getByTestId('handle-target-entry-retry_payment') as HTMLDivElement
+
+    expect(failureHandle.style.left).toBe(`${(1 / 3) * 100}%`)
+    expect(retryHandle.style.left).toBe(`${(2 / 3) * 100}%`)
+  })
+
+  it('respects explicit handle ordering hints when provided', () => {
+    const props = {
+      ...baseProps,
+      data: {
+        ...baseProps.data,
+        entry_points: ['zeta', 'alpha'],
+        exit_points: [],
+        handleSides: {
+          'entry-zeta': 'left',
+          'entry-alpha': 'left',
+        },
+        handleOrder: {
+          'entry-zeta': 0,
+          'entry-alpha': 1,
+        },
+      },
+    }
+
+    render(<ModuleCardNode {...props} />)
+
+    const zetaHandle = screen.getByTestId('handle-target-entry-zeta') as HTMLDivElement
+    const alphaHandle = screen.getByTestId('handle-target-entry-alpha') as HTMLDivElement
+
+    expect(zetaHandle.style.top).toBe(`${(1 / 3) * 100}%`)
+    expect(alphaHandle.style.top).toBe(`${(2 / 3) * 100}%`)
+  })
+
+  it('respects explicit handle position hints when provided', () => {
+    const props = {
+      ...baseProps,
+      data: {
+        ...baseProps.data,
+        entry_points: ['webhook_success', 'webhook_pending'],
+        exit_points: [],
+        handleSides: {
+          'entry-webhook_success': 'left',
+          'entry-webhook_pending': 'left',
+        },
+        handlePositions: {
+          'entry-webhook_success': 42,
+          'entry-webhook_pending': 58,
+        },
+      },
+    }
+
+    render(<ModuleCardNode {...props} />)
+
+    const successHandle = screen.getByTestId(
+      'handle-target-entry-webhook_success',
+    ) as HTMLDivElement
+    const pendingHandle = screen.getByTestId(
+      'handle-target-entry-webhook_pending',
+    ) as HTMLDivElement
+
+    expect(successHandle.style.top).toBe('42%')
+    expect(pendingHandle.style.top).toBe('58%')
   })
 })

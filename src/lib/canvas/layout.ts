@@ -1,7 +1,15 @@
+import ELK from 'elkjs/lib/elk.bundled.js'
+import type {
+  ElkExtendedEdge,
+  ElkNode,
+  ElkPort,
+  ElkEdgeSection,
+  LayoutOptions,
+} from 'elkjs/lib/elk-api'
 import dagre from 'dagre'
-import type { FlowNode, FlowEdge } from '@/types/graph'
-import type { ModuleConnection } from '@/types/graph'
+import type { FlowNode, FlowEdge, Module, ModuleConnection, Position } from '@/types/graph'
 import { MODULE_CARD_WIDTH, MODULE_CARD_HEIGHT } from '@/components/canvas/nodes/ModuleCardNode'
+import type { HandleSide } from '@/components/canvas/nodes/ModuleCardNode'
 
 export const DEFAULT_NODE_WIDTH = 172
 export const DEFAULT_NODE_HEIGHT = 36
@@ -9,7 +17,52 @@ export const DEFAULT_NODE_HEIGHT = 36
 const MODULE_GAP_X = 120
 const MODULE_GAP_Y = 100
 
-const ERROR_KEYWORDS = /failure|fail|error|cancel|retry|return|rollback|reject/i
+const DEFAULT_PORT_SIZE = 12
+const PORT_POSITION_MIN = 12
+const PORT_POSITION_MAX = 88
+
+const elk = new ELK()
+
+const MODULE_MAP_LAYOUT_OPTIONS: LayoutOptions = {
+  'elk.algorithm': 'layered',
+  'elk.direction': 'DOWN',
+  'elk.edgeRouting': 'ORTHOGONAL',
+  'elk.padding': '[top=40,left=40,bottom=40,right=40]',
+  'elk.spacing.nodeNode': '80',
+  'elk.layered.spacing.nodeNodeBetweenLayers': '120',
+  'elk.layered.spacing.edgeNodeBetweenLayers': '60',
+  'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
+  'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+  'elk.separateConnectedComponents': 'true',
+}
+
+export type ModuleConnectionSection = {
+  startPoint: Position
+  endPoint: Position
+  bendPoints?: Position[]
+}
+
+export type ModulePortLayout = {
+  side: HandleSide
+  order: number
+  position: number
+}
+
+export type ModuleMapNodeLayout = {
+  id: string
+  position: Position
+  portLayout: Record<string, ModulePortLayout>
+}
+
+export type ModuleMapEdgeLayout = {
+  id: string
+  sections: ModuleConnectionSection[]
+}
+
+export type ModuleMapLayoutResult = {
+  nodes: ModuleMapNodeLayout[]
+  edges: ModuleMapEdgeLayout[]
+}
 
 /**
  * Layout for internal module nodes (process, decision, start, end, etc.).
@@ -45,166 +98,90 @@ export function computeLayout(nodes: FlowNode[], edges: FlowEdge[]): FlowNode[] 
   })
 }
 
-/**
- * Semantic layout for the module map view.
- *
- * Designed for non-technical users — the happy path flows in a clean
- * horizontal line (left → right). Error/failure branches drop below
- * the main flow. Orphan modules sit in a row at the bottom.
- *
- * Algorithm:
- * 1. Find the "happy path" — the longest forward-only chain from a root
- *    module (one with no incoming forward edges).
- * 2. Place happy-path modules in a horizontal row at y=0.
- * 3. Place branch modules (connected via error exits) below their
- *    parent, aligned to the same column or offset right.
- * 4. Place orphan modules in a grid below everything.
- */
-export function computeModuleLayout(
-  nodes: FlowNode[],
+export async function computeModuleMapLayout(
+  modules: Module[],
   connections: ModuleConnection[],
-): FlowNode[] {
-  if (nodes.length === 0) return []
+): Promise<ModuleMapLayoutResult> {
+  if (modules.length === 0) {
+    return { nodes: [], edges: [] }
+  }
 
   if (connections.length === 0) {
-    return computeGridLayout(
-      nodes,
-      MODULE_CARD_WIDTH,
-      MODULE_CARD_HEIGHT,
-      MODULE_GAP_X,
-      MODULE_GAP_Y,
-    )
+    return buildFallbackModuleMapLayout(modules, connections)
   }
 
-  const connectedIds = new Set<string>()
-  for (const conn of connections) {
-    connectedIds.add(conn.source_module_id)
-    connectedIds.add(conn.target_module_id)
+  const incomingEntryPoints = new Map<string, Set<string>>()
+  const outgoingExitPoints = new Map<string, Set<string>>()
+
+  for (const connection of connections) {
+    const entryPoints = incomingEntryPoints.get(connection.target_module_id) ?? new Set<string>()
+    entryPoints.add(connection.target_entry_point)
+    incomingEntryPoints.set(connection.target_module_id, entryPoints)
+
+    const exitPoints = outgoingExitPoints.get(connection.source_module_id) ?? new Set<string>()
+    exitPoints.add(connection.source_exit_point)
+    outgoingExitPoints.set(connection.source_module_id, exitPoints)
   }
 
-  const orphans = nodes.filter((n) => !connectedIds.has(n.id))
+  const orderedModules = buildPreferredModuleOrder(modules, connections)
+  const portMetadata = new Map<string, { moduleId: string; handleId: string; side: HandleSide }>()
 
-  // Build adjacency: only forward (non-error) edges define the happy path
-  const forwardChildren = new Map<string, string[]>()
-  const errorChildren = new Map<string, string[]>()
-  const hasIncomingForward = new Set<string>()
-
-  for (const conn of connections) {
-    const isError = ERROR_KEYWORDS.test(conn.source_exit_point)
-    if (isError) {
-      const list = errorChildren.get(conn.source_module_id) ?? []
-      list.push(conn.target_module_id)
-      errorChildren.set(conn.source_module_id, list)
-    } else {
-      const list = forwardChildren.get(conn.source_module_id) ?? []
-      list.push(conn.target_module_id)
-      forwardChildren.set(conn.source_module_id, list)
-      hasIncomingForward.add(conn.target_module_id)
-    }
+  const graph: ElkNode = {
+    id: 'module-map',
+    layoutOptions: MODULE_MAP_LAYOUT_OPTIONS,
+    children: orderedModules.map((module) =>
+      buildElkModuleNode(module, incomingEntryPoints, outgoingExitPoints, portMetadata),
+    ),
+    edges: connections.map<ElkExtendedEdge>((connection) => ({
+      id: connection.id,
+      sources: [getPortId(connection.source_module_id, 'exit', connection.source_exit_point)],
+      targets: [getPortId(connection.target_module_id, 'entry', connection.target_entry_point)],
+    })),
   }
 
-  // Find root: a connected module with no incoming forward edges
-  const roots = nodes.filter((n) => connectedIds.has(n.id) && !hasIncomingForward.has(n.id))
-  const startId = roots.length > 0 ? roots[0].id : nodes.find((n) => connectedIds.has(n.id))!.id
+  let laidOutGraph: ElkNode
 
-  // Walk the forward chain to build the happy path
-  const happyPath: string[] = []
-  const visited = new Set<string>()
-
-  let current: string | undefined = startId
-  while (current && !visited.has(current)) {
-    visited.add(current)
-    happyPath.push(current)
-    const children: string[] = forwardChildren.get(current) ?? []
-    // Pick the first unvisited forward child
-    current = children.find((c: string) => !visited.has(c))
+  try {
+    laidOutGraph = await elk.layout(graph)
+  } catch {
+    return buildFallbackModuleMapLayout(modules, connections)
   }
 
-  // Collect branch modules (reachable via error edges, not on the happy path)
-  const happySet = new Set(happyPath)
-  const branchModules: Array<{ id: string; parentId: string; parentIndex: number }> = []
+  const laidOutNodes = new Map((laidOutGraph.children ?? []).map((node) => [node.id, node]))
+  const laidOutEdges = new Map((laidOutGraph.edges ?? []).map((edge) => [edge.id, edge]))
 
-  for (const conn of connections) {
-    if (!happySet.has(conn.target_module_id) && !visited.has(conn.target_module_id)) {
-      const parentIndex = happyPath.indexOf(conn.source_module_id)
-      branchModules.push({
-        id: conn.target_module_id,
-        parentId: conn.source_module_id,
-        parentIndex: parentIndex >= 0 ? parentIndex : happyPath.length - 1,
-      })
-      visited.add(conn.target_module_id)
-    }
+  return {
+    nodes: orderedModules.map((module) => {
+      const laidOutNode = laidOutNodes.get(module.id)
+      return {
+        id: module.id,
+        position: {
+          x: laidOutNode?.x ?? module.position.x,
+          y: laidOutNode?.y ?? module.position.y,
+        },
+        portLayout:
+          laidOutNode != null
+            ? {
+                ...buildDefaultPortLayout(module, connections),
+                ...extractPortLayout(laidOutNode, portMetadata),
+              }
+            : buildDefaultPortLayout(module, connections),
+      }
+    }),
+    edges: connections.map((connection) => ({
+      id: connection.id,
+      sections: extractSections(laidOutEdges.get(connection.id)),
+    })),
   }
-
-  // Also catch any connected modules we haven't placed yet
-  for (const node of nodes) {
-    if (connectedIds.has(node.id) && !visited.has(node.id)) {
-      branchModules.push({
-        id: node.id,
-        parentId: happyPath[happyPath.length - 1],
-        parentIndex: happyPath.length - 1,
-      })
-      visited.add(node.id)
-    }
-  }
-
-  // Position happy path: horizontal row
-  const positioned = new Map<string, { x: number; y: number }>()
-  const stepX = MODULE_CARD_WIDTH + MODULE_GAP_X
-
-  for (let i = 0; i < happyPath.length; i++) {
-    positioned.set(happyPath[i], { x: i * stepX, y: 0 })
-  }
-
-  // Position branch modules: below their parent, grouped by column
-  const branchesByColumn = new Map<number, string[]>()
-  for (const branch of branchModules) {
-    const col = branch.parentIndex
-    const list = branchesByColumn.get(col) ?? []
-    list.push(branch.id)
-    branchesByColumn.set(col, list)
-  }
-
-  const branchY = MODULE_CARD_HEIGHT + MODULE_GAP_Y
-
-  for (const [col, ids] of branchesByColumn) {
-    for (let i = 0; i < ids.length; i++) {
-      positioned.set(ids[i], {
-        x: col * stepX + (i > 0 ? (i * stepX) / 2 : 0),
-        y: branchY + i * (MODULE_CARD_HEIGHT + MODULE_GAP_Y / 2),
-      })
-    }
-  }
-
-  // Position orphans: row below everything
-  if (orphans.length > 0) {
-    let maxY = 0
-    for (const pos of positioned.values()) {
-      maxY = Math.max(maxY, pos.y + MODULE_CARD_HEIGHT)
-    }
-    const orphanY = maxY + MODULE_GAP_Y
-
-    for (let i = 0; i < orphans.length; i++) {
-      positioned.set(orphans[i].id, {
-        x: i * stepX,
-        y: orphanY,
-      })
-    }
-  }
-
-  return nodes.map((node) => ({
-    ...node,
-    position: positioned.get(node.id) ?? node.position,
-  }))
 }
 
-function computeGridLayout(
-  nodes: FlowNode[],
+function computeGridLayout<T extends { id: string; position: Position }>(
+  nodes: T[],
   itemWidth: number,
   itemHeight: number,
   gapX: number,
   gapY: number,
-): FlowNode[] {
+): T[] {
   const cols = Math.ceil(Math.sqrt(nodes.length))
 
   return nodes.map((node, i) => {
@@ -218,4 +195,265 @@ function computeGridLayout(
       },
     }
   })
+}
+
+function buildFallbackModuleMapLayout(
+  modules: Module[],
+  connections: ModuleConnection[],
+): ModuleMapLayoutResult {
+  return {
+    nodes: computeGridLayout(
+      modules,
+      MODULE_CARD_WIDTH,
+      MODULE_CARD_HEIGHT,
+      MODULE_GAP_X,
+      MODULE_GAP_Y,
+    ).map((module) => ({
+      id: module.id,
+      position: module.position,
+      portLayout: buildDefaultPortLayout(module, connections),
+    })),
+    edges: connections.map((connection) => ({
+      id: connection.id,
+      sections: [],
+    })),
+  }
+}
+
+function buildPreferredModuleOrder(modules: Module[], connections: ModuleConnection[]) {
+  const originalOrder = new Map(modules.map((module, index) => [module.id, index]))
+  const adjacency = new Map<string, Set<string>>()
+  const indegree = new Map(modules.map((module) => [module.id, 0]))
+
+  for (const connection of connections) {
+    const targets = adjacency.get(connection.source_module_id) ?? new Set<string>()
+    if (!targets.has(connection.target_module_id)) {
+      targets.add(connection.target_module_id)
+      adjacency.set(connection.source_module_id, targets)
+      indegree.set(
+        connection.target_module_id,
+        (indegree.get(connection.target_module_id) ?? 0) + 1,
+      )
+    }
+  }
+
+  const queue = modules
+    .filter((module) => (indegree.get(module.id) ?? 0) === 0)
+    .sort((a, b) => (originalOrder.get(a.id) ?? 0) - (originalOrder.get(b.id) ?? 0))
+
+  const ordered: Module[] = []
+  const seen = new Set<string>()
+
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    if (seen.has(current.id)) continue
+
+    seen.add(current.id)
+    ordered.push(current)
+
+    const neighbors = Array.from(adjacency.get(current.id) ?? []).sort(
+      (a, b) => (originalOrder.get(a) ?? 0) - (originalOrder.get(b) ?? 0),
+    )
+
+    for (const neighbor of neighbors) {
+      const nextIndegree = (indegree.get(neighbor) ?? 0) - 1
+      indegree.set(neighbor, nextIndegree)
+      if (nextIndegree <= 0) {
+        const nextModule = modules.find((module) => module.id === neighbor)
+        if (nextModule && !seen.has(nextModule.id)) {
+          queue.push(nextModule)
+          queue.sort((a, b) => (originalOrder.get(a.id) ?? 0) - (originalOrder.get(b.id) ?? 0))
+        }
+      }
+    }
+  }
+
+  for (const graphModule of modules) {
+    if (!seen.has(graphModule.id)) {
+      ordered.push(graphModule)
+    }
+  }
+
+  return ordered
+}
+
+function buildElkModuleNode(
+  module: Module,
+  incomingEntryPoints: Map<string, Set<string>>,
+  outgoingExitPoints: Map<string, Set<string>>,
+  portMetadata: Map<string, { moduleId: string; handleId: string; side: HandleSide }>,
+): ElkNode {
+  const entryPoints = mergeHandleNames(
+    module.entry_points,
+    incomingEntryPoints.get(module.id) ?? new Set<string>(),
+  )
+  const exitPoints = mergeHandleNames(
+    module.exit_points,
+    outgoingExitPoints.get(module.id) ?? new Set<string>(),
+  )
+
+  const ports: ElkPort[] = [
+    ...entryPoints.map((entryPoint) =>
+      buildElkPort(module.id, 'entry', entryPoint, 'top', portMetadata),
+    ),
+    ...exitPoints.map((exitPoint) =>
+      buildElkPort(module.id, 'exit', exitPoint, 'bottom', portMetadata),
+    ),
+  ]
+
+  return {
+    id: module.id,
+    width: MODULE_CARD_WIDTH,
+    height: MODULE_CARD_HEIGHT,
+    layoutOptions: {
+      'elk.portConstraints': 'FIXED_SIDE',
+    },
+    ports,
+  }
+}
+
+function buildElkPort(
+  moduleId: string,
+  kind: 'entry' | 'exit',
+  pointName: string,
+  side: HandleSide,
+  portMetadata: Map<string, { moduleId: string; handleId: string; side: HandleSide }>,
+): ElkPort {
+  const id = getPortId(moduleId, kind, pointName)
+  portMetadata.set(id, {
+    moduleId,
+    handleId: `${kind}-${pointName}`,
+    side,
+  })
+
+  return {
+    id,
+    width: DEFAULT_PORT_SIZE,
+    height: DEFAULT_PORT_SIZE,
+    layoutOptions: {
+      'elk.port.side': side === 'top' ? 'NORTH' : 'SOUTH',
+    },
+  }
+}
+
+function buildDefaultPortLayout(module: Module, connections: ModuleConnection[]) {
+  const incoming = new Set(
+    connections
+      .filter((connection) => connection.target_module_id === module.id)
+      .map((connection) => connection.target_entry_point),
+  )
+  const outgoing = new Set(
+    connections
+      .filter((connection) => connection.source_module_id === module.id)
+      .map((connection) => connection.source_exit_point),
+  )
+
+  const entryPoints = mergeHandleNames(module.entry_points, incoming)
+  const exitPoints = mergeHandleNames(module.exit_points, outgoing)
+
+  return {
+    ...buildSidePortLayout(entryPoints, 'entry', 'top'),
+    ...buildSidePortLayout(exitPoints, 'exit', 'bottom'),
+  }
+}
+
+function buildSidePortLayout(
+  points: string[],
+  kind: 'entry' | 'exit',
+  side: HandleSide,
+): Record<string, ModulePortLayout> {
+  const positions = buildDefaultPortPositions(points.length)
+  return Object.fromEntries(
+    points.map((pointName, index) => [
+      `${kind}-${pointName}`,
+      {
+        side,
+        order: index,
+        position: positions[index] ?? 50,
+      },
+    ]),
+  )
+}
+
+function buildDefaultPortPositions(count: number) {
+  if (count <= 0) return []
+  return Array.from({ length: count }, (_, index) =>
+    normalizePercent(((index + 1) / (count + 1)) * 100),
+  )
+}
+
+function extractPortLayout(
+  node: ElkNode,
+  portMetadata: Map<string, { moduleId: string; handleId: string; side: HandleSide }>,
+) {
+  const nodeWidth = node.width ?? MODULE_CARD_WIDTH
+  const nodeHeight = node.height ?? MODULE_CARD_HEIGHT
+  const bySide = new Map<
+    HandleSide,
+    Array<{ handleId: string; coordinate: number; position: number }>
+  >()
+
+  for (const port of node.ports ?? []) {
+    const metadata = portMetadata.get(port.id)
+    if (!metadata) continue
+
+    const portWidth = port.width ?? DEFAULT_PORT_SIZE
+    const portHeight = port.height ?? DEFAULT_PORT_SIZE
+    const coordinate =
+      metadata.side === 'top' || metadata.side === 'bottom'
+        ? (port.x ?? 0) + portWidth / 2
+        : (port.y ?? 0) + portHeight / 2
+    const dimension = metadata.side === 'top' || metadata.side === 'bottom' ? nodeWidth : nodeHeight
+    const list = bySide.get(metadata.side) ?? []
+    list.push({
+      handleId: metadata.handleId,
+      coordinate,
+      position: normalizePercent((coordinate / Math.max(dimension, 1)) * 100),
+    })
+    bySide.set(metadata.side, list)
+  }
+
+  const layout: Record<string, ModulePortLayout> = {}
+
+  for (const [side, ports] of bySide) {
+    ports
+      .sort((a, b) => a.coordinate - b.coordinate || a.handleId.localeCompare(b.handleId))
+      .forEach((port, index) => {
+        layout[port.handleId] = {
+          side,
+          order: index,
+          position: port.position,
+        }
+      })
+  }
+
+  return layout
+}
+
+function extractSections(edge: ElkExtendedEdge | undefined): ModuleConnectionSection[] {
+  return (edge?.sections ?? []).map((section) => serializeSection(section))
+}
+
+function serializeSection(section: ElkEdgeSection): ModuleConnectionSection {
+  return {
+    startPoint: { x: section.startPoint.x, y: section.startPoint.y },
+    endPoint: { x: section.endPoint.x, y: section.endPoint.y },
+    bendPoints: section.bendPoints?.map((point) => ({ x: point.x, y: point.y })),
+  }
+}
+
+function mergeHandleNames(base: string[], derived: Iterable<string>) {
+  const merged = new Set(base)
+  for (const name of derived) {
+    merged.add(name)
+  }
+  return Array.from(merged)
+}
+
+function getPortId(moduleId: string, kind: 'entry' | 'exit', pointName: string) {
+  return `${moduleId}::${kind}::${pointName}`
+}
+
+function normalizePercent(value: number) {
+  return Number(Math.max(PORT_POSITION_MIN, Math.min(PORT_POSITION_MAX, value)).toFixed(2))
 }

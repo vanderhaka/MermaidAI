@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { getSmoothStepPath } = vi.hoisted(() => ({
   getSmoothStepPath: vi.fn(() => ['M0 0 L100 100', 50, 50, 0, 0]),
@@ -40,14 +40,71 @@ const baseProps = {
 } as ComponentProps<typeof ModuleConnectionEdge>
 
 describe('ModuleConnectionEdge', () => {
-  it('renders the label when provided', () => {
+  beforeEach(() => {
+    getSmoothStepPath.mockClear()
+  })
+
+  it('uses a straight horizontal route for aligned side-to-side connectors', () => {
     render(
       <svg>
-        <ModuleConnectionEdge {...baseProps} data={{ label: 'return_to_cart' }} />
+        <ModuleConnectionEdge
+          {...baseProps}
+          sourceX={40}
+          sourceY={120}
+          targetX={260}
+          targetY={120}
+          sourcePosition={'right' as never}
+          targetPosition={'left' as never}
+          data={{ label: 'payment_result' }}
+        />
       </svg>,
     )
 
-    expect(screen.getByText('return_to_cart')).toBeInTheDocument()
+    expect(getSmoothStepPath).not.toHaveBeenCalled()
+    expect(screen.getByTestId('base-edge')).toHaveAttribute('data-path', 'M40 120 L260 120')
+  })
+
+  it('renders explicit layout sections before falling back to heuristic routing', () => {
+    render(
+      <svg>
+        <ModuleConnectionEdge
+          {...baseProps}
+          data={{
+            label: 'checkout_data',
+            sections: [
+              {
+                startPoint: { x: 120, y: 100 },
+                bendPoints: [{ x: 120, y: 160 }],
+                endPoint: { x: 200, y: 160 },
+              },
+            ],
+          }}
+        />
+      </svg>,
+    )
+
+    expect(getSmoothStepPath).not.toHaveBeenCalled()
+    expect(screen.getByTestId('base-edge').getAttribute('data-path')).toContain('120 160')
+  })
+
+  it('uses a straight vertical route for aligned top-to-bottom connectors', () => {
+    render(
+      <svg>
+        <ModuleConnectionEdge
+          {...baseProps}
+          sourceX={180}
+          sourceY={40}
+          targetX={180}
+          targetY={260}
+          sourcePosition={'bottom' as never}
+          targetPosition={'top' as never}
+          data={{ label: 'payment_failure' }}
+        />
+      </svg>,
+    )
+
+    expect(getSmoothStepPath).not.toHaveBeenCalled()
+    expect(screen.getByTestId('base-edge')).toHaveAttribute('data-path', 'M180 40 L180 260')
   })
 
   it('biases diagonal horizontal routes toward the source lane', () => {
@@ -65,6 +122,29 @@ describe('ModuleConnectionEdge', () => {
         centerY: 160,
         centerX: undefined,
         offset: 32,
+      }),
+    )
+  })
+
+  it('pushes reused biased corridors farther outward with lane offsets', () => {
+    render(
+      <svg>
+        <ModuleConnectionEdge
+          {...baseProps}
+          data={{
+            label: 'retry_payment',
+            routeBias: 'source-y',
+            laneGap: 40,
+            laneOffset: -18,
+          }}
+        />
+      </svg>,
+    )
+
+    expect(getSmoothStepPath).toHaveBeenCalledWith(
+      expect.objectContaining({
+        centerY: 142,
+        centerX: undefined,
       }),
     )
   })
@@ -94,8 +174,6 @@ describe('ModuleConnectionEdge', () => {
   })
 
   it('uses an outer lane route for perimeter bands', () => {
-    getSmoothStepPath.mockClear()
-
     render(
       <svg>
         <ModuleConnectionEdge
@@ -132,12 +210,15 @@ describe('ModuleConnectionEdge', () => {
     expect(edge.getAttribute('style')).toContain('stroke: #f97316')
   })
 
-  it('highlights the connector and label on hover', () => {
+  it('highlights the connector and shows a route tooltip on hover', () => {
     render(
       <svg>
         <ModuleConnectionEdge
           {...baseProps}
-          data={{ label: 'payment_failure' }}
+          data={{
+            label: 'payment_failure',
+            tooltipDescription: 'From Payment to Payment Failure (payment_error)',
+          }}
           style={{ stroke: '#f97316', strokeWidth: 1.5 }}
         />
       </svg>,
@@ -145,19 +226,19 @@ describe('ModuleConnectionEdge', () => {
 
     const edge = screen.getByTestId('base-edge')
     const hitbox = screen.getByTestId('module-connection-edge-hitbox')
-    const label = screen.getByTestId('module-connection-edge-label')
-
-    expect(label).toHaveAttribute('data-hovered', 'false')
+    expect(screen.queryByTestId('module-connection-edge-tooltip')).not.toBeInTheDocument()
 
     fireEvent.mouseEnter(hitbox)
 
-    expect(label).toHaveAttribute('data-hovered', 'true')
+    const tooltip = screen.getByTestId('module-connection-edge-tooltip')
+    expect(tooltip).toHaveTextContent('payment_failure')
+    expect(tooltip).toHaveTextContent('From Payment to Payment Failure (payment_error)')
     expect(edge.getAttribute('style')).toContain('stroke-width: 3.5')
     expect(edge.getAttribute('style')).toContain('filter: drop-shadow')
 
     fireEvent.mouseLeave(hitbox)
 
-    expect(label).toHaveAttribute('data-hovered', 'false')
+    expect(screen.queryByTestId('module-connection-edge-tooltip')).not.toBeInTheDocument()
     expect(edge.getAttribute('style')).toContain('stroke-width: 1.5')
   })
 })

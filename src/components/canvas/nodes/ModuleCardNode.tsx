@@ -13,6 +13,10 @@ type ModuleCardNodeData = {
   connectedEntryPoints?: string[]
   /** Map of handle id → side. Computed by ModuleMapView based on connection directions. */
   handleSides?: Record<string, HandleSide>
+  /** Optional per-handle ordering hint. Lower values render earlier on the shared side. */
+  handleOrder?: Record<string, number>
+  /** Optional per-handle position hint as a percentage along its side. */
+  handlePositions?: Record<string, number>
 }
 
 export const MODULE_CARD_WIDTH = 260
@@ -28,22 +32,52 @@ const SIDE_TO_POSITION: Record<HandleSide, Position> = {
 }
 
 function distributeHandles(
-  handles: Array<{ id: string; side: HandleSide; type: 'target' | 'source' }>,
-): Array<{ id: string; side: HandleSide; type: 'target' | 'source'; style: React.CSSProperties }> {
+  handles: Array<{
+    id: string
+    side: HandleSide
+    type: 'target' | 'source'
+    pointName: string
+    order: number
+    position?: number
+  }>,
+): Array<{
+  id: string
+  side: HandleSide
+  type: 'target' | 'source'
+  pointName: string
+  order: number
+  position?: number
+  style: React.CSSProperties
+}> {
   // Group handles by side, then distribute within each group
-  const bySide = new Map<HandleSide, Array<{ id: string; index: number }>>()
+  const bySide = new Map<
+    HandleSide,
+    Array<{ id: string; type: 'target' | 'source'; pointName: string; order: number }>
+  >()
 
   for (const h of handles) {
     const list = bySide.get(h.side) ?? []
-    list.push({ id: h.id, index: list.length })
+    list.push({ id: h.id, type: h.type, pointName: h.pointName, order: h.order })
     bySide.set(h.side, list)
+  }
+
+  for (const [side, group] of bySide) {
+    group.sort(
+      (a, b) =>
+        a.order - b.order ||
+        a.pointName.localeCompare(b.pointName) ||
+        a.type.localeCompare(b.type) ||
+        a.id.localeCompare(b.id),
+    )
+    bySide.set(side, group)
   }
 
   return handles.map((h) => {
     const group = bySide.get(h.side)!
     const myIndex = group.findIndex((g) => g.id === h.id)
     const total = group.length
-    const pct = ((myIndex + 1) / (total + 1)) * 100
+    const fallbackPct = ((myIndex + 1) / (total + 1)) * 100
+    const pct = typeof h.position === 'number' ? h.position : fallbackPct
 
     const isVertical = h.side === 'left' || h.side === 'right'
     const style: React.CSSProperties = isVertical ? { top: `${pct}%` } : { left: `${pct}%` }
@@ -53,21 +87,37 @@ function distributeHandles(
 }
 
 export default function ModuleCardNode({ data }: NodeProps) {
-  const { name, description, entry_points, exit_points, connectedEntryPoints, handleSides } =
-    data as ModuleCardNodeData
+  const {
+    name,
+    description,
+    entry_points,
+    exit_points,
+    connectedEntryPoints,
+    handleSides,
+    handleOrder,
+    handlePositions,
+  } = data as ModuleCardNodeData
   const connectedSet = new Set(connectedEntryPoints ?? [])
   const sides = handleSides ?? {}
+  const order = handleOrder ?? {}
+  const positions = handlePositions ?? {}
 
   const entryHandles = entry_points.map((ep) => ({
     id: `entry-${ep}`,
     type: 'target' as const,
     side: (sides[`entry-${ep}`] ?? 'left') as HandleSide,
+    pointName: ep,
+    order: order[`entry-${ep}`] ?? Number.POSITIVE_INFINITY,
+    position: positions[`entry-${ep}`],
   }))
 
   const exitHandles = exit_points.map((ep) => ({
     id: `exit-${ep}`,
     type: 'source' as const,
     side: (sides[`exit-${ep}`] ?? 'right') as HandleSide,
+    pointName: ep,
+    order: order[`exit-${ep}`] ?? Number.POSITIVE_INFINITY,
+    position: positions[`exit-${ep}`],
   }))
 
   const distributedHandles = distributeHandles([...entryHandles, ...exitHandles])
@@ -78,7 +128,7 @@ export default function ModuleCardNode({ data }: NodeProps) {
   return (
     <div
       className="rounded-xl border border-indigo-200 bg-white px-5 py-4 shadow-sm transition-shadow hover:shadow-md"
-      style={{ width: MODULE_CARD_WIDTH }}
+      style={{ width: MODULE_CARD_WIDTH, height: MODULE_CARD_HEIGHT, boxSizing: 'border-box' }}
     >
       <div className="text-sm font-semibold text-slate-900">{name}</div>
       {description && (

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath } from '@xyflow/react'
 import type { EdgeProps } from '@xyflow/react'
+import type { ModuleConnectionSection } from '@/lib/canvas/layout'
 
 export type ModuleConnectionRouteBias = 'none' | 'source-x' | 'source-y'
 export type ModuleConnectionRouteBand = 'direct' | 'outer-x' | 'outer-y'
@@ -10,17 +11,23 @@ export type ModuleConnectionRouteBand = 'direct' | 'outer-x' | 'outer-y'
 export type ModuleConnectionEdgeData = {
   label?: string | null
   labelColor?: string
+  tooltipDescription?: string
+  sections?: ModuleConnectionSection[]
   routeBias?: ModuleConnectionRouteBias
   routeBand?: ModuleConnectionRouteBand
   laneCoordinate?: number
   laneGap?: number
+  laneOffset?: number
   offset?: number
   borderRadius?: number
 }
 
+const STRAIGHT_ROUTE_TOLERANCE = 6
+
 function getBiasedCenter(
   routeBias: ModuleConnectionRouteBias,
   laneGap: number,
+  laneOffset: number,
   sourceX: number,
   sourceY: number,
   targetX: number,
@@ -33,14 +40,14 @@ function getBiasedCenter(
     const delta = Math.min(laneGap, Math.abs(dy) * 0.35)
     return {
       centerX: undefined,
-      centerY: sourceY + Math.sign(dy) * delta,
+      centerY: sourceY + Math.sign(dy) * delta + laneOffset,
     }
   }
 
   if (routeBias === 'source-x' && dx !== 0) {
     const delta = Math.min(laneGap, Math.abs(dx) * 0.35)
     return {
-      centerX: sourceX + Math.sign(dx) * delta,
+      centerX: sourceX + Math.sign(dx) * delta + laneOffset,
       centerY: undefined,
     }
   }
@@ -148,6 +155,52 @@ function buildRoundedOrthogonalPath(points: Array<{ x: number; y: number }>, bor
   return path
 }
 
+function getSectionPathPoints(sections: ModuleConnectionSection[]) {
+  if (sections.length === 0) return []
+
+  const points: Array<{ x: number; y: number }> = []
+
+  for (const section of sections) {
+    points.push(section.startPoint)
+    points.push(...(section.bendPoints ?? []))
+    points.push(section.endPoint)
+  }
+
+  return dedupePoints(points)
+}
+
+function getPathMidpoint(points: Array<{ x: number; y: number }>) {
+  if (points.length === 0) return { x: 0, y: 0 }
+  if (points.length === 1) return points[0]
+
+  const segments = points
+    .slice(1)
+    .map((point, index) => ({
+      start: points[index],
+      end: point,
+      length: Math.hypot(point.x - points[index].x, point.y - points[index].y),
+    }))
+    .filter((segment) => segment.length > 0)
+
+  const totalLength = segments.reduce((sum, segment) => sum + segment.length, 0)
+  const halfLength = totalLength / 2
+
+  let traversed = 0
+  for (const segment of segments) {
+    if (traversed + segment.length >= halfLength) {
+      const remaining = halfLength - traversed
+      const ratio = segment.length === 0 ? 0 : remaining / segment.length
+      return {
+        x: segment.start.x + (segment.end.x - segment.start.x) * ratio,
+        y: segment.start.y + (segment.end.y - segment.start.y) * ratio,
+      }
+    }
+    traversed += segment.length
+  }
+
+  return points[points.length - 1]
+}
+
 function getOuterLaneRoute({
   sourceX,
   sourceY,
@@ -213,6 +266,51 @@ function getOuterLaneRoute({
   }
 }
 
+function getStraightRoute(sourceX: number, sourceY: number, targetX: number, targetY: number) {
+  return {
+    edgePath: `M${sourceX} ${sourceY} L${targetX} ${targetY}`,
+    labelX: (sourceX + targetX) / 2,
+    labelY: (sourceY + targetY) / 2,
+  }
+}
+
+function getAlignedStraightRoute({
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  routeBand,
+}: {
+  sourceX: number
+  sourceY: number
+  targetX: number
+  targetY: number
+  sourcePosition: EdgeProps['sourcePosition']
+  targetPosition: EdgeProps['targetPosition']
+  routeBand: ModuleConnectionRouteBand
+}) {
+  if (routeBand !== 'direct') return null
+
+  const isHorizontalFlow =
+    (sourcePosition === 'left' && targetPosition === 'right') ||
+    (sourcePosition === 'right' && targetPosition === 'left')
+  const isVerticalFlow =
+    (sourcePosition === 'top' && targetPosition === 'bottom') ||
+    (sourcePosition === 'bottom' && targetPosition === 'top')
+
+  if (isHorizontalFlow && Math.abs(sourceY - targetY) <= STRAIGHT_ROUTE_TOLERANCE) {
+    return getStraightRoute(sourceX, sourceY, targetX, targetY)
+  }
+
+  if (isVerticalFlow && Math.abs(sourceX - targetX) <= STRAIGHT_ROUTE_TOLERANCE) {
+    return getStraightRoute(sourceX, sourceY, targetX, targetY)
+  }
+
+  return null
+}
+
 export default function ModuleConnectionEdge({
   id,
   sourceX,
@@ -230,9 +328,11 @@ export default function ModuleConnectionEdge({
   const routeBias = edgeData.routeBias ?? 'none'
   const routeBand = edgeData.routeBand ?? 'direct'
   const laneGap = edgeData.laneGap ?? 0
+  const laneOffset = edgeData.laneOffset ?? 0
   const { centerX, centerY } = getBiasedCenter(
     routeBias,
     laneGap,
+    laneOffset,
     sourceX,
     sourceY,
     targetX,
@@ -241,6 +341,30 @@ export default function ModuleConnectionEdge({
   const borderRadius = edgeData.borderRadius ?? 12
   const offset = edgeData.offset ?? 24
   const route = (() => {
+    if ((edgeData.sections?.length ?? 0) > 0) {
+      const points = getSectionPathPoints(edgeData.sections ?? [])
+      const midpoint = getPathMidpoint(points)
+      return {
+        edgePath: buildRoundedOrthogonalPath(points, borderRadius),
+        labelX: midpoint.x,
+        labelY: midpoint.y,
+      }
+    }
+
+    const straightRoute = getAlignedStraightRoute({
+      sourceX,
+      sourceY,
+      targetX,
+      targetY,
+      sourcePosition,
+      targetPosition,
+      routeBand,
+    })
+
+    if (straightRoute) {
+      return straightRoute
+    }
+
     if (routeBand !== 'direct' && typeof edgeData.laneCoordinate === 'number') {
       return getOuterLaneRoute({
         sourceX,
@@ -284,7 +408,14 @@ export default function ModuleConnectionEdge({
     strokeLinecap: 'round',
     transition: 'stroke-width 140ms ease, opacity 140ms ease, filter 140ms ease',
   }
-  const labelTransform = `translate(-50%, -50%) translate(${labelX}px,${labelY}px) scale(${isHovered ? 1.03 : 1})`
+  const isMostlyVertical = Math.abs(targetY - sourceY) > Math.abs(targetX - sourceX)
+  const tooltipTransform = isMostlyVertical
+    ? `translate(${labelX + 14}px, ${labelY}px) translate(0, -50%) scale(${isHovered ? 1.02 : 1})`
+    : `translate(${labelX}px, ${labelY - 14}px) translate(-50%, -100%) scale(${isHovered ? 1.02 : 1})`
+  const tooltipLabel = edgeData.label ?? ''
+  const tooltipAriaLabel = edgeData.tooltipDescription
+    ? `${tooltipLabel}: ${edgeData.tooltipDescription}`
+    : tooltipLabel
 
   return (
     <>
@@ -296,37 +427,55 @@ export default function ModuleConnectionEdge({
         stroke="transparent"
         strokeWidth={24}
         style={{ pointerEvents: 'stroke' }}
+        aria-label={tooltipAriaLabel}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-      />
+      >
+        <title>{tooltipAriaLabel}</title>
+      </path>
       <EdgeLabelRenderer>
-        {edgeData.label ? (
+        {isHovered && edgeData.label ? (
           <div
-            data-testid="module-connection-edge-label"
-            data-hovered={isHovered ? 'true' : 'false'}
+            data-testid="module-connection-edge-tooltip"
             className="nodrag nopan"
             style={{
               position: 'absolute',
-              transform: labelTransform,
-              background: isHovered ? toRgba(accentColor, 0.12) : 'rgba(255, 255, 255, 0.9)',
-              padding: '2px 6px',
-              borderRadius: 4,
-              fontSize: 10,
-              fontWeight: 500,
-              color: edgeData.labelColor ?? '#475569',
-              pointerEvents: 'all',
-              whiteSpace: 'nowrap',
-              border: isHovered
-                ? `1px solid ${toRgba(accentColor, 0.28)}`
-                : '1px solid transparent',
-              boxShadow: isHovered ? `0 10px 24px ${toRgba(accentColor, 0.18)}` : 'none',
-              transition:
-                'transform 140ms ease, background-color 140ms ease, box-shadow 140ms ease, border-color 140ms ease',
+              transform: tooltipTransform,
+              background: 'rgba(255, 255, 255, 0.96)',
+              padding: '8px 10px',
+              borderRadius: 10,
+              minWidth: 140,
+              color: '#0f172a',
+              pointerEvents: 'none',
+              border: `1px solid ${toRgba(accentColor, 0.22)}`,
+              boxShadow: `0 12px 28px ${toRgba(accentColor, 0.18)}`,
+              transition: 'transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease',
             }}
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
           >
-            {edgeData.label}
+            <div
+              style={{
+                fontSize: 11,
+                lineHeight: 1.2,
+                fontWeight: 600,
+                color: edgeData.labelColor ?? '#475569',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {edgeData.label}
+            </div>
+            {edgeData.tooltipDescription ? (
+              <div
+                style={{
+                  marginTop: 4,
+                  fontSize: 11,
+                  lineHeight: 1.3,
+                  color: '#64748b',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {edgeData.tooltipDescription}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </EdgeLabelRenderer>
