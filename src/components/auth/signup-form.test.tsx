@@ -117,6 +117,24 @@ describe('SignupForm', () => {
     })
   })
 
+  describe('network error handling', () => {
+    it('displays generic error and re-enables button when signUp throws', async () => {
+      const user = userEvent.setup()
+      mockSignUp.mockRejectedValue(new Error('Failed to fetch'))
+      render(<SignupForm />)
+
+      await user.type(screen.getByLabelText(/email/i), 'test@example.com')
+      await user.type(screen.getByLabelText(/password/i), 'password123')
+      await user.click(screen.getByRole('button', { name: /sign up/i }))
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('Something went wrong. Please try again.')
+
+      const button = screen.getByRole('button', { name: /sign up/i })
+      expect(button).not.toBeDisabled()
+    })
+  })
+
   describe('pending state', () => {
     it('disables submit button and shows loading text while pending', async () => {
       const user = userEvent.setup()

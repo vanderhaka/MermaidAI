@@ -37,14 +37,18 @@ export default function SignupForm() {
     setPending(true)
     setState({})
 
-    const result = await signUp(parsed.data.email, parsed.data.password)
+    try {
+      const result = await signUp(parsed.data.email, parsed.data.password)
 
-    setPending(false)
-
-    if (result.success) {
-      setState({ success: true })
-    } else {
-      setState({ error: result.error })
+      if (result.success) {
+        setState({ success: true })
+      } else {
+        setState({ error: result.error })
+      }
+    } catch {
+      setState({ error: 'Something went wrong. Please try again.' })
+    } finally {
+      setPending(false)
     }
   }
 
