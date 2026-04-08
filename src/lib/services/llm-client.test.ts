@@ -139,14 +139,14 @@ describe('llm-client', () => {
       expect(stream).toBeInstanceOf(ReadableStream)
     })
 
-    it('uses claude-sonnet-4-6 as default model', async () => {
+    it('uses claude-haiku-4-5 as default model', async () => {
       const { callLLM } = await import('@/lib/services/llm-client')
 
       await callLLM('System prompt', [{ role: 'user', content: 'Hi' }])
 
       expect(mockStreamFn).toHaveBeenCalledWith(
         expect.objectContaining({
-          model: 'claude-sonnet-4-6',
+          model: 'claude-haiku-4-5-20251001',
         }),
       )
     })

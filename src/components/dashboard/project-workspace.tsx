@@ -23,6 +23,25 @@ import type {
   Project,
 } from '@/types/graph'
 
+const TOOL_LABELS: Record<string, string> = {
+  create_node: 'Creating node',
+  update_node: 'Updating node',
+  delete_node: 'Removing node',
+  create_edge: 'Connecting nodes',
+  delete_edge: 'Removing connection',
+  create_module: 'Creating module',
+  update_module: 'Updating module',
+  delete_module: 'Removing module',
+  connect_modules: 'Connecting modules',
+  add_open_question: 'Flagging question',
+  resolve_open_question: 'Resolving question',
+  lookup_docs: 'Looking up docs',
+}
+
+function formatToolName(tool: string): string {
+  return TOOL_LABELS[tool] ?? tool.replace(/_/g, ' ')
+}
+
 function truncateDescription(desc: string | null | undefined): string {
   const text = desc?.trim()
   if (!text) return 'No description yet'
@@ -39,6 +58,7 @@ type ProjectWorkspaceProps = {
   initialEdges: FlowEdge[]
   initialConnections: ModuleConnection[]
   initialMessages: ChatMessage[]
+  initialOpenQuestions?: OpenQuestion[]
 }
 
 export function ProjectWorkspace({
@@ -48,6 +68,7 @@ export function ProjectWorkspace({
   initialEdges,
   initialConnections,
   initialMessages,
+  initialOpenQuestions = [],
 }: ProjectWorkspaceProps) {
   const router = useRouter()
   const [isRefreshing, startRefresh] = useTransition()
@@ -85,20 +106,25 @@ export function ProjectWorkspace({
   const updateModuleInStore = useGraphStore((state) => state.updateModule)
   const setActiveModuleId = useGraphStore((state) => state.setActiveModuleId)
 
+  const setOpenQuestions = useGraphStore((state) => state.setOpenQuestions)
+
   useEffect(() => {
     setModules(initialModules)
     setNodes(initialNodes)
     setEdges(initialEdges)
     setConnections(initialConnections)
+    setOpenQuestions(initialOpenQuestions)
   }, [
     initialConnections,
     initialEdges,
     initialModules,
     initialNodes,
+    initialOpenQuestions,
     setConnections,
     setEdges,
     setModules,
     setNodes,
+    setOpenQuestions,
   ])
 
   useEffect(() => {
@@ -298,7 +324,11 @@ export function ProjectWorkspace({
         setStreamingContent(assistantText)
 
         for (const event of events) {
-          handleToolEvent(event.tool, event.data)
+          if (event.status === 'start') {
+            setToolActivity(formatToolName(event.tool))
+          } else if (event.data) {
+            handleToolEvent(event.tool, event.data)
+          }
         }
       }
 

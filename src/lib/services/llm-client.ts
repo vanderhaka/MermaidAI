@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 
-const DEFAULT_MODEL = 'claude-sonnet-4-6'
+const DEFAULT_MODEL = 'claude-haiku-4-5-20251001'
 const MAX_TOKENS = 4096
 
 let _client: Anthropic | null = null
@@ -89,6 +89,12 @@ export async function callLLMWithTools(
 
           for (const toolBlock of toolUseBlocks) {
             const toolInput = toolBlock.input as Record<string, unknown>
+
+            // Notify client that a tool is about to execute
+            controller.enqueue(
+              `${TOOL_EVENT_DELIMITER}${JSON.stringify({ tool: toolBlock.name, status: 'start' })}\n`,
+            )
+
             const result = await executeTool(toolBlock.name, toolInput)
 
             if (onToolResult) {

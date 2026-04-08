@@ -92,16 +92,30 @@ export async function POST(request: Request) {
       promptContext.connections = connectionsResult.data
     }
 
-    if (mode === 'scope_build') {
-      const oqResult = await listOpenOpenQuestions(projectId)
-      if (oqResult.success) {
-        promptContext.openQuestions = oqResult.data.map((q) => ({
-          id: q.id,
-          section: q.section,
-          question: q.question,
-          status: q.status,
-          resolution: q.resolution,
-        }))
+    // Always load open questions — they carry over from scope to architecture
+    const oqResult = await listOpenOpenQuestions(projectId)
+    if (oqResult.success) {
+      promptContext.openQuestions = oqResult.data.map((q) => ({
+        id: q.id,
+        section: q.section,
+        question: q.question,
+        status: q.status,
+        resolution: q.resolution,
+      }))
+    }
+
+    // In module_map mode, load the scope module's graph so the AI knows what was captured
+    if (mode === 'module_map' && !context.activeModuleId) {
+      const modules = promptContext.modules ?? []
+      const scopeModule = modules.find(
+        (m) => m.name.toLowerCase() === 'scope' || modules.length === 1,
+      )
+      if (scopeModule) {
+        const graphResult = await getGraphForModule(scopeModule.id)
+        if (graphResult.success && graphResult.data.nodes.length > 0) {
+          promptContext.scopeNodes = graphResult.data.nodes
+          promptContext.scopeEdges = graphResult.data.edges
+        }
       }
     }
 

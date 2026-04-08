@@ -65,13 +65,8 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
 
   const isScope = projectResult.data.mode === 'scope'
 
-  let initialOpenQuestions: OpenQuestion[] = []
-  if (isScope) {
-    const oqResult = await listOpenQuestions(projectId)
-    if (oqResult.success) {
-      initialOpenQuestions = oqResult.data
-    }
-  }
+  const oqResult = await listOpenQuestions(projectId)
+  const initialOpenQuestions: OpenQuestion[] = oqResult.success ? oqResult.data : []
 
   if (isScope) {
     return (
@@ -95,6 +90,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
       initialEdges={initialEdges}
       initialConnections={connections}
       initialMessages={messages}
+      initialOpenQuestions={initialOpenQuestions}
     />
   )
 }

@@ -2,7 +2,8 @@ import { TOOL_EVENT_DELIMITER } from '@/lib/services/llm-client'
 
 export interface ToolEvent {
   tool: string
-  data: Record<string, unknown>
+  data?: Record<string, unknown>
+  status?: 'start'
 }
 
 export interface ParseResult {

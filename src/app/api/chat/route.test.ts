@@ -676,9 +676,9 @@ describe('POST /api/chat', () => {
     )
   })
 
-  it('does not load open questions for non-scope modes', async () => {
+  it('loads open questions for all modes (scope handover)', async () => {
     const { POST } = await import('@/app/api/chat/route')
     await POST(makeRequest(validBody()))
-    expect(mockListOpenOpenQuestions).not.toHaveBeenCalled()
+    expect(mockListOpenOpenQuestions).toHaveBeenCalledWith('proj-1')
   })
 })

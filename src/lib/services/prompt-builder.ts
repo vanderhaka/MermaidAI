@@ -19,6 +19,9 @@ export type PromptContext = {
     markdown: string | null
   }
   openQuestions?: Pick<OpenQuestion, 'id' | 'section' | 'question' | 'status' | 'resolution'>[]
+  /** Flow captured during scope mode — passed to module_map for handover context */
+  scopeNodes?: FlowNode[]
+  scopeEdges?: FlowEdge[]
 }
 
 const MAX_PSEUDOCODE_PER_NODE = 450
@@ -178,7 +181,54 @@ When writing pseudocode for process nodes, always include a \`// file: <path>\` 
 ${buildExistingModulesSection(context.modules)}`.trim()
 }
 
+function buildScopeHandoverSection(context: PromptContext): string {
+  const hasScope = context.scopeNodes && context.scopeNodes.length > 0
+
+  if (!hasScope) return ''
+
+  const nodeLines = context.scopeNodes!.map((n) => {
+    const label = `- **${n.label}** (type: ${n.node_type})`
+    return label
+  })
+
+  const edgeLines = (context.scopeEdges ?? []).map((e) => {
+    const srcNode = context.scopeNodes!.find((n) => n.id === e.source_node_id)
+    const tgtNode = context.scopeNodes!.find((n) => n.id === e.target_node_id)
+    const label = e.label ? ` [${e.label}]` : ''
+    return `- ${srcNode?.label ?? e.source_node_id} → ${tgtNode?.label ?? e.target_node_id}${label}`
+  })
+
+  const openQs = buildOpenQuestionsSection(context.openQuestions)
+
+  return `
+## Scope Handover — IMPORTANT
+
+This project was **promoted from scope mode**. During a live client call, the user captured the following flow. Your job is to break this captured flow into proper architecture modules and connect them.
+
+### Captured Flow
+${nodeLines.join('\n')}
+
+### Captured Connections
+${edgeLines.join('\n')}
+
+### Open Questions from Scope
+${openQs}
+
+## What To Do
+
+**Build immediately.** The scope phase already captured the requirements — do NOT re-ask clarifying questions that were already answered. Instead:
+1. Analyze the captured flow above.
+2. Propose a module breakdown (group related nodes into modules).
+3. Create ALL modules and ALL connections in one go without waiting for confirmation.
+4. If open questions exist, note them briefly but don't block on them — build what's known.
+
+The user has already gone through discovery during the scope call. Respect that work.`
+}
+
 function buildModuleMapPrompt(context: PromptContext): string {
+  const scopeHandover = buildScopeHandoverSection(context)
+  const hasScope = scopeHandover.length > 0
+
   return `You are an AI assistant helping a user design the high-level module architecture for their project "${context.projectName}".
 
 You are in **module map mode** — the user can see this. Focus on module-level structure only — do not create or modify individual nodes, edges, or internal flows.
@@ -188,15 +238,19 @@ You are in **module map mode** — the user can see this. Focus on module-level 
 - Ask ONE question at a time when you need clarification. Never list multiple questions.
 - Write in short, natural sentences. Avoid heavy markdown — no big headers or deeply nested bullets.
 - Be concise. Say what you're doing and why in a sentence or two, not a wall of text.
-
-## Map → Walk → Drill
+${scopeHandover}
+${
+  hasScope
+    ? ''
+    : `## Map → Walk → Drill
 
 You are currently in the **Map/Walk** phase:
 - **Map**: If the module map isn't complete, help the user create and connect all modules first.
 - **Walk**: Once the map is built, guide the user through each module one at a time. For each module, ask about its specific behavior, logic, and 3rd party integrations. Update the module description to capture decisions.
 - When the user is ready to drill into a module's internal flow (nodes, edges, decision logic), tell them to click that module in the sidebar to enter module detail mode.
 - If a new module is needed during the walk, create and connect it before continuing.
-
+`
+}
 ## Current Modules
 
 ${buildExistingModulesSection(context.modules)}

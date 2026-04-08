@@ -11,6 +11,7 @@ interface ChatMessageListProps {
   toolActivity?: string | null
   toolCalls?: string[]
   onSend?: (message: string) => void
+  examplePrompts?: string[]
 }
 
 function ThinkingIndicator() {
@@ -30,9 +31,15 @@ function ThinkingIndicator() {
 
 function ToolActivityIndicator({ activity }: { activity: string }) {
   return (
-    <div className="flex items-center gap-2 px-1 py-1.5">
-      <div className="h-2 w-2 animate-pulse rounded-full bg-purple-400" />
-      <span className="text-xs font-medium text-purple-600">{activity}</span>
+    <div data-role="assistant" className="flex justify-start">
+      <div className="flex items-center gap-2.5 rounded-lg bg-purple-50 px-4 py-2.5">
+        <div className="flex items-center gap-1">
+          <span className="thinking-dot h-1.5 w-1.5 rounded-full bg-purple-400" />
+          <span className="thinking-dot h-1.5 w-1.5 rounded-full bg-purple-400" />
+          <span className="thinking-dot h-1.5 w-1.5 rounded-full bg-purple-400" />
+        </div>
+        <span className="text-xs font-medium text-purple-600">{activity}…</span>
+      </div>
     </div>
   )
 }
@@ -117,6 +124,7 @@ export default function ChatMessageList({
   toolActivity,
   toolCalls = [],
   onSend,
+  examplePrompts,
 }: ChatMessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -136,7 +144,7 @@ export default function ChatMessageList({
         <p className="text-center text-sm text-gray-500">Describe what you want to build</p>
         {onSend && (
           <div className="flex flex-col gap-1.5">
-            {EXAMPLE_PROMPTS.map((prompt) => (
+            {(examplePrompts ?? EXAMPLE_PROMPTS).map((prompt) => (
               <button
                 key={prompt}
                 type="button"

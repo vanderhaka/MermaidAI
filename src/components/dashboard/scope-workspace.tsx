@@ -20,6 +20,25 @@ import type {
   Project,
 } from '@/types/graph'
 
+const TOOL_LABELS: Record<string, string> = {
+  create_node: 'Creating node',
+  update_node: 'Updating node',
+  delete_node: 'Removing node',
+  create_edge: 'Connecting nodes',
+  delete_edge: 'Removing connection',
+  create_module: 'Creating module',
+  update_module: 'Updating module',
+  delete_module: 'Removing module',
+  connect_modules: 'Connecting modules',
+  add_open_question: 'Flagging question',
+  resolve_open_question: 'Resolving question',
+  lookup_docs: 'Looking up docs',
+}
+
+function formatToolName(tool: string): string {
+  return TOOL_LABELS[tool] ?? tool.replace(/_/g, ' ')
+}
+
 type ScopeWorkspaceProps = {
   project: Pick<Project, 'id' | 'name' | 'description' | 'mode'>
   initialModules: Module[]
@@ -46,8 +65,22 @@ export function ScopeWorkspace({
   const [toolActivity, setToolActivity] = useState<string | null>(null)
   const [currentToolCalls, setCurrentToolCalls] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [messages, setMessages] = useState(initialMessages)
-  const [assistantOpen, setAssistantOpen] = useState(false)
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    if (initialMessages.length > 0) return initialMessages
+    // Inject a welcome message on fresh scope projects
+    return [
+      {
+        id: 'welcome',
+        role: 'assistant' as const,
+        content:
+          'Welcome to Quick Capture! Describe what your client needs and I\'ll build a flowchart on the canvas in real-time.\n\nAs I work, hold **⌥ Option** to peek at your flowchart behind this chat.\n\nTry something like: *"The client needs a checkout flow with guest checkout and payment options."*',
+        operations: [],
+        createdAt: new Date().toISOString(),
+      },
+    ]
+  })
+  const [assistantOpen, setAssistantOpen] = useState(initialMessages.length === 0)
+  const [isPeeking, setIsPeeking] = useState(false)
 
   const modules = useGraphStore((state) => state.modules)
   const openQuestions = useGraphStore((state) => state.openQuestions)
@@ -83,8 +116,29 @@ export function ScopeWorkspace({
   ])
 
   useEffect(() => {
-    setMessages(initialMessages)
+    if (initialMessages.length > 0) {
+      setMessages(initialMessages)
+    }
   }, [initialMessages])
+
+  // Hold Option/Alt to temporarily peek at the canvas behind the chat
+  useEffect(() => {
+    function handleKeyDown(e: globalThis.KeyboardEvent) {
+      if (e.key !== 'Alt' || !assistantOpen || isPeeking) return
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'TEXTAREA' || tag === 'INPUT') return
+      setIsPeeking(true)
+    }
+    function handleKeyUp(e: globalThis.KeyboardEvent) {
+      if (e.key === 'Alt') setIsPeeking(false)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [assistantOpen, isPeeking])
 
   function addToolCall(label: string) {
     setToolActivity(label)
@@ -186,10 +240,12 @@ export function ScopeWorkspace({
             mode: 'scope_build',
             modules: modules.map((m) => ({ id: m.id, name: m.name })),
           },
-          history: messages.map((entry) => ({
-            role: entry.role,
-            content: entry.content,
-          })),
+          history: messages
+            .filter((entry) => entry.id !== 'welcome')
+            .map((entry) => ({
+              role: entry.role,
+              content: entry.content,
+            })),
         }),
       })
 
@@ -218,7 +274,11 @@ export function ScopeWorkspace({
         setStreamingContent(assistantText)
 
         for (const event of events) {
-          handleToolEvent(event.tool, event.data)
+          if (event.status === 'start') {
+            setToolActivity(formatToolName(event.tool))
+          } else if (event.data) {
+            handleToolEvent(event.tool, event.data)
+          }
         }
       }
 
@@ -326,6 +386,12 @@ export function ScopeWorkspace({
         isOpen={assistantOpen}
         onToggle={() => setAssistantOpen((prev) => !prev)}
         subtitle="Describe what the client needs — I'll build the flowchart."
+        isPeeking={isPeeking}
+        examplePrompts={[
+          'Client needs an invoicing system with approvals',
+          'Map out a returns and refunds process',
+          'Capture requirements for an event booking flow',
+        ]}
       />
     </div>
   )

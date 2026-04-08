@@ -15,6 +15,8 @@ type FloatingChatProps = {
   isOpen: boolean
   onToggle: () => void
   subtitle?: string
+  isPeeking?: boolean
+  examplePrompts?: string[]
 }
 
 export default function FloatingChat({
@@ -27,6 +29,8 @@ export default function FloatingChat({
   isOpen,
   onToggle,
   subtitle = 'Ask MermaidAI to sketch modules or refine the active module flow.',
+  isPeeking = false,
+  examplePrompts,
 }: FloatingChatProps) {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -48,7 +52,9 @@ export default function FloatingChat({
       {isOpen && (
         <section
           id="assistant-chat-panel"
-          className="flex max-h-[min(70vh,560px)] min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl ring-1 ring-black/5"
+          className={`flex max-h-[min(70vh,560px)] min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl ring-1 ring-black/5 transition-all duration-150 ${
+            isPeeking ? 'pointer-events-none scale-95 opacity-0' : 'scale-100 opacity-100'
+          }`}
           data-testid="chat-panel"
           role="dialog"
           aria-label="Assistant"
@@ -90,6 +96,7 @@ export default function FloatingChat({
             toolActivity={toolActivity}
             toolCalls={toolCalls}
             onSend={onSend}
+            examplePrompts={examplePrompts}
           />
 
           <div className="shrink-0 border-t border-gray-200 p-4">
