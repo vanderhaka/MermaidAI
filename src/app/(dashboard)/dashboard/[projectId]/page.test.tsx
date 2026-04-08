@@ -41,8 +41,19 @@ vi.mock('@/lib/services/graph-service', () => ({
   ensureDefaultModuleGraph: (...args: unknown[]) => mockEnsureDefaultModuleGraph(...args),
 }))
 
+const mockListOpenQuestions = vi.fn()
+vi.mock('@/lib/services/open-question-service', () => ({
+  listOpenQuestions: (...args: unknown[]) => mockListOpenQuestions(...args),
+}))
+
+vi.mock('server-only', () => ({}))
+
 vi.mock('@/components/dashboard/project-workspace', () => ({
   ProjectWorkspace: () => null,
+}))
+
+vi.mock('@/components/dashboard/scope-workspace', () => ({
+  ScopeWorkspace: () => null,
 }))
 
 // --- Helpers ---
@@ -67,6 +78,7 @@ describe('ProjectPage UUID validation', () => {
     mockListModulesByProject.mockResolvedValue({ success: true, data: [] })
     mockListChatMessages.mockResolvedValue({ success: true, data: [] })
     mockListConnectionsByProject.mockResolvedValue({ success: true, data: [] })
+    mockListOpenQuestions.mockResolvedValue({ success: true, data: [] })
   })
 
   it('calls notFound for a non-UUID string', async () => {

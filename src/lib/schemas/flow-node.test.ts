@@ -18,8 +18,8 @@ describe('createFlowNodeSchema', () => {
     expect(result.data?.label).toBe('Check user role')
   })
 
-  it('accepts all 6 valid node types', () => {
-    const types = ['decision', 'process', 'entry', 'exit', 'start', 'end'] as const
+  it('accepts all 7 valid node types', () => {
+    const types = ['decision', 'process', 'entry', 'exit', 'start', 'end', 'question'] as const
     for (const node_type of types) {
       const result = createFlowNodeSchema.safeParse({ ...validInput, node_type })
       expect(result.success).toBe(true)

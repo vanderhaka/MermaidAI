@@ -84,7 +84,17 @@ describe('ProjectList', () => {
     expect(screen.getByRole('button', { name: /new project/i })).toBeInTheDocument()
   })
 
-  it('calls createProject and navigates when "New Project" is clicked', async () => {
+  it('shows mode selector when "New Project" is clicked', async () => {
+    const user = userEvent.setup()
+    render(<ProjectList projects={sampleProjects} />)
+
+    await user.click(screen.getByRole('button', { name: /new project/i }))
+
+    expect(screen.getByRole('button', { name: /scope/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /architecture/i })).toBeInTheDocument()
+  })
+
+  it('creates project with scope mode', async () => {
     const user = userEvent.setup()
     mockCreateProject.mockResolvedValueOnce({
       success: true,
@@ -92,6 +102,7 @@ describe('ProjectList', () => {
         id: 'p3',
         name: 'Untitled Project',
         description: null,
+        mode: 'scope',
         created_at: '',
         updated_at: '',
       },
@@ -100,9 +111,50 @@ describe('ProjectList', () => {
     render(<ProjectList projects={sampleProjects} />)
 
     await user.click(screen.getByRole('button', { name: /new project/i }))
+    await user.click(screen.getByRole('button', { name: /scope/i }))
 
-    expect(mockCreateProject).toHaveBeenCalledWith({ name: 'Untitled Project' })
+    expect(mockCreateProject).toHaveBeenCalledWith({
+      name: 'Untitled Project',
+      mode: 'scope',
+    })
     expect(mockPush).toHaveBeenCalledWith('/dashboard/p3')
+  })
+
+  it('creates project with architecture mode', async () => {
+    const user = userEvent.setup()
+    mockCreateProject.mockResolvedValueOnce({
+      success: true,
+      data: {
+        id: 'p4',
+        name: 'Untitled Project',
+        description: null,
+        mode: 'architecture',
+        created_at: '',
+        updated_at: '',
+      },
+    })
+
+    render(<ProjectList projects={sampleProjects} />)
+
+    await user.click(screen.getByRole('button', { name: /new project/i }))
+    await user.click(screen.getByRole('button', { name: /architecture/i }))
+
+    expect(mockCreateProject).toHaveBeenCalledWith({
+      name: 'Untitled Project',
+      mode: 'architecture',
+    })
+    expect(mockPush).toHaveBeenCalledWith('/dashboard/p4')
+  })
+
+  it('can dismiss the mode selector', async () => {
+    const user = userEvent.setup()
+    render(<ProjectList projects={sampleProjects} />)
+
+    await user.click(screen.getByRole('button', { name: /new project/i }))
+    expect(screen.getByTestId('mode-selector')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /dismiss/i }))
+    expect(screen.queryByTestId('mode-selector')).not.toBeInTheDocument()
   })
 
   it('does not navigate when createProject fails', async () => {
@@ -115,6 +167,7 @@ describe('ProjectList', () => {
     render(<ProjectList projects={sampleProjects} />)
 
     await user.click(screen.getByRole('button', { name: /new project/i }))
+    await user.click(screen.getByRole('button', { name: /scope/i }))
 
     expect(mockCreateProject).toHaveBeenCalledOnce()
     expect(mockPush).not.toHaveBeenCalled()

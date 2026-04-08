@@ -247,6 +247,57 @@ export type Database = {
           },
         ]
       }
+      open_questions: {
+        Row: {
+          created_at: string
+          id: string
+          node_id: string
+          project_id: string
+          question: string
+          resolution: string | null
+          resolved_at: string | null
+          section: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          node_id: string
+          project_id: string
+          question: string
+          resolution?: string | null
+          resolved_at?: string | null
+          section: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          node_id?: string
+          project_id?: string
+          question?: string
+          resolution?: string | null
+          resolved_at?: string | null
+          section?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'open_questions_node_id_fkey'
+            columns: ['node_id']
+            isOneToOne: false
+            referencedRelation: 'flow_nodes'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'open_questions_project_id_fkey'
+            columns: ['project_id']
+            isOneToOne: false
+            referencedRelation: 'projects'
+            referencedColumns: ['id']
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -276,6 +327,7 @@ export type Database = {
           created_at: string
           description: string | null
           id: string
+          mode: string
           name: string
           updated_at: string
           user_id: string
@@ -284,6 +336,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
+          mode?: string
           name: string
           updated_at?: string
           user_id: string
@@ -292,6 +345,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
+          mode?: string
           name?: string
           updated_at?: string
           user_id?: string

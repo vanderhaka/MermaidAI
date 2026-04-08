@@ -137,13 +137,15 @@ function ProjectCard({ project, onDeleted }: { project: ProjectSummary; onDelete
 export function ProjectList({ projects }: ProjectListProps) {
   const router = useRouter()
   const [isCreating, setIsCreating] = useState(false)
+  const [showModeSelector, setShowModeSelector] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  async function handleNewProject() {
+  async function handleCreateWithMode(mode: 'scope' | 'architecture') {
     setIsCreating(true)
+    setShowModeSelector(false)
     setError(null)
 
-    const result = await createProject({ name: 'Untitled Project' })
+    const result = await createProject({ name: 'Untitled Project', mode })
 
     if (result.success) {
       router.push(`/dashboard/${result.data.id}`)
@@ -169,15 +171,63 @@ export function ProjectList({ projects }: ProjectListProps) {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleNewProject}
-          disabled={isCreating}
-          data-testid="new-project-button"
-          className="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-5 py-3 text-sm font-medium text-white shadow-lg shadow-slate-300/60 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isCreating ? 'Creating...' : 'New Project'}
-        </button>
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShowModeSelector(true)}
+            disabled={isCreating}
+            data-testid="new-project-button"
+            className="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-5 py-3 text-sm font-medium text-white shadow-lg shadow-slate-300/60 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isCreating ? 'Creating...' : 'New Project'}
+          </button>
+
+          {showModeSelector && (
+            <div
+              data-testid="mode-selector"
+              className="absolute right-0 top-full z-10 mt-2 w-72 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl"
+            >
+              <div className="mb-2 flex items-center justify-between px-1">
+                <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+                  Choose mode
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowModeSelector(false)}
+                  aria-label="Dismiss"
+                  className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="h-4 w-4"
+                  >
+                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                  </svg>
+                </button>
+              </div>
+              <div className="grid gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleCreateWithMode('scope')}
+                  className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-left transition hover:border-amber-300 hover:bg-amber-100"
+                >
+                  <p className="text-sm font-semibold text-amber-900">Scope</p>
+                  <p className="mt-0.5 text-xs text-amber-700">Fast capture during a client call</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCreateWithMode('architecture')}
+                  className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-left transition hover:border-blue-300 hover:bg-blue-100"
+                >
+                  <p className="text-sm font-semibold text-blue-900">Architecture</p>
+                  <p className="mt-0.5 text-xs text-blue-700">Deep Map, Walk, Drill design flow</p>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {error && (

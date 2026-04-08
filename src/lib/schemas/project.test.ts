@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest'
-import { createProjectSchema } from '@/lib/schemas/project'
+import { createProjectSchema, updateProjectSchema } from '@/lib/schemas/project'
 
 describe('createProjectSchema', () => {
   it('accepts valid input', () => {
@@ -75,5 +75,40 @@ describe('createProjectSchema', () => {
       const nameErrors = result.error.issues.filter((issue) => issue.path[0] === 'name')
       expect(nameErrors.length).toBeGreaterThan(0)
     }
+  })
+
+  it('defaults mode to architecture when omitted', () => {
+    const result = createProjectSchema.safeParse({ name: 'My Project' })
+    expect(result.success).toBe(true)
+    expect(result.data?.mode).toBe('architecture')
+  })
+
+  it('accepts mode: scope', () => {
+    const result = createProjectSchema.safeParse({ name: 'Scoping Call', mode: 'scope' })
+    expect(result.success).toBe(true)
+    expect(result.data?.mode).toBe('scope')
+  })
+
+  it('accepts mode: architecture', () => {
+    const result = createProjectSchema.safeParse({ name: 'Deep Dive', mode: 'architecture' })
+    expect(result.success).toBe(true)
+    expect(result.data?.mode).toBe('architecture')
+  })
+
+  it('rejects invalid mode value', () => {
+    const result = createProjectSchema.safeParse({ name: 'Bad', mode: 'draft' })
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('updateProjectSchema — mode field', () => {
+  it('accepts mode update alone', () => {
+    const result = updateProjectSchema.safeParse({ mode: 'scope' })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects invalid mode in update', () => {
+    const result = updateProjectSchema.safeParse({ mode: 'invalid' })
+    expect(result.success).toBe(false)
   })
 })

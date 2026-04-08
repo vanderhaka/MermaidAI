@@ -1,0 +1,310 @@
+'use client'
+
+import Link from 'next/link'
+import { useEffect, useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
+
+import CanvasContainer from '@/components/canvas/CanvasContainer'
+import ChatInput from '@/components/chat/ChatInput'
+import ChatMessageList from '@/components/chat/ChatMessageList'
+import OpenQuestionsPanel from '@/components/canvas/OpenQuestionsPanel'
+import { updateProject } from '@/lib/services/project-service'
+import { createStreamParser } from '@/lib/stream-parser'
+import { useGraphStore } from '@/store/graph-store'
+import type { ChatMessage } from '@/types/chat'
+import type {
+  FlowEdge,
+  FlowNode,
+  Module,
+  ModuleConnection,
+  OpenQuestion,
+  Project,
+} from '@/types/graph'
+
+type ScopeWorkspaceProps = {
+  project: Pick<Project, 'id' | 'name' | 'description'>
+  initialModules: Module[]
+  initialNodes: FlowNode[]
+  initialEdges: FlowEdge[]
+  initialConnections: ModuleConnection[]
+  initialMessages: ChatMessage[]
+  initialOpenQuestions: OpenQuestion[]
+}
+
+export function ScopeWorkspace({
+  project,
+  initialModules,
+  initialNodes,
+  initialEdges,
+  initialConnections,
+  initialMessages,
+  initialOpenQuestions,
+}: ScopeWorkspaceProps) {
+  const router = useRouter()
+  const [isPromoting, startPromote] = useTransition()
+  const [isSending, setIsSending] = useState(false)
+  const [streamingContent, setStreamingContent] = useState('')
+  const [toolActivity, setToolActivity] = useState<string | null>(null)
+  const [currentToolCalls, setCurrentToolCalls] = useState<string[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [messages, setMessages] = useState(initialMessages)
+  const [assistantOpen, setAssistantOpen] = useState(false)
+
+  const modules = useGraphStore((state) => state.modules)
+  const openQuestions = useGraphStore((state) => state.openQuestions)
+  const setModules = useGraphStore((state) => state.setModules)
+  const setNodes = useGraphStore((state) => state.setNodes)
+  const setEdges = useGraphStore((state) => state.setEdges)
+  const setConnections = useGraphStore((state) => state.setConnections)
+  const setOpenQuestions = useGraphStore((state) => state.setOpenQuestions)
+  const setActiveModuleId = useGraphStore((state) => state.setActiveModuleId)
+
+  useEffect(() => {
+    setModules(initialModules)
+    setNodes(initialNodes)
+    setEdges(initialEdges)
+    setConnections(initialConnections)
+    setOpenQuestions(initialOpenQuestions)
+    // Auto-set active module to the scope module
+    if (initialModules.length > 0) {
+      setActiveModuleId(initialModules[0].id)
+    }
+  }, [
+    initialConnections,
+    initialEdges,
+    initialModules,
+    initialNodes,
+    initialOpenQuestions,
+    setConnections,
+    setEdges,
+    setModules,
+    setNodes,
+    setOpenQuestions,
+    setActiveModuleId,
+  ])
+
+  useEffect(() => {
+    setMessages(initialMessages)
+  }, [initialMessages])
+
+  function addToolCall(label: string) {
+    setToolActivity(label)
+    setCurrentToolCalls((prev) => [...prev, label])
+  }
+
+  function handleToolEvent(tool: string, data: Record<string, unknown>) {
+    switch (tool) {
+      case 'create_node': {
+        const node = data as unknown
+        if (node && typeof node === 'object' && 'id' in node) {
+          useGraphStore.getState().addNode(node as FlowNode)
+          addToolCall(`Created node`)
+        }
+        break
+      }
+      case 'add_open_question': {
+        const node = data.node as FlowNode | undefined
+        const question = data.question as OpenQuestion | undefined
+        if (node) useGraphStore.getState().addNode(node)
+        if (question) useGraphStore.getState().addOpenQuestion(question)
+        addToolCall(question ? `Flagged: ${question.section}` : 'Added open question')
+        break
+      }
+      case 'resolve_open_question': {
+        const question = data.question as OpenQuestion | undefined
+        if (question) {
+          useGraphStore.getState().removeNode(question.node_id)
+          useGraphStore.getState().resolveOpenQuestion(question.id, question.resolution ?? '')
+        }
+        addToolCall('Resolved question')
+        break
+      }
+    }
+  }
+
+  async function handleSend(message: string) {
+    const optimisticUserMessage: ChatMessage = {
+      id: `local-user-${crypto.randomUUID()}`,
+      role: 'user',
+      content: message,
+      operations: [],
+      createdAt: new Date().toISOString(),
+    }
+
+    setMessages((current) => [...current, optimisticUserMessage])
+    setIsSending(true)
+    setStreamingContent('')
+    setToolActivity(null)
+    setCurrentToolCalls([])
+    setError(null)
+
+    try {
+      const activeModuleId = modules[0]?.id ?? null
+
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: project.id,
+          message,
+          mode: 'scope_build',
+          context: {
+            projectId: project.id,
+            projectName: project.name,
+            activeModuleId,
+            mode: 'scope_build',
+            modules: modules.map((m) => ({ id: m.id, name: m.name })),
+          },
+          history: messages.map((entry) => ({
+            role: entry.role,
+            content: entry.content,
+          })),
+        }),
+      })
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null)
+        throw new Error(payload?.error ?? 'Failed to send chat message')
+      }
+
+      const reader = response.body?.getReader()
+      if (!reader) {
+        throw new Error('Assistant response stream was unavailable')
+      }
+
+      const decoder = new TextDecoder()
+      const parser = createStreamParser()
+      let assistantText = ''
+
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+
+        const chunk = decoder.decode(value, { stream: true })
+        const { text, events } = parser.push(chunk)
+
+        assistantText += text
+        setStreamingContent(assistantText)
+
+        for (const event of events) {
+          handleToolEvent(event.tool, event.data)
+        }
+      }
+
+      // Flush remaining
+      const { text: remaining } = parser.flush()
+      assistantText += remaining
+      setStreamingContent(assistantText)
+
+      if (assistantText.trim()) {
+        setMessages((current) => [
+          ...current,
+          {
+            id: `local-assistant-${crypto.randomUUID()}`,
+            role: 'assistant',
+            content: assistantText.trim(),
+            operations: [],
+            createdAt: new Date().toISOString(),
+          },
+        ])
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong')
+    } finally {
+      setIsSending(false)
+      setStreamingContent('')
+      setToolActivity(null)
+    }
+  }
+
+  async function handlePromote() {
+    startPromote(async () => {
+      const result = await updateProject(project.id, { mode: 'architecture' })
+      if (result.success) {
+        router.refresh()
+      } else {
+        setError(result.error)
+      }
+    })
+  }
+
+  return (
+    <div className="flex h-screen flex-col">
+      {/* Header */}
+      <header className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
+        <div className="flex items-center gap-3">
+          <Link
+            href="/dashboard"
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className="h-5 w-5"
+            >
+              <path
+                fillRule="evenodd"
+                d="M17 10a.75.75 0 01-.75.75H5.612l4.158 3.96a.75.75 0 11-1.04 1.08l-5.5-5.25a.75.75 0 010-1.08l5.5-5.25a.75.75 0 111.04 1.08L5.612 9.25H16.25A.75.75 0 0117 10z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </Link>
+          <div>
+            <h1 className="text-sm font-semibold text-slate-900">{project.name}</h1>
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+              Scope Mode
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handlePromote}
+            disabled={isPromoting}
+            className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100 disabled:opacity-60"
+          >
+            {isPromoting ? 'Promoting...' : 'Promote to Architecture'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setAssistantOpen((prev) => !prev)}
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+          >
+            {assistantOpen ? 'Hide Chat' : 'Show Chat'}
+          </button>
+        </div>
+      </header>
+
+      {/* Main content */}
+      <div className="flex min-h-0 flex-1">
+        {/* Canvas (full width — no module sidebar) */}
+        <div className="flex flex-1 flex-col" data-testid="canvas-panel">
+          <div className="flex-1">
+            <CanvasContainer />
+          </div>
+          <OpenQuestionsPanel questions={openQuestions} />
+        </div>
+
+        {/* Chat panel */}
+        {assistantOpen && (
+          <div className="flex w-96 flex-col border-l border-slate-200 bg-white">
+            <ChatMessageList
+              messages={messages}
+              isLoading={isSending}
+              streamingContent={streamingContent}
+              toolActivity={toolActivity}
+            />
+            <ChatInput onSend={handleSend} isLoading={isSending} />
+          </div>
+        )}
+      </div>
+
+      {error && (
+        <div className="border-t border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+    </div>
+  )
+}

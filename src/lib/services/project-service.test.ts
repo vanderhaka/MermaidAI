@@ -41,6 +41,7 @@ describe('createProject', () => {
       user_id: 'user-1',
       name: 'Test Project',
       description: null,
+      mode: 'architecture',
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
     }
@@ -50,7 +51,11 @@ describe('createProject', () => {
 
     expect(result).toEqual({ success: true, data: project })
     expect(mockFrom).toHaveBeenCalledWith('projects')
-    expect(mockInsert).toHaveBeenCalledWith({ name: 'Test Project', user_id: 'user-1' })
+    expect(mockInsert).toHaveBeenCalledWith({
+      name: 'Test Project',
+      mode: 'architecture',
+      user_id: 'user-1',
+    })
     expect(mockSelect).toHaveBeenCalled()
     expect(mockSingle).toHaveBeenCalled()
   })
@@ -61,6 +66,7 @@ describe('createProject', () => {
       user_id: 'user-1',
       name: 'With Desc',
       description: 'A description',
+      mode: 'architecture',
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
     }
@@ -75,6 +81,29 @@ describe('createProject', () => {
     expect(mockInsert).toHaveBeenCalledWith({
       name: 'With Desc',
       description: 'A description',
+      mode: 'architecture',
+      user_id: 'user-1',
+    })
+  })
+
+  it('creates scope mode project when specified', async () => {
+    const project = {
+      id: 'proj-3',
+      user_id: 'user-1',
+      name: 'Client Call',
+      description: null,
+      mode: 'scope',
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    }
+    mockSingle.mockResolvedValue({ data: project, error: null })
+
+    const result = await createProject({ name: 'Client Call', mode: 'scope' })
+
+    expect(result).toEqual({ success: true, data: project })
+    expect(mockInsert).toHaveBeenCalledWith({
+      name: 'Client Call',
+      mode: 'scope',
       user_id: 'user-1',
     })
   })
@@ -112,6 +141,7 @@ describe('listProjectsByUser', () => {
         id: 'proj-2',
         name: 'Newer Project',
         description: null,
+        mode: 'architecture',
         created_at: '2026-02-01T00:00:00Z',
         updated_at: '2026-02-01T00:00:00Z',
       },
@@ -119,6 +149,7 @@ describe('listProjectsByUser', () => {
         id: 'proj-1',
         name: 'Older Project',
         description: 'Old one',
+        mode: 'scope',
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z',
       },
@@ -129,7 +160,7 @@ describe('listProjectsByUser', () => {
 
     expect(result).toEqual({ success: true, data: projects })
     expect(mockFrom).toHaveBeenCalledWith('projects')
-    expect(mockSelect).toHaveBeenCalledWith('id, name, description, created_at, updated_at')
+    expect(mockSelect).toHaveBeenCalledWith('id, name, description, mode, created_at, updated_at')
     expect(mockOrder).toHaveBeenCalledWith('created_at', { ascending: false })
   })
 
@@ -164,6 +195,7 @@ describe('updateProject', () => {
       user_id: 'user-1',
       name: 'New Name',
       description: null,
+      mode: 'architecture',
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-02T00:00:00Z',
     }
@@ -185,6 +217,7 @@ describe('updateProject', () => {
       user_id: 'user-1',
       name: 'Original',
       description: 'Updated desc',
+      mode: 'architecture',
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-02T00:00:00Z',
     }
@@ -202,6 +235,7 @@ describe('updateProject', () => {
       user_id: 'user-1',
       name: 'New Name',
       description: 'New desc',
+      mode: 'architecture',
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-02T00:00:00Z',
     }
@@ -250,6 +284,7 @@ describe('updateProject', () => {
       user_id: 'user-1',
       name: 'Valid Name',
       description: null,
+      mode: 'architecture',
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-02T00:00:00Z',
     }
@@ -278,6 +313,7 @@ describe('getProjectById', () => {
       user_id: 'user-1',
       name: 'My Project',
       description: 'A great project',
+      mode: 'architecture',
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
     }
@@ -288,7 +324,7 @@ describe('getProjectById', () => {
     expect(result).toEqual({ success: true, data: project })
     expect(mockFrom).toHaveBeenCalledWith('projects')
     expect(mockSelect).toHaveBeenCalledWith(
-      'id, user_id, name, description, created_at, updated_at',
+      'id, user_id, name, description, mode, created_at, updated_at',
     )
     expect(mockEq).toHaveBeenCalledWith('id', 'proj-1')
     expect(mockSingle).toHaveBeenCalled()

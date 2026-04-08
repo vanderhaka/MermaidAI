@@ -1,6 +1,14 @@
 import { z } from 'zod'
 
-export const FLOW_NODE_TYPES = ['decision', 'process', 'entry', 'exit', 'start', 'end'] as const
+export const FLOW_NODE_TYPES = [
+  'decision',
+  'process',
+  'entry',
+  'exit',
+  'start',
+  'end',
+  'question',
+] as const
 
 export const createFlowNodeSchema = z.object({
   module_id: z.uuid(),

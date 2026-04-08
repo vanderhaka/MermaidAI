@@ -1,7 +1,7 @@
-import type { Module, FlowNode, FlowEdge, ModuleConnection } from '@/types/graph'
+import type { Module, FlowNode, FlowEdge, ModuleConnection, OpenQuestion } from '@/types/graph'
 import { moduleNotesFileSlug } from '@/lib/module-notes-slug'
 
-export type PromptMode = 'discovery' | 'module_map' | 'module_detail'
+export type PromptMode = 'discovery' | 'module_map' | 'module_detail' | 'scope_build'
 
 export type PromptContext = {
   projectName: string
@@ -18,6 +18,7 @@ export type PromptContext = {
     source: 'module' | 'default' | 'none'
     markdown: string | null
   }
+  openQuestions?: Pick<OpenQuestion, 'id' | 'section' | 'question' | 'status' | 'resolution'>[]
 }
 
 const MAX_PSEUDOCODE_PER_NODE = 450
@@ -258,7 +259,7 @@ ${buildCurrentEdgesSection(context.edges)}
 
 ## Node Types
 
-Available node types: \`process\`, \`decision\`, \`entry\`, \`exit\`, \`start\`, \`end\`
+Available node types: \`process\`, \`decision\`, \`entry\`, \`exit\`, \`start\`, \`end\`, \`question\`
 
 - **process** — a step that performs work (can contain pseudocode)
 - **decision** — a branching point with conditional edges
@@ -266,6 +267,7 @@ Available node types: \`process\`, \`decision\`, \`entry\`, \`exit\`, \`start\`,
 - **exit** — an exit point from this module to another module
 - **start** — the beginning of a flow
 - **end** — the termination of a flow
+- **question** — an open question or gap to resolve
 
 ## Using Tools
 
@@ -280,6 +282,69 @@ If the module involves a 3rd party service or library (e.g. Stripe, Supabase, Tw
 When writing pseudocode for process nodes, always include a \`// file: <path>\` comment at the top of each pseudocode block.`.trim()
 }
 
+function buildOpenQuestionsSection(questions?: PromptContext['openQuestions']): string {
+  if (!questions || questions.length === 0) {
+    return 'No open questions yet.'
+  }
+
+  const grouped = new Map<string, typeof questions>()
+  for (const q of questions) {
+    const list = grouped.get(q.section) ?? []
+    list.push(q)
+    grouped.set(q.section, list)
+  }
+
+  const lines: string[] = []
+  for (const [section, items] of grouped) {
+    lines.push(`### ${section}`)
+    for (const q of items) {
+      const icon = q.status === 'open' ? '?' : '\u2713'
+      const resolution = q.status === 'resolved' && q.resolution ? ` — ${q.resolution}` : ''
+      lines.push(`- [${icon}] ${q.question} (id: ${q.id})${resolution}`)
+    }
+  }
+
+  return lines.join('\n')
+}
+
+function buildScopeBuildPrompt(context: PromptContext): string {
+  return `You are an AI assistant helping a user capture the scope of their project "${context.projectName}" during a live client call.
+
+You are in **scope mode** — the user is typing what the client describes in real time. Your job is to build a simplified flowchart and silently track open questions.
+
+## Conversation Style
+
+- Be extremely concise — the user is multitasking during a live call.
+- Never ask questions unprompted. The user feeds you information; you organize it.
+- Acknowledge each input briefly (one short sentence) and describe what you built.
+
+## Open Questions
+
+- When the client's description has gaps or ambiguities, silently place a "?" question node using \`add_open_question\`.
+- Assign section names automatically based on the conversation topic (e.g. "Authentication", "Payments", "Data Model") — do not ask the user for section names.
+- When later information resolves a question, use \`resolve_open_question\`.
+- Do not ask the user about open questions during the call — they are tracked silently for post-call review.
+- At natural pauses (when the user stops for a few messages), briefly mention how many open questions remain.
+
+## Node Types
+
+Available node types: \`process\`, \`decision\`, \`question\`, \`start\`, \`end\`
+
+- **process** — a step that performs work
+- **decision** — a branching point with conditional edges
+- **question** — an open question or gap to resolve (created via \`add_open_question\`)
+- **start** — the beginning of a flow
+- **end** — the termination of a flow
+
+## Using Tools
+
+Build the flowchart as information comes in. Create nodes for described features, connect them with edges, and mark gaps with question nodes. Keep the graph simple and high-level — detail comes later.
+
+## Current Open Questions
+
+${buildOpenQuestionsSection(context.openQuestions)}`.trim()
+}
+
 export function buildSystemPrompt(mode: PromptMode, context: PromptContext): string {
   switch (mode) {
     case 'discovery':
@@ -288,5 +353,7 @@ export function buildSystemPrompt(mode: PromptMode, context: PromptContext): str
       return buildModuleMapPrompt(context)
     case 'module_detail':
       return buildModuleDetailPrompt(context)
+    case 'scope_build':
+      return buildScopeBuildPrompt(context)
   }
 }

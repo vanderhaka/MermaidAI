@@ -13,16 +13,17 @@ import { listModulesByProject, getModuleById } from '@/lib/services/module-servi
 import { listConnectionsByProject } from '@/lib/services/module-connection-service'
 import { getGraphForModule } from '@/lib/services/graph-service'
 import { loadModuleNotesForChat } from '@/lib/module-notes/load-for-prompt'
+import { listOpenOpenQuestions } from '@/lib/services/open-question-service'
 
 const chatRequestSchema = z.object({
   projectId: z.string().min(1),
   message: z.string().trim().min(1),
-  mode: z.enum(['discovery', 'module_map', 'module_detail']),
+  mode: z.enum(['discovery', 'module_map', 'module_detail', 'scope_build']),
   context: z.object({
     projectId: z.string(),
     projectName: z.string(),
     activeModuleId: z.string().nullable(),
-    mode: z.enum(['discovery', 'module_map', 'module_detail']),
+    mode: z.enum(['discovery', 'module_map', 'module_detail', 'scope_build']),
     modules: z.array(z.object({ id: z.string(), name: z.string() })),
   }),
   history: z
@@ -89,6 +90,19 @@ export async function POST(request: Request) {
     }
     if (connectionsResult.success) {
       promptContext.connections = connectionsResult.data
+    }
+
+    if (mode === 'scope_build') {
+      const oqResult = await listOpenOpenQuestions(projectId)
+      if (oqResult.success) {
+        promptContext.openQuestions = oqResult.data.map((q) => ({
+          id: q.id,
+          section: q.section,
+          question: q.question,
+          status: q.status,
+          resolution: q.resolution,
+        }))
+      }
     }
 
     if (context.activeModuleId) {

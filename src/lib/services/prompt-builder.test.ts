@@ -248,6 +248,12 @@ describe('buildSystemPrompt', () => {
       expect(prompt).toContain('exit')
       expect(prompt).toContain('start')
       expect(prompt).toContain('end')
+      expect(prompt).toContain('question')
+    })
+
+    it('lists question as an available node type with description', () => {
+      const prompt = buildSystemPrompt(mode, detailContext)
+      expect(prompt).toContain('**question**')
     })
 
     it('does not contain operations delimiters', () => {
@@ -286,6 +292,116 @@ describe('buildSystemPrompt', () => {
       const prompt = buildSystemPrompt(mode, ctx)
       expect(prompt).toContain('Auth')
       expect(prompt).toContain('No nodes exist yet')
+    })
+  })
+
+  describe('scope_build mode', () => {
+    const mode: PromptMode = 'scope_build'
+
+    it('returns a non-empty string', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toBeTruthy()
+      expect(typeof prompt).toBe('string')
+    })
+
+    it('includes the project name', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toContain('TaskFlow')
+    })
+
+    it('mentions scope mode', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt.toLowerCase()).toContain('scope')
+    })
+
+    it('mentions open questions', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt.toLowerCase()).toContain('open question')
+    })
+
+    it('references add_open_question tool', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toContain('add_open_question')
+    })
+
+    it('references resolve_open_question tool', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toContain('resolve_open_question')
+    })
+
+    it('includes open questions context when provided', () => {
+      const prompt = buildSystemPrompt(mode, {
+        ...baseContext,
+        openQuestions: [
+          {
+            id: 'oq-1',
+            section: 'Auth',
+            question: 'OAuth or password?',
+            status: 'open',
+            resolution: null,
+          },
+        ],
+      })
+      expect(prompt).toContain('OAuth or password?')
+      expect(prompt).toContain('Auth')
+    })
+
+    it('groups open questions by section', () => {
+      const prompt = buildSystemPrompt(mode, {
+        ...baseContext,
+        openQuestions: [
+          {
+            id: 'oq-1',
+            section: 'Auth',
+            question: 'OAuth?',
+            status: 'open',
+            resolution: null,
+          },
+          {
+            id: 'oq-2',
+            section: 'Payments',
+            question: 'Stripe or Square?',
+            status: 'open',
+            resolution: null,
+          },
+        ],
+      })
+      expect(prompt).toContain('### Auth')
+      expect(prompt).toContain('### Payments')
+    })
+
+    it('shows resolved questions with resolution text', () => {
+      const prompt = buildSystemPrompt(mode, {
+        ...baseContext,
+        openQuestions: [
+          {
+            id: 'oq-1',
+            section: 'Auth',
+            question: 'OAuth?',
+            status: 'resolved',
+            resolution: 'Google OAuth',
+          },
+        ],
+      })
+      expect(prompt).toContain('Google OAuth')
+    })
+
+    it('works with no open questions', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toBeTruthy()
+      expect(prompt).not.toContain('undefined')
+      expect(prompt).toContain('No open questions yet')
+    })
+
+    it('lists question as a node type', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toContain('**question**')
+    })
+
+    it('instructs AI to assign section names automatically', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt.toLowerCase()).toContain('section')
+      expect(prompt.toLowerCase()).toContain('automatically')
     })
   })
 })

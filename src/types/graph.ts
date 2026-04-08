@@ -3,11 +3,14 @@ export type Position = {
   y: number
 }
 
+export type ProjectMode = 'scope' | 'architecture'
+
 export type Project = {
   id: string
   user_id: string
   name: string
   description: string | null
+  mode: ProjectMode
   created_at: string
   updated_at: string
 }
@@ -33,7 +36,7 @@ export type CreateModuleInput = Omit<Module, 'id' | 'created_at' | 'updated_at' 
   domain?: string | null
 }
 
-export type FlowNodeType = 'decision' | 'process' | 'entry' | 'exit' | 'start' | 'end'
+export type FlowNodeType = 'decision' | 'process' | 'entry' | 'exit' | 'start' | 'end' | 'question'
 
 export type FlowNode = {
   id: string
@@ -77,4 +80,18 @@ export type CreateFlowEdgeInput = Pick<
 > & {
   label?: string
   condition?: string
+}
+
+export type OpenQuestionStatus = 'open' | 'resolved'
+
+export type OpenQuestion = {
+  id: string
+  project_id: string
+  node_id: string
+  section: string
+  question: string
+  status: OpenQuestionStatus
+  resolution: string | null
+  created_at: string
+  resolved_at: string | null
 }

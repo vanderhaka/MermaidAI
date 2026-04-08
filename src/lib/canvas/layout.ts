@@ -38,6 +38,8 @@ export function getFlowDetailNodeDimensions(nodeType: FlowNodeType): {
     case 'entry':
     case 'exit':
       return { width: 200, height: 44 }
+    case 'question':
+      return { width: 260, height: 56 }
     case 'start':
     case 'end':
       return { width: 64, height: 64 }

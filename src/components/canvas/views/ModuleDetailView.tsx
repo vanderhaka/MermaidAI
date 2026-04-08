@@ -26,6 +26,7 @@ import EntryNode from '@/components/canvas/nodes/EntryNode'
 import ExitNode from '@/components/canvas/nodes/ExitNode'
 import StartNode from '@/components/canvas/nodes/StartNode'
 import EndNode from '@/components/canvas/nodes/EndNode'
+import QuestionNode from '@/components/canvas/nodes/QuestionNode'
 import ConditionEdge from '@/components/canvas/edges/ConditionEdge'
 import ModuleNotesSheet from '@/components/canvas/views/ModuleNotesSheet'
 
@@ -54,6 +55,7 @@ const nodeTypes = {
   exit: ExitNode,
   start: StartNode,
   end: EndNode,
+  question: QuestionNode,
 }
 
 const edgeTypes = {

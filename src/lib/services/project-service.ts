@@ -8,11 +8,15 @@ type ServiceResult<T> = { success: true; data: T } | { success: false; error: st
 
 type DeleteResult = { success: true } | { success: false; error: string }
 
-type ProjectSummary = Pick<Project, 'id' | 'name' | 'description' | 'created_at' | 'updated_at'>
+type ProjectSummary = Pick<
+  Project,
+  'id' | 'name' | 'description' | 'mode' | 'created_at' | 'updated_at'
+>
 
 export async function createProject(input: {
   name: string
   description?: string | null
+  mode?: 'scope' | 'architecture'
 }): Promise<ServiceResult<Project>> {
   const parsed = createProjectSchema.safeParse(input)
   if (!parsed.success) {
@@ -38,12 +42,28 @@ export async function createProject(input: {
     return { success: false, error: error.message }
   }
 
-  return { success: true, data: data as Project }
+  const project = data as Project
+
+  // Auto-create a hidden "Scope" module for scope projects
+  if (project.mode === 'scope') {
+    await supabase.from('modules').insert({
+      project_id: project.id,
+      name: 'Scope',
+      description: 'Auto-created scope module for scoping mode',
+      color: '#F59E0B',
+      entry_points: [],
+      exit_points: [],
+      position_x: 0,
+      position_y: 0,
+    })
+  }
+
+  return { success: true, data: project }
 }
 
 export async function updateProject(
   id: string,
-  input: { name?: string; description?: string | null },
+  input: { name?: string; description?: string | null; mode?: 'scope' | 'architecture' },
 ): Promise<ServiceResult<Project>> {
   const parsed = updateProjectSchema.safeParse(input)
   if (!parsed.success) {
@@ -69,7 +89,7 @@ export async function listProjectsByUser(): Promise<ServiceResult<ProjectSummary
   const supabase = await createClient()
   const { data, error } = await supabase
     .from('projects')
-    .select('id, name, description, created_at, updated_at')
+    .select('id, name, description, mode, created_at, updated_at')
     .order('created_at', { ascending: false })
 
   if (error) {
@@ -83,7 +103,7 @@ export async function getProjectById(id: string): Promise<ServiceResult<Project>
   const supabase = await createClient()
   const { data, error } = await supabase
     .from('projects')
-    .select('id, user_id, name, description, created_at, updated_at')
+    .select('id, user_id, name, description, mode, created_at, updated_at')
     .eq('id', id)
     .single()
 

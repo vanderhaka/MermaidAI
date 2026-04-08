@@ -9,6 +9,7 @@ import {
 import { connectModules } from '@/lib/services/module-connection-service'
 import { lookupDocumentation } from '@/lib/services/doc-lookup-service'
 import { addNode, updateNode, removeNode, addEdge, removeEdge } from '@/lib/services/graph-service'
+import { createOpenQuestion, resolveOpenQuestion } from '@/lib/services/open-question-service'
 import type { ToolResult } from '@/lib/services/llm-client'
 import type { FlowNode } from '@/types/graph'
 import type { PromptMode } from '@/lib/services/prompt-builder'
@@ -213,6 +214,57 @@ const lookupDocsTool: Anthropic.Tool = {
   },
 }
 
+const addOpenQuestionTool: Anthropic.Tool = {
+  name: 'add_open_question',
+  description:
+    'Silently place an open question marker on the canvas. Use when the client description has a gap, ambiguity, or missing detail that needs clarification. The question node will appear as an amber "?" marker.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      moduleId: {
+        type: 'string',
+        description: 'ID of the module (scope module) to place the question in',
+      },
+      section: {
+        type: 'string',
+        description:
+          'Logical section grouping for the question (e.g. "Authentication", "Payments", "Data Model")',
+      },
+      question: {
+        type: 'string',
+        description: 'The open question text describing the gap or ambiguity',
+      },
+      relatedNodeId: {
+        type: 'string',
+        description: 'Optional ID of a related flow node this question is connected to',
+      },
+    },
+    required: ['moduleId', 'section', 'question'],
+  },
+}
+
+const resolveOpenQuestionTool: Anthropic.Tool = {
+  name: 'resolve_open_question',
+  description:
+    'Mark an open question as resolved when the client provides information that answers it. Updates the question status and records the resolution.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      questionId: {
+        type: 'string',
+        description: 'ID of the open question to resolve',
+      },
+      resolution: {
+        type: 'string',
+        description: 'The answer or resolution that addresses the open question',
+      },
+    },
+    required: ['questionId', 'resolution'],
+  },
+}
+
+export { addOpenQuestionTool, resolveOpenQuestionTool }
+
 // ---------------------------------------------------------------------------
 // Tool sets per mode
 // ---------------------------------------------------------------------------
@@ -244,6 +296,15 @@ const ALL_TOOLS = [
   deleteEdgeTool,
   lookupDocsTool,
 ]
+const SCOPE_TOOLS = [
+  createNodeTool,
+  updateNodeTool,
+  deleteNodeTool,
+  createEdgeTool,
+  deleteEdgeTool,
+  addOpenQuestionTool,
+  resolveOpenQuestionTool,
+]
 
 export function getToolsForMode(mode: PromptMode): Anthropic.Tool[] {
   switch (mode) {
@@ -253,6 +314,8 @@ export function getToolsForMode(mode: PromptMode): Anthropic.Tool[] {
       return MODULE_TOOLS
     case 'module_detail':
       return NODE_EDGE_TOOLS
+    case 'scope_build':
+      return SCOPE_TOOLS
   }
 }
 
@@ -435,6 +498,60 @@ export function createToolExecutor(projectId: string) {
           const result = await lookupDocumentation(library, topic)
           return ok(result.summary, {
             lookup: { library, topic },
+          })
+        }
+
+        case 'add_open_question': {
+          const moduleId = input.moduleId as string
+          const section = input.section as string
+          const question = input.question as string
+          const relatedNodeId = input.relatedNodeId as string | undefined
+
+          const label = question.length > 60 ? `${question.slice(0, 57)}...` : question
+          const nodeResult = await addNode({
+            module_id: moduleId,
+            label,
+            node_type: 'question',
+            pseudocode: question,
+            position: { x: 0, y: 0 },
+            color: '#F59E0B',
+          })
+          if (!nodeResult.success) return fail(nodeResult.error)
+
+          const questionResult = await createOpenQuestion({
+            project_id: projectId,
+            node_id: nodeResult.data.id,
+            section,
+            question,
+          })
+          if (!questionResult.success) return fail(questionResult.error)
+
+          if (relatedNodeId) {
+            await addEdge({
+              module_id: moduleId,
+              source_node_id: relatedNodeId,
+              target_node_id: nodeResult.data.id,
+            })
+          }
+
+          return ok(`Added open question: "${label}" in section "${section}"`, {
+            node: nodeResult.data,
+            question: questionResult.data,
+          })
+        }
+
+        case 'resolve_open_question': {
+          const questionId = input.questionId as string
+          const resolution = input.resolution as string
+
+          const result = await resolveOpenQuestion(questionId, resolution)
+          if (!result.success) return fail(result.error)
+
+          const nodeId = result.data.node_id
+          await removeNode(nodeId)
+
+          return ok(`Resolved question "${questionId}": ${resolution}`, {
+            question: result.data,
           })
         }
 

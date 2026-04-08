@@ -1,13 +1,15 @@
 import { notFound } from 'next/navigation'
 
 import { ProjectWorkspace } from '@/components/dashboard/project-workspace'
+import { ScopeWorkspace } from '@/components/dashboard/scope-workspace'
 import { listChatMessages } from '@/lib/services/chat-message-service'
 import { ensureDefaultModuleGraph } from '@/lib/services/graph-service'
 import { listConnectionsByProject } from '@/lib/services/module-connection-service'
 import { listModulesByProject } from '@/lib/services/module-service'
+import { listOpenQuestions } from '@/lib/services/open-question-service'
 import { getProjectById } from '@/lib/services/project-service'
 import type { ChatMessage } from '@/types/chat'
-import type { FlowEdge, FlowNode, ModuleConnection } from '@/types/graph'
+import type { FlowEdge, FlowNode, ModuleConnection, OpenQuestion } from '@/types/graph'
 
 type ProjectPageProps = {
   params: Promise<{
@@ -59,6 +61,30 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
 
     initialNodes.push(...graphResult.data.nodes)
     initialEdges.push(...graphResult.data.edges)
+  }
+
+  const isScope = projectResult.data.mode === 'scope'
+
+  let initialOpenQuestions: OpenQuestion[] = []
+  if (isScope) {
+    const oqResult = await listOpenQuestions(projectId)
+    if (oqResult.success) {
+      initialOpenQuestions = oqResult.data
+    }
+  }
+
+  if (isScope) {
+    return (
+      <ScopeWorkspace
+        project={projectResult.data}
+        initialModules={modules}
+        initialNodes={initialNodes}
+        initialEdges={initialEdges}
+        initialConnections={connections}
+        initialMessages={messages}
+        initialOpenQuestions={initialOpenQuestions}
+      />
+    )
   }
 
   return (

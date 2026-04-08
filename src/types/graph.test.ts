@@ -21,6 +21,7 @@ describe('Project type', () => {
     user_id: 'user_456',
     name: 'Test Project',
     description: null,
+    mode: 'architecture',
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
   }
@@ -45,6 +46,7 @@ describe('Project type', () => {
     const input: CreateProjectInput = {
       name: 'New Project',
       description: 'Optional description',
+      mode: 'scope',
     }
     expect(input).toHaveProperty('name')
     expect(input).not.toHaveProperty('id')
@@ -152,14 +154,23 @@ describe('CreateModuleInput', () => {
 
 describe('FlowNodeType', () => {
   it('accepts all valid discriminated node types', () => {
-    const types: FlowNodeType[] = ['decision', 'process', 'entry', 'exit', 'start', 'end']
-    expect(types).toHaveLength(6)
+    const types: FlowNodeType[] = [
+      'decision',
+      'process',
+      'entry',
+      'exit',
+      'start',
+      'end',
+      'question',
+    ]
+    expect(types).toHaveLength(7)
     expect(types).toContain('decision')
     expect(types).toContain('process')
     expect(types).toContain('entry')
     expect(types).toContain('exit')
     expect(types).toContain('start')
     expect(types).toContain('end')
+    expect(types).toContain('question')
   })
 })
 

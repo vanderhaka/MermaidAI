@@ -9,7 +9,7 @@ type Tables = Database['public']['Tables']
 // or sub-key is missing, TypeScript compilation fails and vitest reports it.
 
 describe('Database types', () => {
-  it('has all 7 required tables', () => {
+  it('has all 8 required tables', () => {
     // If any table is missing from the type, this will fail to compile
     const tableKeys: (keyof Tables)[] = [
       'projects',
@@ -19,8 +19,9 @@ describe('Database types', () => {
       'module_connections',
       'chat_messages',
       'profiles',
+      'open_questions',
     ]
-    expect(tableKeys).toHaveLength(7)
+    expect(tableKeys).toHaveLength(8)
   })
 
   it('projects table has Row/Insert/Update with expected columns', () => {
@@ -39,6 +40,7 @@ describe('Database types', () => {
       'user_id',
       'name',
       'description',
+      'mode',
       'created_at',
       'updated_at',
     ]

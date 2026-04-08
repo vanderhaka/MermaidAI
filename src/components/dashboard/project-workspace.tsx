@@ -15,7 +15,14 @@ import { ModuleHierarchyIndicator } from '@/components/dashboard/ModuleHierarchy
 import { groupModulesByDomain } from '@/lib/module-hierarchy'
 import { useGraphStore } from '@/store/graph-store'
 import type { ChatMessage } from '@/types/chat'
-import type { FlowEdge, FlowNode, Module, ModuleConnection, Project } from '@/types/graph'
+import type {
+  FlowEdge,
+  FlowNode,
+  Module,
+  ModuleConnection,
+  OpenQuestion,
+  Project,
+} from '@/types/graph'
 
 function truncateDescription(desc: string | null | undefined): string {
   const text = desc?.trim()
@@ -189,6 +196,23 @@ export function ProjectWorkspace({
         if (lookup) {
           addToolCall(`Looked up ${lookup.library} docs`)
         }
+        break
+      }
+      case 'add_open_question': {
+        const node = data.node as FlowNode | undefined
+        const question = data.question as OpenQuestion | undefined
+        if (node) useGraphStore.getState().addNode(node)
+        if (question) useGraphStore.getState().addOpenQuestion(question)
+        addToolCall(question ? `Flagged: ${question.section}` : 'Added open question')
+        break
+      }
+      case 'resolve_open_question': {
+        const question = data.question as OpenQuestion | undefined
+        if (question) {
+          useGraphStore.getState().removeNode(question.node_id)
+          useGraphStore.getState().resolveOpenQuestion(question.id, question.resolution ?? '')
+        }
+        addToolCall('Resolved question')
         break
       }
     }

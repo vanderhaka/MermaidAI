@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useGraphStore } from '@/store/graph-store'
-import type { Module, FlowNode, FlowEdge } from '@/types/graph'
+import type { Module, FlowNode, FlowEdge, OpenQuestion } from '@/types/graph'
 
 function makeModule(overrides: Partial<Module> = {}): Module {
   return {
@@ -298,6 +298,7 @@ describe('useGraphStore', () => {
       useGraphStore.getState().addModule(makeModule())
       useGraphStore.getState().addNode(makeNode())
       useGraphStore.getState().addEdge(makeEdge())
+      useGraphStore.getState().addOpenQuestion(makeQuestion())
       useGraphStore.getState().setActiveModuleId('m1')
 
       useGraphStore.getState().reset()
@@ -306,7 +307,71 @@ describe('useGraphStore', () => {
       expect(state.modules).toEqual([])
       expect(state.nodes).toEqual([])
       expect(state.edges).toEqual([])
+      expect(state.openQuestions).toEqual([])
       expect(state.activeModuleId).toBeNull()
     })
   })
+
+  describe('openQuestions', () => {
+    it('starts with empty openQuestions', () => {
+      expect(useGraphStore.getState().openQuestions).toEqual([])
+    })
+
+    it('addOpenQuestion appends to array', () => {
+      useGraphStore.getState().addOpenQuestion(makeQuestion())
+      expect(useGraphStore.getState().openQuestions).toHaveLength(1)
+    })
+
+    it('addOpenQuestion appends to existing questions', () => {
+      useGraphStore.getState().addOpenQuestion(makeQuestion({ id: 'oq-1' }))
+      useGraphStore.getState().addOpenQuestion(makeQuestion({ id: 'oq-2', question: 'Another?' }))
+      expect(useGraphStore.getState().openQuestions).toHaveLength(2)
+      expect(useGraphStore.getState().openQuestions[1].id).toBe('oq-2')
+    })
+
+    it('setOpenQuestions replaces entire array', () => {
+      useGraphStore.getState().addOpenQuestion(makeQuestion({ id: 'oq-1' }))
+      const replacement = [makeQuestion({ id: 'oq-3' })]
+      useGraphStore.getState().setOpenQuestions(replacement)
+      expect(useGraphStore.getState().openQuestions).toEqual(replacement)
+      expect(useGraphStore.getState().openQuestions).toHaveLength(1)
+    })
+
+    it('resolveOpenQuestion updates status and stores resolution', () => {
+      useGraphStore.getState().addOpenQuestion(makeQuestion({ id: 'oq-1' }))
+      useGraphStore.getState().resolveOpenQuestion('oq-1', 'Use OAuth2')
+      const q = useGraphStore.getState().openQuestions[0]
+      expect(q.status).toBe('resolved')
+      expect(q.resolution).toBe('Use OAuth2')
+      expect(q.resolved_at).toBeTruthy()
+    })
+
+    it('resolveOpenQuestion does not modify other questions', () => {
+      useGraphStore.getState().addOpenQuestion(makeQuestion({ id: 'oq-1' }))
+      useGraphStore.getState().addOpenQuestion(makeQuestion({ id: 'oq-2' }))
+      useGraphStore.getState().resolveOpenQuestion('oq-1', 'Resolved')
+      expect(useGraphStore.getState().openQuestions[1].status).toBe('open')
+    })
+
+    it('resolveOpenQuestion is a no-op when id does not match', () => {
+      useGraphStore.getState().addOpenQuestion(makeQuestion({ id: 'oq-1' }))
+      useGraphStore.getState().resolveOpenQuestion('nonexistent', 'Nope')
+      expect(useGraphStore.getState().openQuestions[0].status).toBe('open')
+    })
+  })
 })
+
+function makeQuestion(overrides: Partial<OpenQuestion> = {}): OpenQuestion {
+  return {
+    id: 'oq-1',
+    project_id: 'proj-1',
+    node_id: 'n1',
+    section: 'Authentication',
+    question: 'What OAuth providers?',
+    status: 'open',
+    resolution: null,
+    created_at: '2026-04-08T00:00:00Z',
+    resolved_at: null,
+    ...overrides,
+  }
+}

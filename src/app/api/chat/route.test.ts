@@ -66,6 +66,13 @@ vi.mock('@/lib/module-notes/load-for-prompt', () => ({
   loadModuleNotesForChat: (...args: unknown[]) => mockLoadModuleNotesForChat(...args),
 }))
 
+const mockListOpenOpenQuestions = vi.fn()
+vi.mock('@/lib/services/open-question-service', () => ({
+  listOpenOpenQuestions: (...args: unknown[]) => mockListOpenOpenQuestions(...args),
+  createOpenQuestion: vi.fn(),
+  resolveOpenQuestion: vi.fn(),
+}))
+
 const mockRateLimiterCheck = vi.fn()
 vi.mock('@/lib/rate-limiter', () => ({
   chatRateLimiter: { check: (...args: unknown[]) => mockRateLimiterCheck(...args) },
@@ -169,6 +176,9 @@ describe('POST /api/chat', () => {
     })
 
     mockLoadModuleNotesForChat.mockResolvedValue({ source: 'none' as const, markdown: null })
+
+    // Default: open questions return empty
+    mockListOpenOpenQuestions.mockResolvedValue({ success: true, data: [] })
 
     // Default: rate limiter allows requests
     mockRateLimiterCheck.mockReturnValue({ allowed: true, remaining: 19 })
@@ -608,5 +618,67 @@ describe('POST /api/chat', () => {
 
     expect(response.status).toBe(200)
     expect(mockCallLLMWithTools).toHaveBeenCalled()
+  })
+
+  // --- scope_build mode ---
+
+  it('accepts scope_build as a valid mode', async () => {
+    const { POST } = await import('@/app/api/chat/route')
+    const body = {
+      ...validBody(),
+      mode: 'scope_build',
+      context: {
+        ...validBody().context,
+        mode: 'scope_build',
+      },
+    }
+    const response = await POST(makeRequest(body))
+    expect(response.status).toBe(200)
+  })
+
+  it('loads open questions for scope_build mode', async () => {
+    mockListOpenOpenQuestions.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          id: 'oq-1',
+          project_id: 'proj-1',
+          node_id: 'n-1',
+          section: 'Auth',
+          question: 'OAuth?',
+          status: 'open',
+          resolution: null,
+          created_at: '2026-04-08T00:00:00Z',
+          resolved_at: null,
+        },
+      ],
+    })
+
+    const { POST } = await import('@/app/api/chat/route')
+    const body = {
+      ...validBody(),
+      mode: 'scope_build',
+      context: {
+        ...validBody().context,
+        mode: 'scope_build',
+      },
+    }
+    await POST(makeRequest(body))
+
+    expect(mockListOpenOpenQuestions).toHaveBeenCalledWith('proj-1')
+    expect(mockBuildSystemPrompt).toHaveBeenCalledWith(
+      'scope_build',
+      expect.objectContaining({
+        openQuestions: expect.arrayContaining([
+          expect.objectContaining({ id: 'oq-1', question: 'OAuth?' }),
+        ]),
+      }),
+    )
+  })
+
+  it('does not load open questions for non-scope modes', async () => {
+    const { POST } = await import('@/app/api/chat/route')
+    await POST(makeRequest(validBody()))
+    expect(mockListOpenOpenQuestions).not.toHaveBeenCalled()
   })
 })
