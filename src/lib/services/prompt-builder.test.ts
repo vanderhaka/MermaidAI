@@ -319,6 +319,16 @@ describe('buildSystemPrompt', () => {
       expect(prompt.toLowerCase()).toContain('open question')
     })
 
+    it('instructs AI to ask exactly one follow-up question after building', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt.toLowerCase()).toContain('always ask exactly one follow-up question')
+    })
+
+    it('instructs AI to keep follow-up questions domain-focused, not technical', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt.toLowerCase()).toContain('domain')
+    })
+
     it('references add_open_question tool', () => {
       const prompt = buildSystemPrompt(mode, baseContext)
       expect(prompt).toContain('add_open_question')
@@ -402,6 +412,32 @@ describe('buildSystemPrompt', () => {
       const prompt = buildSystemPrompt(mode, baseContext)
       expect(prompt.toLowerCase()).toContain('section')
       expect(prompt.toLowerCase()).toContain('automatically')
+    })
+
+    it('includes module ID when currentModule is provided', () => {
+      const prompt = buildSystemPrompt(mode, {
+        ...baseContext,
+        currentModule: {
+          id: 'mod-scope-123',
+          name: 'Scope',
+          description: 'Scope module',
+          domain: null,
+          project_id: 'proj-1',
+          position: { x: 0, y: 0 },
+          color: '#3b82f6',
+          entry_points: [],
+          exit_points: [],
+          created_at: '',
+          updated_at: '',
+        },
+      })
+      expect(prompt).toContain('mod-scope-123')
+      expect(prompt).toContain('Never ask the user for a module ID')
+    })
+
+    it('instructs AI to never ask for module ID', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt.toLowerCase()).toContain('never ask the user for a module id')
     })
   })
 })

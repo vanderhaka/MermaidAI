@@ -12,15 +12,17 @@ export default function OpenQuestionsPanel({ questions }: OpenQuestionsPanelProp
 
   const [isOpen, setIsOpen] = useState(true)
 
+  const openOnly = useMemo(() => questions.filter((q) => q.status === 'open'), [questions])
+
   const grouped = useMemo(() => {
     const map = new Map<string, OpenQuestion[]>()
-    for (const q of questions) {
+    for (const q of openOnly) {
       const list = map.get(q.section) ?? []
       list.push(q)
       map.set(q.section, list)
     }
     return map
-  }, [questions])
+  }, [openOnly])
 
   return (
     <div data-testid="open-questions-panel" className="border-t border-slate-200 bg-white">
@@ -45,7 +47,7 @@ export default function OpenQuestionsPanel({ questions }: OpenQuestionsPanelProp
 
       {isOpen && (
         <div className="max-h-64 overflow-y-auto px-4 pb-3">
-          {questions.length === 0 ? (
+          {openOnly.length === 0 ? (
             <p className="py-4 text-center text-sm text-slate-500">No open questions yet.</p>
           ) : (
             <div className="space-y-3">
@@ -57,29 +59,10 @@ export default function OpenQuestionsPanel({ questions }: OpenQuestionsPanelProp
                   <ul className="mt-1 space-y-1">
                     {items.map((q) => (
                       <li key={q.id} className="flex items-start gap-2 text-sm">
-                        {q.status === 'open' ? (
-                          <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-amber-400 text-[10px] font-bold text-white">
-                            ?
-                          </span>
-                        ) : (
-                          <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-green-500 text-[10px] font-bold text-white">
-                            {'\u2713'}
-                          </span>
-                        )}
-                        <span
-                          className={
-                            q.status === 'resolved'
-                              ? 'text-slate-400 line-through'
-                              : 'text-slate-700'
-                          }
-                        >
-                          {q.question}
-                          {q.status === 'resolved' && q.resolution && (
-                            <span className="ml-1 text-green-700 no-underline">
-                              — {q.resolution}
-                            </span>
-                          )}
+                        <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-amber-400 text-[10px] font-bold text-white">
+                          ?
                         </span>
+                        <span className="text-slate-700">{q.question}</span>
                       </li>
                     ))}
                   </ul>

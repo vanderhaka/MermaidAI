@@ -39,7 +39,14 @@ describe('ProcessNode', () => {
 
   it('hides pseudocode by default', () => {
     render(<ProcessNode {...defaultProps} />)
-    expect(screen.queryByText(/if input is valid/)).not.toBeInTheDocument()
+    // The hover preview line is in the DOM but visually hidden (opacity-0).
+    // The expanded <pre> block should not be present.
+    expect(screen.queryByRole('code')).not.toBeInTheDocument()
+    const preview = screen.queryByText(/if input is valid/)
+    if (preview) {
+      expect(preview.tagName).toBe('P')
+      expect(preview.className).toContain('opacity-0')
+    }
   })
 
   it('shows pseudocode when expand button is clicked', async () => {
@@ -59,7 +66,11 @@ describe('ProcessNode', () => {
     expect(screen.getByText(/if input is valid/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /collapse/i }))
-    expect(screen.queryByText(/if input is valid/)).not.toBeInTheDocument()
+    // After collapsing, the <pre> block is gone; the hover preview line may remain in DOM
+    const remaining = screen.queryAllByText(/if input is valid/)
+    for (const el of remaining) {
+      expect(el.tagName).not.toBe('PRE')
+    }
   })
 
   it('has a target handle at the top', () => {

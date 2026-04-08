@@ -16,7 +16,7 @@ export default function QuestionNode({ data }: NodeProps) {
   const { question } = data as QuestionNodeData
 
   return (
-    <div className="box-border w-[260px] rounded-lg border-2 border-amber-400 bg-amber-50 px-4 py-2 shadow-sm">
+    <div className="box-border w-[300px] rounded-lg border-2 border-amber-400 bg-amber-50 px-4 py-2 shadow-sm transition-shadow hover:shadow-md hover:border-amber-500">
       <Handle
         type="target"
         position={Position.Top}

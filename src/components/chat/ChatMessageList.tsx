@@ -10,13 +10,19 @@ interface ChatMessageListProps {
   streamingContent?: string
   toolActivity?: string | null
   toolCalls?: string[]
+  onSend?: (message: string) => void
 }
 
 function ThinkingIndicator() {
   return (
     <div data-role="assistant" className="flex justify-start">
-      <div aria-label="Thinking" className="rounded-lg bg-gray-100 px-4 py-2 text-gray-500">
-        <span className="animate-pulse">...</span>
+      <div
+        aria-label="Thinking"
+        className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-4 py-3"
+      >
+        <span className="thinking-dot h-2 w-2 rounded-full bg-purple-400" />
+        <span className="thinking-dot h-2 w-2 rounded-full bg-purple-400" />
+        <span className="thinking-dot h-2 w-2 rounded-full bg-purple-400" />
       </div>
     </div>
   )
@@ -98,12 +104,19 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   )
 }
 
+const EXAMPLE_PROMPTS = [
+  'We need a user signup flow with email verification',
+  'Map out a payment processing system',
+  'Build an order tracking pipeline',
+]
+
 export default function ChatMessageList({
   messages,
   isLoading,
   streamingContent,
   toolActivity,
   toolCalls = [],
+  onSend,
 }: ChatMessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -115,8 +128,26 @@ export default function ChatMessageList({
 
   if (showEmpty) {
     return (
-      <div role="log" aria-live="polite" className="flex flex-1 items-center justify-center p-8">
-        <p className="text-center text-gray-500">Describe what you want to build</p>
+      <div
+        role="log"
+        aria-live="polite"
+        className="flex flex-1 flex-col items-center justify-center gap-4 p-6"
+      >
+        <p className="text-center text-sm text-gray-500">Describe what you want to build</p>
+        {onSend && (
+          <div className="flex flex-col gap-1.5">
+            {EXAMPLE_PROMPTS.map((prompt) => (
+              <button
+                key={prompt}
+                type="button"
+                onClick={() => onSend(prompt)}
+                className="rounded-lg border border-gray-200 px-3 py-1.5 text-left text-xs text-gray-500 transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700"
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
+        )}
         <div ref={scrollRef} data-testid="scroll-anchor" />
       </div>
     )

@@ -16,7 +16,7 @@ export default function EntryNode({ data }: NodeProps) {
   const { label } = data as EntryNodeData
 
   return (
-    <div className="box-border w-[200px] rounded-lg border-2 border-green-500 bg-green-50 px-4 py-2 text-center text-sm font-medium text-green-800 shadow-sm">
+    <div className="box-border w-[200px] rounded-lg border-2 border-green-500 bg-green-50 px-4 py-2 text-center text-sm font-medium text-green-800 shadow-sm transition-shadow hover:shadow-md hover:border-green-600">
       {label}
       <Handle
         type="source"

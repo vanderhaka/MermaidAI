@@ -55,9 +55,10 @@ describe('OpenQuestionsPanel', () => {
     expect(screen.getByText('OAuth providers?')).toBeInTheDocument()
   })
 
-  it('shows resolved question with resolution text', () => {
+  it('hides resolved questions from the list', () => {
     render(<OpenQuestionsPanel questions={questions} />)
-    expect(screen.getByText(/AUD only/)).toBeInTheDocument()
+    expect(screen.queryByText('Currency support?')).not.toBeInTheDocument()
+    expect(screen.queryByText(/AUD only/)).not.toBeInTheDocument()
   })
 
   it('shows empty state when no questions', () => {
@@ -65,10 +66,11 @@ describe('OpenQuestionsPanel', () => {
     expect(screen.getByText(/no open questions/i)).toBeInTheDocument()
   })
 
-  it('does not show count badge when no open questions', () => {
+  it('does not show count badge when all questions are resolved', () => {
     const resolved = [makeQ({ id: 'oq-1', status: 'resolved', resolution: 'Done' })]
     render(<OpenQuestionsPanel questions={resolved} />)
     expect(screen.queryByTestId('open-count')).not.toBeInTheDocument()
+    expect(screen.getByText(/no open questions/i)).toBeInTheDocument()
   })
 
   it('can collapse and expand', async () => {

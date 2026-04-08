@@ -5,9 +5,10 @@ import { useState, type FormEvent, type KeyboardEvent } from 'react'
 interface ChatInputProps {
   onSend: (message: string) => void
   isLoading: boolean
+  autoFocus?: boolean
 }
 
-export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
+export default function ChatInput({ onSend, isLoading, autoFocus }: ChatInputProps) {
   const [message, setMessage] = useState('')
 
   function send() {
@@ -42,6 +43,7 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
           onKeyDown={handleKeyDown}
           placeholder="Describe what you want to build..."
           disabled={isLoading}
+          autoFocus={autoFocus}
           rows={1}
           className="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
         />

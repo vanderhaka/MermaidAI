@@ -58,9 +58,9 @@ describe('QuestionNode', () => {
     expect(wrapper.className).toContain('border-amber-400')
   })
 
-  it('has 260px width', () => {
+  it('has 300px width', () => {
     const { container } = render(<QuestionNode {...defaultProps} />)
     const wrapper = container.firstElementChild as HTMLElement
-    expect(wrapper.className).toContain('w-[260px]')
+    expect(wrapper.className).toContain('w-[300px]')
   })
 })

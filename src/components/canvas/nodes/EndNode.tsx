@@ -18,7 +18,7 @@ export default function EndNode({ data }: NodeProps) {
   return (
     <div
       data-shape="circle"
-      className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-gray-400 bg-gray-100 text-xs font-medium"
+      className="flex h-24 w-24 items-center justify-center rounded-full border-2 border-gray-400 bg-gray-100 text-xs font-medium shadow-sm transition-shadow hover:shadow-md hover:border-gray-500"
     >
       {label}
       <Handle

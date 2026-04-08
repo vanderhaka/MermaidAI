@@ -231,8 +231,47 @@ function ModuleMapInner({ modules, connections, onModuleClick }: ModuleMapViewPr
 export default function ModuleMapView({ modules, connections, onModuleClick }: ModuleMapViewProps) {
   if (modules.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-gray-500">
-        No modules yet. Start a conversation to create your first module.
+      <div className="relative flex h-full items-center justify-center">
+        {/* Centred prompt */}
+        <div className="flex flex-col items-center gap-2 text-center">
+          <p className="text-base font-medium text-gray-500">No modules yet.</p>
+          <p className="max-w-xs text-sm text-gray-400">
+            Open the chat and describe your system — AI will build your module map from the
+            conversation.
+          </p>
+        </div>
+
+        {/* Arrow pointing toward bottom-right FAB */}
+        <div className="pointer-events-none absolute bottom-20 right-20 flex flex-col items-end gap-1 text-gray-300">
+          <span className="text-xs font-medium tracking-wide text-gray-400">Start here</span>
+          {/* Diagonal arrow: two lines forming an L-shape pointing bottom-right */}
+          <svg
+            width="64"
+            height="64"
+            viewBox="0 0 64 64"
+            fill="none"
+            aria-hidden="true"
+            className="text-gray-300"
+          >
+            <path
+              d="M8 8 Q8 56 56 56"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeDasharray="6 4"
+              fill="none"
+            />
+            {/* Arrowhead */}
+            <path
+              d="M44 48 L56 56 L48 44"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              fill="none"
+            />
+          </svg>
+        </div>
       </div>
     )
   }

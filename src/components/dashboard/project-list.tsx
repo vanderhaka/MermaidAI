@@ -5,10 +5,30 @@ import { useRouter } from 'next/navigation'
 import { createProject, deleteProject } from '@/lib/services/project-service'
 import type { Project } from '@/types/graph'
 
-type ProjectSummary = Pick<Project, 'id' | 'name' | 'description' | 'created_at' | 'updated_at'>
+type ProjectSummary = Pick<
+  Project,
+  'id' | 'name' | 'description' | 'mode' | 'created_at' | 'updated_at'
+>
 
 interface ProjectListProps {
   projects: ProjectSummary[]
+}
+
+function formatRelativeTime(dateString: string): string {
+  const now = Date.now()
+  const then = new Date(dateString).getTime()
+  const diffMs = now - then
+  const diffSecs = Math.floor(diffMs / 1000)
+  const diffMins = Math.floor(diffSecs / 60)
+  const diffHours = Math.floor(diffMins / 60)
+  const diffDays = Math.floor(diffHours / 24)
+
+  if (diffSecs < 60) return 'just now'
+  if (diffMins < 60) return `${diffMins} ${diffMins === 1 ? 'minute' : 'minutes'} ago`
+  if (diffHours < 24) return `${diffHours} ${diffHours === 1 ? 'hour' : 'hours'} ago`
+  if (diffDays < 7) return `${diffDays} ${diffDays === 1 ? 'day' : 'days'} ago`
+
+  return new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 function ProjectCard({ project, onDeleted }: { project: ProjectSummary; onDeleted: () => void }) {
@@ -50,7 +70,18 @@ function ProjectCard({ project, onDeleted }: { project: ProjectSummary; onDelete
 
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-2">
-            <p className="text-lg font-semibold tracking-tight text-slate-950">{project.name}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-lg font-semibold tracking-tight text-slate-950">{project.name}</p>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                  project.mode === 'scope'
+                    ? 'bg-amber-100 text-amber-800'
+                    : 'bg-blue-100 text-blue-800'
+                }`}
+              >
+                {project.mode === 'scope' ? 'Scope' : 'Architecture'}
+              </span>
+            </div>
             <p className="text-sm leading-6 text-slate-600">
               {project.description?.trim() ||
                 'Untitled project ready for its first module and flow.'}
@@ -100,30 +131,23 @@ function ProjectCard({ project, onDeleted }: { project: ProjectSummary; onDelete
           </div>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-              Created
-            </p>
-            <time
-              dateTime={project.created_at}
-              className="mt-2 block text-sm font-medium text-slate-800"
-            >
-              {new Date(project.created_at).toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-              })}
-            </time>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-              Next step
-            </p>
-            <p className="mt-2 text-sm font-medium text-slate-800">
-              Open the workspace and add modules
-            </p>
-          </div>
+        <div className="flex items-center gap-1.5 text-xs text-slate-400">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            className="h-3.5 w-3.5 shrink-0"
+            aria-hidden
+          >
+            <path
+              fillRule="evenodd"
+              d="M10 18a8 8 0 100-16 8 8 0 000 16zm.75-13a.75.75 0 00-1.5 0v5c0 .414.336.75.75.75h4a.75.75 0 000-1.5h-3.25V5z"
+              clipRule="evenodd"
+            />
+          </svg>
+          <time dateTime={project.updated_at}>
+            Updated {formatRelativeTime(project.updated_at)}
+          </time>
         </div>
 
         <span className="text-sm font-medium text-slate-700 transition group-hover:text-slate-950">
@@ -139,6 +163,7 @@ export function ProjectList({ projects }: ProjectListProps) {
   const [isCreating, setIsCreating] = useState(false)
   const [showModeSelector, setShowModeSelector] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
 
   async function handleCreateWithMode(mode: 'scope' | 'architecture') {
     setIsCreating(true)
@@ -185,7 +210,7 @@ export function ProjectList({ projects }: ProjectListProps) {
           {showModeSelector && (
             <div
               data-testid="mode-selector"
-              className="absolute right-0 top-full z-10 mt-2 w-72 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl"
+              className="absolute right-0 top-full z-50 mt-2 w-72 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl"
             >
               <div className="mb-2 flex items-center justify-between px-1">
                 <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">
@@ -213,16 +238,20 @@ export function ProjectList({ projects }: ProjectListProps) {
                   onClick={() => handleCreateWithMode('scope')}
                   className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-left transition hover:border-amber-300 hover:bg-amber-100"
                 >
-                  <p className="text-sm font-semibold text-amber-900">Scope</p>
-                  <p className="mt-0.5 text-xs text-amber-700">Fast capture during a client call</p>
+                  <p className="text-sm font-semibold text-amber-900">Quick Capture</p>
+                  <p className="mt-0.5 text-xs text-amber-700">
+                    Lightweight scoping for live client calls
+                  </p>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleCreateWithMode('architecture')}
                   className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-left transition hover:border-blue-300 hover:bg-blue-100"
                 >
-                  <p className="text-sm font-semibold text-blue-900">Architecture</p>
-                  <p className="mt-0.5 text-xs text-blue-700">Deep Map, Walk, Drill design flow</p>
+                  <p className="text-sm font-semibold text-blue-900">Full Design</p>
+                  <p className="mt-0.5 text-xs text-blue-700">
+                    Detailed system mapping with modules and flows
+                  </p>
                 </button>
               </div>
             </div>
@@ -237,6 +266,31 @@ export function ProjectList({ projects }: ProjectListProps) {
         >
           {error}
         </p>
+      )}
+
+      {projects.length > 5 && (
+        <div className="relative">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search projects..."
+            className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-10 pr-4 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400"
+          />
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+            aria-hidden
+          >
+            <path
+              fillRule="evenodd"
+              d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </div>
       )}
 
       {projects.length === 0 ? (
@@ -275,9 +329,16 @@ export function ProjectList({ projects }: ProjectListProps) {
         </div>
       ) : (
         <ul className="grid gap-4 lg:grid-cols-2">
-          {projects.map((project) => (
-            <ProjectCard key={project.id} project={project} onDeleted={() => router.refresh()} />
-          ))}
+          {projects
+            .filter(
+              (p) =>
+                !search ||
+                p.name.toLowerCase().includes(search.toLowerCase()) ||
+                p.description?.toLowerCase().includes(search.toLowerCase()),
+            )
+            .map((project) => (
+              <ProjectCard key={project.id} project={project} onDeleted={() => router.refresh()} />
+            ))}
         </ul>
       )}
     </section>

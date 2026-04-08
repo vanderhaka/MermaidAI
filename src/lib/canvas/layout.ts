@@ -34,15 +34,15 @@ export function getFlowDetailNodeDimensions(nodeType: FlowNodeType): {
       /** Matches `DecisionNode` outer box (`h-44 w-44` = 176px). */
       return { width: 176, height: 176 }
     case 'process':
-      return { width: 260, height: 56 }
+      return { width: 300, height: 60 }
     case 'entry':
     case 'exit':
       return { width: 200, height: 44 }
     case 'question':
-      return { width: 260, height: 56 }
+      return { width: 300, height: 60 }
     case 'start':
     case 'end':
-      return { width: 64, height: 64 }
+      return { width: 96, height: 96 }
     default:
       return { width: DEFAULT_NODE_WIDTH, height: DEFAULT_NODE_HEIGHT }
   }
@@ -254,6 +254,7 @@ const FLOW_DETAIL_LAYOUT_OPTIONS: LayoutOptions = {
   'elk.layered.spacing.edgeNodeBetweenLayers': '40',
   'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
   'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+  'elk.layered.cycleBreaking.strategy': 'MODEL_ORDER',
   'elk.separateConnectedComponents': 'true',
 }
 
@@ -285,22 +286,41 @@ export async function computeFlowDetailLayout(
     }
   }
 
+  // Sort so start/entry nodes come first and end/exit last.
+  // ELK's MODEL_ORDER cycle breaking respects this order, ensuring
+  // edges from Start flow downward instead of being reversed.
+  const sortedNodes = [...nodes].sort((a, b) => {
+    const rank = (t: FlowNodeType) => {
+      if (t === 'start' || t === 'entry') return 0
+      if (t === 'end' || t === 'exit') return 2
+      return 1
+    }
+    return rank(a.node_type) - rank(b.node_type)
+  })
+
   const nodesById = new Map(nodes.map((n) => [n.id, n]))
 
   const graph: ElkNode = {
     id: 'flow-detail',
     layoutOptions: FLOW_DETAIL_LAYOUT_OPTIONS,
-    children: nodes.map((node) => {
+    children: sortedNodes.map((node) => {
       const dim = getFlowDetailNodeDimensions(node.node_type)
       const ports: ElkPort[] = buildFlowNodePorts(node)
+
+      const nodeLayoutOptions: LayoutOptions = {
+        'elk.portConstraints': 'FIXED_SIDE',
+      }
+      if (node.node_type === 'start' || node.node_type === 'entry') {
+        nodeLayoutOptions['elk.layered.layering.layerConstraint'] = 'FIRST'
+      } else if (node.node_type === 'end' || node.node_type === 'exit') {
+        nodeLayoutOptions['elk.layered.layering.layerConstraint'] = 'LAST'
+      }
 
       return {
         id: node.id,
         width: dim.width,
         height: dim.height,
-        layoutOptions: {
-          'elk.portConstraints': 'FIXED_SIDE',
-        },
+        layoutOptions: nodeLayoutOptions,
         ports,
       }
     }),

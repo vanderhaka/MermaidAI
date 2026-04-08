@@ -13,7 +13,7 @@ export default function Home() {
             href="/login"
             className="inline-flex items-center rounded-full border border-gray-200 bg-white/80 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-gray-300 hover:bg-white"
           >
-            Existing account
+            Sign in
           </Link>
         </header>
 
@@ -39,12 +39,6 @@ export default function Home() {
                 className="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-6 py-3.5 text-sm font-medium text-white shadow-lg shadow-slate-300/50 transition hover:bg-slate-800"
               >
                 Start building
-              </Link>
-              <Link
-                href="/login"
-                className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white/80 px-6 py-3.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-white"
-              >
-                Sign in
               </Link>
             </div>
 

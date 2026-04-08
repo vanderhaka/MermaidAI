@@ -16,11 +16,11 @@ export default function DecisionNode({ data }: NodeProps) {
   const { label } = data as DecisionNodeData
 
   return (
-    <div className="relative h-44 w-44">
+    <div className="group relative h-44 w-44">
       {/* Rotated face only — handles stay on the unrotated box so React Flow measures yes/no separately. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 rotate-45 border-2 border-amber-400 bg-amber-50 shadow-sm"
+        className="pointer-events-none absolute inset-0 rotate-45 border-2 border-amber-400 bg-amber-50 shadow-sm transition-shadow group-hover:shadow-md group-hover:border-amber-500"
       />
 
       <Handle

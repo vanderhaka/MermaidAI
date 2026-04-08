@@ -22,6 +22,31 @@ body {
   color: #0f172a;
 }
 
+@keyframes thinking-bounce {
+  0%,
+  80%,
+  100% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.thinking-dot {
+  animation: thinking-bounce 1.4s ease-in-out infinite;
+}
+
+.thinking-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.thinking-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
 /* React Flow paints nodes above the default edge stack; lift edge labels (e.g. tooltips) above nodes */
 .react-flow .react-flow__edgelabel-renderer {
   z-index: 1000;

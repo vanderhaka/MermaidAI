@@ -23,6 +23,7 @@ const sampleProjects = [
     id: 'p1',
     name: 'Project Alpha',
     description: 'First project',
+    mode: 'architecture' as const,
     created_at: '2026-01-15T10:00:00Z',
     updated_at: '2026-01-15T10:00:00Z',
   },
@@ -30,6 +31,7 @@ const sampleProjects = [
     id: 'p2',
     name: 'Project Beta',
     description: null,
+    mode: 'scope' as const,
     created_at: '2026-02-20T14:30:00Z',
     updated_at: '2026-02-20T14:30:00Z',
   },
@@ -90,8 +92,8 @@ describe('ProjectList', () => {
 
     await user.click(screen.getByRole('button', { name: /new project/i }))
 
-    expect(screen.getByRole('button', { name: /scope/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /architecture/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /quick capture/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /full design/i })).toBeInTheDocument()
   })
 
   it('creates project with scope mode', async () => {
@@ -111,7 +113,7 @@ describe('ProjectList', () => {
     render(<ProjectList projects={sampleProjects} />)
 
     await user.click(screen.getByRole('button', { name: /new project/i }))
-    await user.click(screen.getByRole('button', { name: /scope/i }))
+    await user.click(screen.getByRole('button', { name: /quick capture/i }))
 
     expect(mockCreateProject).toHaveBeenCalledWith({
       name: 'Untitled Project',
@@ -137,7 +139,7 @@ describe('ProjectList', () => {
     render(<ProjectList projects={sampleProjects} />)
 
     await user.click(screen.getByRole('button', { name: /new project/i }))
-    await user.click(screen.getByRole('button', { name: /architecture/i }))
+    await user.click(screen.getByRole('button', { name: /full design/i }))
 
     expect(mockCreateProject).toHaveBeenCalledWith({
       name: 'Untitled Project',
@@ -167,7 +169,7 @@ describe('ProjectList', () => {
     render(<ProjectList projects={sampleProjects} />)
 
     await user.click(screen.getByRole('button', { name: /new project/i }))
-    await user.click(screen.getByRole('button', { name: /scope/i }))
+    await user.click(screen.getByRole('button', { name: /quick capture/i }))
 
     expect(mockCreateProject).toHaveBeenCalledOnce()
     expect(mockPush).not.toHaveBeenCalled()

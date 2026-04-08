@@ -448,6 +448,7 @@ export function createToolExecutor(projectId: string) {
           if (!result.success) return fail(result.error)
           return ok(
             `Created node "${result.data.label}" (id: ${result.data.id}, type: ${result.data.node_type})`,
+            { node: result.data },
           )
         }
 
@@ -463,13 +464,15 @@ export function createToolExecutor(projectId: string) {
             ...(nodeType ? { node_type: nodeType as FlowNode['node_type'] } : {}),
           })
           if (!result.success) return fail(result.error)
-          return ok(`Updated node "${result.data.label}" (id: ${result.data.id})`)
+          return ok(`Updated node "${result.data.label}" (id: ${result.data.id})`, {
+            node: result.data,
+          })
         }
 
         case 'delete_node': {
           const result = await removeNode(input.nodeId as string)
           if (!result.success) return fail(result.error)
-          return ok(`Deleted node ${input.nodeId}`)
+          return ok(`Deleted node ${input.nodeId}`, { deletedNodeId: input.nodeId })
         }
 
         case 'create_edge': {
@@ -483,13 +486,14 @@ export function createToolExecutor(projectId: string) {
           if (!result.success) return fail(result.error)
           return ok(
             `Created edge ${input.sourceNodeId} → ${input.targetNodeId} (id: ${result.data.id})`,
+            { edge: result.data },
           )
         }
 
         case 'delete_edge': {
           const result = await removeEdge(input.edgeId as string)
           if (!result.success) return fail(result.error)
-          return ok(`Deleted edge ${input.edgeId}`)
+          return ok(`Deleted edge ${input.edgeId}`, { deletedEdgeId: input.edgeId })
         }
 
         case 'lookup_docs': {

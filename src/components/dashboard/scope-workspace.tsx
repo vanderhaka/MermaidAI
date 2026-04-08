@@ -5,8 +5,7 @@ import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 
 import CanvasContainer from '@/components/canvas/CanvasContainer'
-import ChatInput from '@/components/chat/ChatInput'
-import ChatMessageList from '@/components/chat/ChatMessageList'
+import FloatingChat from '@/components/chat/FloatingChat'
 import OpenQuestionsPanel from '@/components/canvas/OpenQuestionsPanel'
 import { updateProject } from '@/lib/services/project-service'
 import { createStreamParser } from '@/lib/stream-parser'
@@ -22,7 +21,7 @@ import type {
 } from '@/types/graph'
 
 type ScopeWorkspaceProps = {
-  project: Pick<Project, 'id' | 'name' | 'description'>
+  project: Pick<Project, 'id' | 'name' | 'description' | 'mode'>
   initialModules: Module[]
   initialNodes: FlowNode[]
   initialEdges: FlowEdge[]
@@ -95,10 +94,42 @@ export function ScopeWorkspace({
   function handleToolEvent(tool: string, data: Record<string, unknown>) {
     switch (tool) {
       case 'create_node': {
-        const node = data as unknown
-        if (node && typeof node === 'object' && 'id' in node) {
-          useGraphStore.getState().addNode(node as FlowNode)
+        const node = data.node as FlowNode | undefined
+        if (node) {
+          useGraphStore.getState().addNode(node)
           addToolCall(`Created node`)
+        }
+        break
+      }
+      case 'update_node': {
+        const node = data.node as FlowNode | undefined
+        if (node) {
+          useGraphStore.getState().updateNode(node.id, node)
+          addToolCall(`Updated node`)
+        }
+        break
+      }
+      case 'delete_node': {
+        const deletedNodeId = data.deletedNodeId as string | undefined
+        if (deletedNodeId) {
+          useGraphStore.getState().removeNode(deletedNodeId)
+          addToolCall(`Deleted node`)
+        }
+        break
+      }
+      case 'create_edge': {
+        const edge = data.edge as FlowEdge | undefined
+        if (edge) {
+          useGraphStore.getState().addEdge(edge)
+          addToolCall(`Created edge`)
+        }
+        break
+      }
+      case 'delete_edge': {
+        const deletedEdgeId = data.deletedEdgeId as string | undefined
+        if (deletedEdgeId) {
+          useGraphStore.getState().removeEdge(deletedEdgeId)
+          addToolCall(`Deleted edge`)
         }
         break
       }
@@ -252,8 +283,8 @@ export function ScopeWorkspace({
           </Link>
           <div>
             <h1 className="text-sm font-semibold text-slate-900">{project.name}</h1>
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-              Scope Mode
+            <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+              Quick Capture
             </span>
           </div>
         </div>
@@ -266,38 +297,17 @@ export function ScopeWorkspace({
           >
             {isPromoting ? 'Promoting...' : 'Promote to Architecture'}
           </button>
-          <button
-            type="button"
-            onClick={() => setAssistantOpen((prev) => !prev)}
-            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
-          >
-            {assistantOpen ? 'Hide Chat' : 'Show Chat'}
-          </button>
         </div>
       </header>
 
       {/* Main content */}
       <div className="flex min-h-0 flex-1">
-        {/* Canvas (full width — no module sidebar) */}
         <div className="flex flex-1 flex-col" data-testid="canvas-panel">
           <div className="flex-1">
             <CanvasContainer />
           </div>
           <OpenQuestionsPanel questions={openQuestions} />
         </div>
-
-        {/* Chat panel */}
-        {assistantOpen && (
-          <div className="flex w-96 flex-col border-l border-slate-200 bg-white">
-            <ChatMessageList
-              messages={messages}
-              isLoading={isSending}
-              streamingContent={streamingContent}
-              toolActivity={toolActivity}
-            />
-            <ChatInput onSend={handleSend} isLoading={isSending} />
-          </div>
-        )}
       </div>
 
       {error && (
@@ -305,6 +315,18 @@ export function ScopeWorkspace({
           {error}
         </div>
       )}
+
+      <FloatingChat
+        messages={messages}
+        isLoading={isSending}
+        streamingContent={streamingContent}
+        toolActivity={toolActivity}
+        toolCalls={currentToolCalls}
+        onSend={handleSend}
+        isOpen={assistantOpen}
+        onToggle={() => setAssistantOpen((prev) => !prev)}
+        subtitle="Describe what the client needs — I'll build the flowchart."
+      />
     </div>
   )
 }

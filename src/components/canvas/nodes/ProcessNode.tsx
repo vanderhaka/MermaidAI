@@ -19,7 +19,7 @@ export default function ProcessNode({ data }: NodeProps) {
   const [expanded, setExpanded] = useState(false)
 
   return (
-    <div className="box-border w-[260px] rounded-lg border border-blue-300 bg-white px-4 py-2 shadow-sm">
+    <div className="group box-border w-[300px] rounded-lg border border-blue-300 bg-white px-4 py-3 shadow-sm transition-shadow hover:shadow-md hover:border-blue-400">
       <Handle
         type="target"
         position={Position.Top}
@@ -40,6 +40,12 @@ export default function ProcessNode({ data }: NodeProps) {
           </button>
         )}
       </div>
+
+      {pseudocode && !expanded && (
+        <p className="mt-1 truncate text-xs text-gray-400 opacity-0 transition-opacity group-hover:opacity-100">
+          {pseudocode}
+        </p>
+      )}
 
       {expanded && pseudocode && (
         <pre className="mt-2 whitespace-pre-wrap rounded bg-gray-50 p-2 text-xs text-gray-700">
