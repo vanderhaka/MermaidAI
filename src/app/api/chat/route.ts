@@ -6,7 +6,8 @@ import { createClient } from '@/lib/supabase/server'
 import { chatRateLimiter } from '@/lib/rate-limiter'
 import { buildSystemPrompt } from '@/lib/services/prompt-builder'
 import type { PromptContext, PromptMode } from '@/lib/services/prompt-builder'
-import { callLLMWithTools, sanitizeError, TOOL_EVENT_DELIMITER } from '@/lib/services/llm-client'
+import { callLLMWithTools, sanitizeError } from '@/lib/services/llm-client'
+import { createStreamParser } from '@/lib/stream-parser'
 import { getToolsForMode, createToolExecutor } from '@/lib/services/llm-tools'
 import { addChatMessage } from '@/lib/services/chat-message-service'
 import { listModulesByProject, getModuleById } from '@/lib/services/module-service'
@@ -155,6 +156,7 @@ export async function POST(request: Request) {
   }
 
   let fullText = ''
+  const parser = createStreamParser()
 
   const transformedStream = new ReadableStream({
     async start(controller) {
@@ -169,11 +171,14 @@ export async function POST(request: Request) {
           // Pass everything to the client (including tool events)
           controller.enqueue(encoder.encode(value))
 
-          // Only accumulate display text for persistence (strip tool events)
-          if (!value.startsWith(TOOL_EVENT_DELIMITER)) {
-            fullText += value
-          }
+          // Accumulate only display text for persistence (strip tool events)
+          const { text } = parser.push(value)
+          fullText += text
         }
+        // Flush any buffered text from the parser
+        const { text: remaining } = parser.flush()
+        fullText += remaining
+
         controller.close()
       } catch (err) {
         controller.error(err)

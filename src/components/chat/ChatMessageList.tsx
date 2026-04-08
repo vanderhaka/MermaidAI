@@ -181,10 +181,10 @@ export default function ChatMessageList({
       {messages.map((msg) => (
         <MessageBubble key={msg.id} message={msg} />
       ))}
-      {showLiveActivity && <ToolActivityIndicator activity={toolActivity} />}
       {isLoading && !streamingContent && !toolActivity && <ThinkingIndicator />}
       {showCompletedTools && !isLoading && <ToolCallsSummary calls={toolCalls} />}
       {streamingMessage && <MessageBubble message={streamingMessage} />}
+      {showLiveActivity && <ToolActivityIndicator activity={toolActivity} />}
       <div ref={scrollRef} data-testid="scroll-anchor" />
     </div>
   )
