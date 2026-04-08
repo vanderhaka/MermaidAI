@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 
 import CanvasContainer from '@/components/canvas/CanvasContainer'
@@ -60,6 +60,7 @@ export function ScopeWorkspace({
 }: ScopeWorkspaceProps) {
   const router = useRouter()
   const [isPromoting, startPromote] = useTransition()
+  const [confirmingPromote, setConfirmingPromote] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
   const [toolActivity, setToolActivity] = useState<string | null>(null)
@@ -84,6 +85,10 @@ export function ScopeWorkspace({
 
   const modules = useGraphStore((state) => state.modules)
   const openQuestions = useGraphStore((state) => state.openQuestions)
+  const unresolvedCount = useMemo(
+    () => openQuestions.filter((q) => q.status === 'open').length,
+    [openQuestions],
+  )
   const setModules = useGraphStore((state) => state.setModules)
   const setNodes = useGraphStore((state) => state.setNodes)
   const setEdges = useGraphStore((state) => state.setEdges)
@@ -317,15 +322,20 @@ export function ScopeWorkspace({
     }
   }
 
-  async function handlePromote() {
-    startPromote(async () => {
-      const result = await updateProject(project.id, { mode: 'architecture' })
-      if (result.success) {
-        router.refresh()
-      } else {
-        setError(result.error)
-      }
-    })
+  function handlePromoteClick() {
+    if (confirmingPromote) {
+      startPromote(async () => {
+        const result = await updateProject(project.id, { mode: 'architecture' })
+        if (result.success) {
+          router.refresh()
+        } else {
+          setConfirmingPromote(false)
+          setError(result.error)
+        }
+      })
+    } else {
+      setConfirmingPromote(true)
+    }
   }
 
   return (
@@ -358,14 +368,38 @@ export function ScopeWorkspace({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handlePromote}
-            disabled={isPromoting}
-            className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100 disabled:opacity-60"
-          >
-            {isPromoting ? 'Promoting...' : 'Promote to Architecture'}
-          </button>
+          {confirmingPromote ? (
+            <>
+              {unresolvedCount > 0 && (
+                <span className="text-xs text-amber-600">
+                  {unresolvedCount} open question{unresolvedCount === 1 ? '' : 's'} remaining
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setConfirmingPromote(false)}
+                className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handlePromoteClick}
+                disabled={isPromoting}
+                className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+              >
+                {isPromoting ? 'Promoting...' : 'Confirm promote'}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={handlePromoteClick}
+              className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100"
+            >
+              Promote to Architecture
+            </button>
+          )}
         </div>
       </header>
 
