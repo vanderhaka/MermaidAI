@@ -329,9 +329,9 @@ describe('buildSystemPrompt', () => {
       expect(prompt.toLowerCase()).toContain('domain')
     })
 
-    it('references add_open_question tool', () => {
+    it('references add_open_questions tool', () => {
       const prompt = buildSystemPrompt(mode, baseContext)
-      expect(prompt).toContain('add_open_question')
+      expect(prompt).toContain('add_open_questions')
     })
 
     it('references resolve_open_question tool', () => {

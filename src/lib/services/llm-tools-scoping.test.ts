@@ -5,25 +5,36 @@ import { describe, it, expect, vi } from 'vitest'
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }))
 
-import { addOpenQuestionTool, resolveOpenQuestionTool } from '@/lib/services/llm-tools'
+import { addOpenQuestionsTool, resolveOpenQuestionTool } from '@/lib/services/llm-tools'
 
-describe('add_open_question tool definition', () => {
+describe('add_open_questions tool definition', () => {
   it('has the correct name', () => {
-    expect(addOpenQuestionTool.name).toBe('add_open_question')
+    expect(addOpenQuestionsTool.name).toBe('add_open_questions')
   })
 
   it('has correct required params', () => {
-    expect(addOpenQuestionTool.input_schema.required).toEqual(['moduleId', 'section', 'question'])
+    expect(addOpenQuestionsTool.input_schema.required).toEqual(['moduleId', 'questions'])
   })
 
-  it('includes optional relatedNodeId', () => {
-    const props = addOpenQuestionTool.input_schema.properties as Record<string, { type: string }>
-    expect(props.relatedNodeId).toBeDefined()
-    expect(props.relatedNodeId.type).toBe('string')
+  it('has questions array with correct item schema', () => {
+    const props = addOpenQuestionsTool.input_schema.properties as Record<
+      string,
+      Record<string, unknown>
+    >
+    expect(props.questions.type).toBe('array')
+
+    const items = props.questions.items as Record<string, unknown>
+    expect(items.type).toBe('object')
+    expect(items.required).toEqual(['section', 'question'])
+
+    const itemProps = items.properties as Record<string, { type: string }>
+    expect(itemProps.section.type).toBe('string')
+    expect(itemProps.question.type).toBe('string')
+    expect(itemProps.relatedNodeId.type).toBe('string')
   })
 
   it('has a description', () => {
-    expect(addOpenQuestionTool.description).toBeTruthy()
+    expect(addOpenQuestionsTool.description).toBeTruthy()
   })
 })
 

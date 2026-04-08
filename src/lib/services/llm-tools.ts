@@ -214,32 +214,43 @@ const lookupDocsTool: Anthropic.Tool = {
   },
 }
 
-const addOpenQuestionTool: Anthropic.Tool = {
-  name: 'add_open_question',
+const addOpenQuestionsTool: Anthropic.Tool = {
+  name: 'add_open_questions',
   description:
-    'Silently place an open question marker on the canvas. Use when the client description has a gap, ambiguity, or missing detail that needs clarification. The question node will appear as an amber "?" marker.',
+    'Batch-create open question markers on the canvas. Call once per response with ALL detected gaps, ambiguities, or missing details. Each question appears as an amber "?" marker.',
   input_schema: {
     type: 'object' as const,
     properties: {
       moduleId: {
         type: 'string',
-        description: 'ID of the module (scope module) to place the question in',
+        description: 'ID of the module (scope module) to place the questions in',
       },
-      section: {
-        type: 'string',
+      questions: {
+        type: 'array',
         description:
-          'Logical section grouping for the question (e.g. "Authentication", "Payments", "Data Model")',
-      },
-      question: {
-        type: 'string',
-        description: 'The open question text describing the gap or ambiguity',
-      },
-      relatedNodeId: {
-        type: 'string',
-        description: 'Optional ID of a related flow node this question is connected to',
+          'Array of open questions to create. Include ALL gaps detected in this response — do not call this tool multiple times.',
+        items: {
+          type: 'object',
+          properties: {
+            section: {
+              type: 'string',
+              description:
+                'Logical section grouping for the question (e.g. "Authentication", "Payments", "Data Model")',
+            },
+            question: {
+              type: 'string',
+              description: 'The open question text describing the gap or ambiguity',
+            },
+            relatedNodeId: {
+              type: 'string',
+              description: 'Optional ID of a related flow node this question is connected to',
+            },
+          },
+          required: ['section', 'question'],
+        },
       },
     },
-    required: ['moduleId', 'section', 'question'],
+    required: ['moduleId', 'questions'],
   },
 }
 
@@ -263,7 +274,7 @@ const resolveOpenQuestionTool: Anthropic.Tool = {
   },
 }
 
-export { addOpenQuestionTool, resolveOpenQuestionTool }
+export { addOpenQuestionsTool, resolveOpenQuestionTool }
 
 // ---------------------------------------------------------------------------
 // Tool sets per mode
@@ -302,7 +313,7 @@ const SCOPE_TOOLS = [
   deleteNodeTool,
   createEdgeTool,
   deleteEdgeTool,
-  addOpenQuestionTool,
+  addOpenQuestionsTool,
   resolveOpenQuestionTool,
 ]
 
@@ -505,43 +516,72 @@ export function createToolExecutor(projectId: string) {
           })
         }
 
-        case 'add_open_question': {
+        case 'add_open_questions': {
           const moduleId = input.moduleId as string
-          const section = input.section as string
-          const question = input.question as string
-          const relatedNodeId = input.relatedNodeId as string | undefined
+          const items = input.questions as Array<{
+            section: string
+            question: string
+            relatedNodeId?: string
+          }>
 
-          const label = question.length > 60 ? `${question.slice(0, 57)}...` : question
-          const nodeResult = await addNode({
-            module_id: moduleId,
-            label,
-            node_type: 'question',
-            pseudocode: question,
-            position: { x: 0, y: 0 },
-            color: '#F59E0B',
-          })
-          if (!nodeResult.success) return fail(nodeResult.error)
-
-          const questionResult = await createOpenQuestion({
-            project_id: projectId,
-            node_id: nodeResult.data.id,
-            section,
-            question,
-          })
-          if (!questionResult.success) return fail(questionResult.error)
-
-          if (relatedNodeId) {
-            await addEdge({
-              module_id: moduleId,
-              source_node_id: relatedNodeId,
-              target_node_id: nodeResult.data.id,
-            })
+          if (!items || items.length === 0) {
+            return ok('No questions to add.')
           }
 
-          return ok(`Added open question: "${label}" in section "${section}"`, {
-            node: nodeResult.data,
-            question: questionResult.data,
-          })
+          const nodes: FlowNode[] = []
+          const questions: Array<Record<string, unknown>> = []
+          const edges: Array<Record<string, unknown>> = []
+          const errors: string[] = []
+
+          for (const item of items) {
+            const label =
+              item.question.length > 60 ? `${item.question.slice(0, 57)}...` : item.question
+
+            const nodeResult = await addNode({
+              module_id: moduleId,
+              label,
+              node_type: 'question',
+              pseudocode: item.question,
+              position: { x: 0, y: 0 },
+              color: '#F59E0B',
+            })
+            if (!nodeResult.success) {
+              errors.push(`Node for "${label}": ${nodeResult.error}`)
+              continue
+            }
+
+            const questionResult = await createOpenQuestion({
+              project_id: projectId,
+              node_id: nodeResult.data.id,
+              section: item.section,
+              question: item.question,
+            })
+            if (!questionResult.success) {
+              errors.push(`Question "${label}": ${questionResult.error}`)
+              continue
+            }
+
+            nodes.push(nodeResult.data)
+            questions.push(questionResult.data)
+
+            if (item.relatedNodeId) {
+              const edgeResult = await addEdge({
+                module_id: moduleId,
+                source_node_id: item.relatedNodeId,
+                target_node_id: nodeResult.data.id,
+              })
+              if (edgeResult.success) {
+                edges.push(edgeResult.data)
+              }
+            }
+          }
+
+          if (nodes.length === 0) {
+            return fail(`All ${items.length} questions failed: ${errors.join('; ')}`)
+          }
+
+          const summary = `Added ${nodes.length} open question(s).${errors.length > 0 ? ` ${errors.length} failed.` : ''}`
+          return ok(summary, { nodes, questions, edges })
         }
 
         case 'resolve_open_question': {

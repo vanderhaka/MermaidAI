@@ -30,7 +30,7 @@ const TOOL_LABELS: Record<string, string> = {
   update_module: 'Updating module',
   delete_module: 'Removing module',
   connect_modules: 'Connecting modules',
-  add_open_question: 'Flagging question',
+  add_open_questions: 'Flagging questions',
   resolve_open_question: 'Resolving question',
   lookup_docs: 'Looking up docs',
 }
@@ -187,12 +187,21 @@ export function ScopeWorkspace({
         }
         break
       }
-      case 'add_open_question': {
-        const node = data.node as FlowNode | undefined
-        const question = data.question as OpenQuestion | undefined
-        if (node) useGraphStore.getState().addNode(node)
-        if (question) useGraphStore.getState().addOpenQuestion(question)
-        addToolCall(question ? `Flagged: ${question.section}` : 'Added open question')
+      case 'add_open_questions': {
+        const nodes = data.nodes as FlowNode[] | undefined
+        const questions = data.questions as OpenQuestion[] | undefined
+        const edges = data.edges as FlowEdge[] | undefined
+        if (nodes) {
+          for (const node of nodes) useGraphStore.getState().addNode(node)
+        }
+        if (questions) {
+          for (const q of questions) useGraphStore.getState().addOpenQuestion(q)
+        }
+        if (edges) {
+          for (const edge of edges) useGraphStore.getState().addEdge(edge)
+        }
+        const count = questions?.length ?? 0
+        addToolCall(count === 1 ? 'Flagged 1 question' : `Flagged ${count} questions`)
         break
       }
       case 'resolve_open_question': {
