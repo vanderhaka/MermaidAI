@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 
 import CanvasContainer from '@/components/canvas/CanvasContainer'
 import FloatingChat from '@/components/chat/FloatingChat'
+import PrdPreviewPanel from '@/components/dashboard/PrdPreviewPanel'
 import { signOut } from '@/lib/services/auth-service'
 import { createModule } from '@/lib/services/module-service'
 import { updateProject, deleteProject } from '@/lib/services/project-service'
@@ -36,6 +37,7 @@ const TOOL_LABELS: Record<string, string> = {
   add_open_questions: 'Flagging questions',
   resolve_open_question: 'Resolving question',
   lookup_docs: 'Looking up docs',
+  write_prd: 'Writing PRD',
 }
 
 function formatToolName(tool: string): string {
@@ -88,6 +90,19 @@ export function ProjectWorkspace({
   const [moduleSidebarCollapsed, setModuleSidebarCollapsed] = useState(false)
   const [assistantOpen, setAssistantOpen] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
+  const [prdOpen, setPrdOpen] = useState(false)
+
+  const hasScopeModule = initialModules.some((m) => m.name === 'Scope')
+  const [showOnboarding, setShowOnboarding] = useState(() => {
+    if (!hasScopeModule) return false
+    if (typeof window === 'undefined') return false
+    return !localStorage.getItem(`architecture-onboarded-${project.id}`)
+  })
+
+  function dismissOnboarding() {
+    localStorage.setItem(`architecture-onboarded-${project.id}`, '1')
+    setShowOnboarding(false)
+  }
 
   useEffect(() => {
     if (window.innerWidth < 1024) {
@@ -256,6 +271,14 @@ export function ProjectWorkspace({
         addToolCall('Resolved question')
         break
       }
+      case 'write_prd': {
+        const mod = data.module as Module | undefined
+        if (mod) {
+          updateModuleInStore(mod.id, { prd_content: mod.prd_content })
+          addToolCall('Updated PRD')
+        }
+        break
+      }
     }
   }
 
@@ -400,6 +423,26 @@ export function ProjectWorkspace({
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setPrdOpen(true)}
+              aria-label="View PRD"
+              title="View Product Requirements"
+              className="rounded-lg border border-gray-200 p-2 text-gray-500 transition hover:bg-gray-50 hover:text-gray-900"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                className="h-4 w-4"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M4.5 2A1.5 1.5 0 003 3.5v13A1.5 1.5 0 004.5 18h11a1.5 1.5 0 001.5-1.5V7.621a1.5 1.5 0 00-.44-1.06l-4.12-4.122A1.5 1.5 0 0011.378 2H4.5zm2.25 8.5a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5zm0 3a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </button>
             <button
               type="button"
               onClick={handleAddModule}
@@ -558,6 +601,64 @@ export function ProjectWorkspace({
           >
             {error}
           </p>
+        )}
+
+        {showOnboarding && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Welcome to Full Design mode"
+          >
+            <div className="mx-4 w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-lg">
+              <div className="mb-1 flex items-center gap-2">
+                <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-800">
+                  Full Design
+                </span>
+              </div>
+              <h2 className="mt-3 text-lg font-semibold text-gray-900">
+                Welcome to Full Design mode
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-gray-600">
+                Your Quick Capture session is now a module. Here&apos;s what&apos;s new:
+              </p>
+              <ul className="mt-3 space-y-2 text-sm text-gray-600">
+                <li className="flex items-start gap-2">
+                  <span className="mt-0.5 shrink-0 text-blue-500" aria-hidden="true">
+                    &#9654;
+                  </span>
+                  <span>
+                    <strong className="text-gray-900">Sidebar</strong> — organise and navigate your
+                    modules
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="mt-0.5 shrink-0 text-blue-500" aria-hidden="true">
+                    &#9654;
+                  </span>
+                  <span>
+                    <strong className="text-gray-900">Chat</strong> — keep building, same as before
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="mt-0.5 shrink-0 text-blue-500" aria-hidden="true">
+                    &#9654;
+                  </span>
+                  <span>
+                    <strong className="text-gray-900">Canvas</strong> — your flowchart and questions
+                    are preserved
+                  </span>
+                </li>
+              </ul>
+              <button
+                type="button"
+                onClick={dismissOnboarding}
+                className="mt-5 w-full rounded-lg bg-black px-4 py-2.5 text-sm font-medium text-white transition hover:bg-gray-800"
+              >
+                Got it
+              </button>
+            </div>
+          </div>
         )}
 
         <div
@@ -733,6 +834,13 @@ export function ProjectWorkspace({
           onSend={handleSend}
           isOpen={assistantOpen}
           onToggle={() => setAssistantOpen((o) => !o)}
+        />
+
+        <PrdPreviewPanel
+          projectName={project.name}
+          projectDescription={project.description ?? null}
+          isOpen={prdOpen}
+          onClose={() => setPrdOpen(false)}
         />
       </div>
     </main>
