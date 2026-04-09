@@ -7,6 +7,8 @@ import { useRouter } from 'next/navigation'
 import CanvasContainer from '@/components/canvas/CanvasContainer'
 import FloatingChat from '@/components/chat/FloatingChat'
 import OpenQuestionsPanel from '@/components/canvas/OpenQuestionsPanel'
+import { InlineProjectName } from '@/components/dashboard/InlineProjectName'
+import PrdPreviewPanel from '@/components/dashboard/PrdPreviewPanel'
 import { updateProject } from '@/lib/services/project-service'
 import { createStreamParser } from '@/lib/stream-parser'
 import { useGraphStore } from '@/store/graph-store'
@@ -33,6 +35,8 @@ const TOOL_LABELS: Record<string, string> = {
   add_open_questions: 'Flagging questions',
   resolve_open_question: 'Resolving question',
   lookup_docs: 'Looking up docs',
+  write_prd: 'Writing PRD',
+  promote_project: 'Switching to Full Design',
 }
 
 function formatToolName(tool: string): string {
@@ -82,6 +86,8 @@ export function ScopeWorkspace({
   })
   const [assistantOpen, setAssistantOpen] = useState(initialMessages.length === 0)
   const [isPeeking, setIsPeeking] = useState(false)
+  const [prdOpen, setPrdOpen] = useState(false)
+  const [pendingRefresh, setPendingRefresh] = useState(false)
 
   const modules = useGraphStore((state) => state.modules)
   const openQuestions = useGraphStore((state) => state.openQuestions)
@@ -218,6 +224,41 @@ export function ScopeWorkspace({
         addToolCall('Resolved question')
         break
       }
+      case 'write_prd': {
+        const mod = data.module as Module | undefined
+        if (mod) {
+          useGraphStore.getState().updateModule(mod.id, { prd_content: mod.prd_content })
+          addToolCall('Updated PRD')
+        }
+        break
+      }
+      case 'promote_project': {
+        setPendingRefresh(true)
+        addToolCall('Switched to Full Design')
+        break
+      }
+      case 'create_module': {
+        const mod = data.module as Module | undefined
+        if (mod) {
+          useGraphStore.getState().addModule(mod)
+          addToolCall(`Created ${mod.name}`)
+        }
+        break
+      }
+      case 'update_module': {
+        const mod = data.module as Module | undefined
+        if (mod) {
+          useGraphStore.getState().updateModule(mod.id, mod)
+          addToolCall(`Updated ${mod.name}`)
+        }
+        break
+      }
+      case 'connect_modules': {
+        const conn = data.connection as ModuleConnection | undefined
+        if (conn) useGraphStore.getState().addConnection(conn)
+        addToolCall('Connected modules')
+        break
+      }
     }
   }
 
@@ -319,6 +360,10 @@ export function ScopeWorkspace({
       setIsSending(false)
       setStreamingContent('')
       setToolActivity(null)
+      if (pendingRefresh) {
+        setPendingRefresh(false)
+        router.refresh()
+      }
     }
   }
 
@@ -361,13 +406,37 @@ export function ScopeWorkspace({
             </svg>
           </Link>
           <div>
-            <h1 className="text-sm font-semibold text-slate-900">{project.name}</h1>
+            <InlineProjectName
+              projectId={project.id}
+              initialName={project.name}
+              className="text-sm font-semibold text-slate-900"
+            />
             <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
               Quick Capture
             </span>
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setPrdOpen(true)}
+            aria-label="View PRD"
+            title="View Product Requirements"
+            className="rounded-lg border border-slate-200 p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className="h-5 w-5"
+            >
+              <path
+                fillRule="evenodd"
+                d="M4.5 2A1.5 1.5 0 003 3.5v13A1.5 1.5 0 004.5 18h11a1.5 1.5 0 001.5-1.5V7.621a1.5 1.5 0 00-.44-1.06l-4.12-4.122A1.5 1.5 0 0011.378 2H4.5zm2.25 8.5a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5zm0 3a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </button>
           {confirmingPromote ? (
             <>
               {unresolvedCount > 0 && (
@@ -388,16 +457,17 @@ export function ScopeWorkspace({
                 disabled={isPromoting}
                 className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60"
               >
-                {isPromoting ? 'Promoting...' : 'Confirm promote'}
+                {isPromoting ? 'Switching...' : 'Confirm switch'}
               </button>
             </>
           ) : (
             <button
               type="button"
               onClick={handlePromoteClick}
+              title="Switch to Full Design mode for module management and deeper planning. Your flowchart and questions will be preserved."
               className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100"
             >
-              Promote to Architecture
+              Switch to Full Design
             </button>
           )}
         </div>
@@ -435,6 +505,13 @@ export function ScopeWorkspace({
           'Map out a returns and refunds process',
           'Capture requirements for an event booking flow',
         ]}
+      />
+
+      <PrdPreviewPanel
+        projectName={project.name}
+        projectDescription={project.description ?? null}
+        isOpen={prdOpen}
+        onClose={() => setPrdOpen(false)}
       />
     </div>
   )

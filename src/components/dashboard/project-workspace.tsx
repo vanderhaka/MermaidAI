@@ -6,12 +6,12 @@ import { useRouter } from 'next/navigation'
 
 import CanvasContainer from '@/components/canvas/CanvasContainer'
 import FloatingChat from '@/components/chat/FloatingChat'
+import { InlineProjectName } from '@/components/dashboard/InlineProjectName'
 import PrdPreviewPanel from '@/components/dashboard/PrdPreviewPanel'
 import { signOut } from '@/lib/services/auth-service'
 import { createModule } from '@/lib/services/module-service'
 import { updateProject, deleteProject } from '@/lib/services/project-service'
 import { createStreamParser } from '@/lib/stream-parser'
-import { ModuleHierarchyIndicator } from '@/components/dashboard/ModuleHierarchyIndicator'
 import { groupModulesByDomain } from '@/lib/module-hierarchy'
 import { useGraphStore } from '@/store/graph-store'
 import type { ChatMessage } from '@/types/chat'
@@ -103,12 +103,6 @@ export function ProjectWorkspace({
     localStorage.setItem(`architecture-onboarded-${project.id}`, '1')
     setShowOnboarding(false)
   }
-
-  useEffect(() => {
-    if (window.innerWidth < 1024) {
-      setModuleSidebarCollapsed(true)
-    }
-  }, [])
 
   const modules = useGraphStore((state) => state.modules)
   const activeModuleId = useGraphStore((state) => state.activeModuleId)
@@ -410,9 +404,11 @@ export function ProjectWorkspace({
               {activeModuleName && <span>Viewing {activeModuleName}</span>}
             </div>
             <div className="flex items-center gap-3">
-              <h1 className="text-3xl font-semibold tracking-tight text-gray-900">
-                {project.name}
-              </h1>
+              <InlineProjectName
+                projectId={project.id}
+                initialName={project.name}
+                className="text-3xl font-semibold tracking-tight text-gray-900"
+              />
               <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-800">
                 Full Design
               </span>
@@ -742,16 +738,6 @@ export function ProjectWorkspace({
                 </span>
               </button>
             </div>
-
-            {!moduleSidebarCollapsed && (
-              <div className="mb-3 shrink-0">
-                <ModuleHierarchyIndicator
-                  projectName={projectName}
-                  modules={modules}
-                  activeModuleId={activeModuleId}
-                />
-              </div>
-            )}
 
             <div
               id="module-sidebar-list"
