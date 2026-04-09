@@ -7,6 +7,7 @@ import {
   FLOW_DETAIL_HANDLE_COLOR,
   FLOW_DETAIL_HANDLE_POSITION,
 } from '@/components/canvas/nodes/flow-detail-handles'
+import { NodeTooltip } from '@/components/canvas/nodes/NodeTooltip'
 
 type DecisionNodeData = {
   label: string
@@ -17,6 +18,10 @@ export default function DecisionNode({ data }: NodeProps) {
 
   return (
     <div className="group relative h-44 w-44">
+      <NodeTooltip
+        type="Decision Node"
+        description="Branches the flow based on a yes/no question."
+      />
       {/* Rotated face only — handles stay on the unrotated box so React Flow measures yes/no separately. */}
       <div
         aria-hidden

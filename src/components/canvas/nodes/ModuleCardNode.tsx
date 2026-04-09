@@ -8,6 +8,7 @@ import {
   FLOW_DETAIL_HANDLE_BASE_CLASS,
   FLOW_DETAIL_HANDLE_COLOR,
 } from '@/components/canvas/nodes/flow-detail-handles'
+import { NodeTooltip } from '@/components/canvas/nodes/NodeTooltip'
 
 export type HandleSide = 'left' | 'right' | 'top' | 'bottom'
 
@@ -131,9 +132,13 @@ export default function ModuleCardNode({ data }: NodeProps) {
 
   return (
     <div
-      className="rounded-xl border border-indigo-200 bg-white px-5 py-4 shadow-sm transition-shadow hover:shadow-md"
+      className="group relative rounded-xl border border-indigo-200 bg-white px-5 py-4 shadow-sm transition-shadow hover:shadow-md"
       style={{ width: MODULE_CARD_WIDTH, height: MODULE_CARD_HEIGHT, boxSizing: 'border-box' }}
     >
+      <NodeTooltip
+        type="Module"
+        description="A feature area with its own internal flow. Click to open it."
+      />
       <div className="text-sm font-semibold text-slate-900">{name}</div>
       {description && (
         <div className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-slate-500">

@@ -51,3 +51,37 @@ body {
 .react-flow .react-flow__edgelabel-renderer {
   z-index: 1000;
 }
+
+/* Restyle React Flow's default zoom/fit controls to match the app's design language */
+.react-flow__controls {
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+  border-radius: 0.5rem;
+  border: 1px solid rgb(229 231 235);
+  background-color: #ffffff;
+  overflow: hidden;
+}
+
+.react-flow__controls-button {
+  background-color: #ffffff;
+  border: none;
+  border-bottom: 1px solid rgb(243 244 246);
+  width: 32px;
+  height: 32px;
+  color: rgb(75 85 99);
+  transition: background-color 0.15s ease;
+}
+
+.react-flow__controls-button:last-child {
+  border-bottom: none;
+}
+
+.react-flow__controls-button:hover {
+  background-color: rgb(249 250 251);
+  color: rgb(17 24 39);
+}
+
+.react-flow__controls-button svg {
+  fill: currentColor;
+  max-width: 14px;
+  max-height: 14px;
+}

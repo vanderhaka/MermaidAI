@@ -8,6 +8,7 @@ import {
   FLOW_DETAIL_HANDLE_COLOR,
   FLOW_DETAIL_HANDLE_POSITION,
 } from '@/components/canvas/nodes/flow-detail-handles'
+import { NodeTooltip } from '@/components/canvas/nodes/NodeTooltip'
 
 type ProcessNodeData = {
   label: string
@@ -19,7 +20,8 @@ export default function ProcessNode({ data }: NodeProps) {
   const [expanded, setExpanded] = useState(false)
 
   return (
-    <div className="group box-border w-[300px] rounded-lg border border-blue-300 bg-white px-4 py-3 shadow-sm transition-shadow hover:shadow-md hover:border-blue-400">
+    <div className="group relative box-border w-[300px] rounded-lg border border-blue-300 bg-white px-4 py-3 shadow-sm transition-shadow hover:shadow-md hover:border-blue-400">
+      <NodeTooltip type="Process Node" description="A step or action in the workflow." />
       <Handle
         type="target"
         position={Position.Top}
