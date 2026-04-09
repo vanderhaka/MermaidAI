@@ -8,6 +8,7 @@ import CanvasContainer from '@/components/canvas/CanvasContainer'
 import FloatingChat from '@/components/chat/FloatingChat'
 import { InlineProjectName } from '@/components/dashboard/InlineProjectName'
 import PrdPreviewPanel from '@/components/dashboard/PrdPreviewPanel'
+import { SavedIndicator } from '@/components/dashboard/SavedIndicator'
 import { signOut } from '@/lib/services/auth-service'
 import { createModule } from '@/lib/services/module-service'
 import { updateProject, deleteProject } from '@/lib/services/project-service'
@@ -91,6 +92,7 @@ export function ProjectWorkspace({
   const [assistantOpen, setAssistantOpen] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [prdOpen, setPrdOpen] = useState(false)
+  const [saveCounter, setSaveCounter] = useState(0)
 
   const hasScopeModule = initialModules.some((m) => m.name === 'Scope')
   const [showOnboarding, setShowOnboarding] = useState(() => {
@@ -153,6 +155,7 @@ export function ProjectWorkspace({
       return
     }
     setShowSettings(false)
+    setSaveCounter((n) => n + 1)
     startRefresh(() => router.refresh())
   }
 
@@ -191,6 +194,7 @@ export function ProjectWorkspace({
 
     addModuleToStore(result.data)
     setActiveModuleId(result.data.id)
+    setSaveCounter((n) => n + 1)
   }
 
   function addToolCall(label: string) {
@@ -379,6 +383,7 @@ export function ProjectWorkspace({
       }
 
       setStreamingContent('')
+      setSaveCounter((n) => n + 1)
       startRefresh(() => router.refresh())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send chat message')
@@ -401,7 +406,7 @@ export function ProjectWorkspace({
               <Link href="/dashboard" className="font-medium text-gray-700 hover:text-black">
                 Back to dashboard
               </Link>
-              {activeModuleName && <span>Viewing {activeModuleName}</span>}
+              {activeModuleName && <span>Module: {activeModuleName}</span>}
             </div>
             <div className="flex items-center gap-3">
               <InlineProjectName
@@ -412,6 +417,7 @@ export function ProjectWorkspace({
               <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-800">
                 Full Design
               </span>
+              <SavedIndicator trigger={saveCounter} />
             </div>
             <p className="text-sm text-gray-500">
               {project.description?.trim() || 'Design your modules, flows, and decisions here.'}
@@ -422,15 +428,15 @@ export function ProjectWorkspace({
             <button
               type="button"
               onClick={() => setPrdOpen(true)}
-              aria-label="View PRD"
               title="View Product Requirements"
-              className="rounded-lg border border-gray-200 p-2 text-gray-500 transition hover:bg-gray-50 hover:text-gray-900"
+              className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50 hover:text-gray-900"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 20 20"
                 fill="currentColor"
                 className="h-4 w-4"
+                aria-hidden
               >
                 <path
                   fillRule="evenodd"
@@ -438,6 +444,7 @@ export function ProjectWorkspace({
                   clipRule="evenodd"
                 />
               </svg>
+              Requirements
             </button>
             <button
               type="button"
@@ -548,43 +555,54 @@ export function ProjectWorkspace({
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={handleSaveSettings}
-                  disabled={isSaving}
-                  className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 disabled:opacity-60"
-                >
-                  {isSaving ? 'Saving...' : 'Save'}
-                </button>
+              <button
+                type="button"
+                onClick={handleSaveSettings}
+                disabled={isSaving}
+                className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 disabled:opacity-60"
+              >
+                {isSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
 
-                {confirmingDelete ? (
-                  <>
+            <div className="mt-6 rounded-lg border border-red-200 bg-red-50/50 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-red-900">Danger zone</p>
+                  <p className="mt-0.5 text-xs text-red-700">
+                    Deleting this project is permanent. Your flowchart, modules, and chat history
+                    will be lost.
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {confirmingDelete ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmingDelete(false)}
+                        className="rounded-lg px-3 py-2 text-sm font-medium text-gray-600 hover:bg-white"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDeleteProject}
+                        disabled={isDeleting}
+                        className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
+                      >
+                        {isDeleting ? 'Deleting...' : 'Confirm delete'}
+                      </button>
+                    </>
+                  ) : (
                     <button
                       type="button"
-                      onClick={() => setConfirmingDelete(false)}
-                      className="rounded-lg px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100"
+                      onClick={() => setConfirmingDelete(true)}
+                      className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-100"
                     >
-                      Cancel
+                      Delete project
                     </button>
-                    <button
-                      type="button"
-                      onClick={handleDeleteProject}
-                      disabled={isDeleting}
-                      className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
-                    >
-                      {isDeleting ? 'Deleting...' : 'Confirm delete'}
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setConfirmingDelete(true)}
-                    className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50"
-                  >
-                    Delete project
-                  </button>
-                )}
+                  )}
+                </div>
               </div>
             </div>
           </div>

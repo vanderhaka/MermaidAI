@@ -9,6 +9,7 @@ import FloatingChat from '@/components/chat/FloatingChat'
 import OpenQuestionsPanel from '@/components/canvas/OpenQuestionsPanel'
 import { InlineProjectName } from '@/components/dashboard/InlineProjectName'
 import PrdPreviewPanel from '@/components/dashboard/PrdPreviewPanel'
+import { SavedIndicator } from '@/components/dashboard/SavedIndicator'
 import { updateProject } from '@/lib/services/project-service'
 import { createStreamParser } from '@/lib/stream-parser'
 import { useGraphStore } from '@/store/graph-store'
@@ -88,6 +89,7 @@ export function ScopeWorkspace({
   const [isPeeking, setIsPeeking] = useState(false)
   const [prdOpen, setPrdOpen] = useState(false)
   const [pendingRefresh, setPendingRefresh] = useState(false)
+  const [saveCounter, setSaveCounter] = useState(0)
 
   const modules = useGraphStore((state) => state.modules)
   const openQuestions = useGraphStore((state) => state.openQuestions)
@@ -354,6 +356,7 @@ export function ScopeWorkspace({
           },
         ])
       }
+      setSaveCounter((n) => n + 1)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
     } finally {
@@ -405,7 +408,7 @@ export function ScopeWorkspace({
               />
             </svg>
           </Link>
-          <div>
+          <div className="flex items-center gap-2">
             <InlineProjectName
               projectId={project.id}
               initialName={project.name}
@@ -414,20 +417,21 @@ export function ScopeWorkspace({
             <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
               Quick Capture
             </span>
+            <SavedIndicator trigger={saveCounter} />
           </div>
         </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setPrdOpen(true)}
-            aria-label="View PRD"
             title="View Product Requirements"
-            className="rounded-lg border border-slate-200 p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               viewBox="0 0 20 20"
               fill="currentColor"
+              aria-hidden
               className="h-5 w-5"
             >
               <path
@@ -436,18 +440,26 @@ export function ScopeWorkspace({
                 clipRule="evenodd"
               />
             </svg>
+            Requirements
           </button>
           {confirmingPromote ? (
-            <>
-              {unresolvedCount > 0 && (
-                <span className="text-xs text-amber-600">
-                  {unresolvedCount} open question{unresolvedCount === 1 ? '' : 's'} remaining
-                </span>
-              )}
+            <div className="flex items-center gap-3">
+              <div className="space-y-0.5 text-xs">
+                <p className="text-slate-500">
+                  This is permanent &mdash; you can&apos;t switch back to Quick Capture.
+                </p>
+                <p className="text-slate-500">
+                  Your flowchart,{' '}
+                  {unresolvedCount > 0
+                    ? `${unresolvedCount} open question${unresolvedCount === 1 ? '' : 's'}, `
+                    : ''}
+                  and chat history will carry over.
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => setConfirmingPromote(false)}
-                className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
+                className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
               >
                 Cancel
               </button>
@@ -455,11 +467,11 @@ export function ScopeWorkspace({
                 type="button"
                 onClick={handlePromoteClick}
                 disabled={isPromoting}
-                className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+                className="shrink-0 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60"
               >
                 {isPromoting ? 'Switching...' : 'Confirm switch'}
               </button>
-            </>
+            </div>
           ) : (
             <button
               type="button"
@@ -479,7 +491,13 @@ export function ScopeWorkspace({
           <div className="flex-1">
             <CanvasContainer />
           </div>
-          <OpenQuestionsPanel questions={openQuestions} />
+          <OpenQuestionsPanel
+            questions={openQuestions}
+            onResolve={(question) => {
+              setAssistantOpen(true)
+              handleSend(`Let's resolve this open question: "${question}"`)
+            }}
+          />
         </div>
       </div>
 

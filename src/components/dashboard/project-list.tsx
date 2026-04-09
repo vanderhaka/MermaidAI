@@ -164,6 +164,7 @@ export function ProjectList({ projects }: ProjectListProps) {
   const [showModeSelector, setShowModeSelector] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [modeFilter, setModeFilter] = useState<'all' | 'scope' | 'architecture'>('all')
 
   async function handleCreateWithMode(mode: 'scope' | 'architecture') {
     setIsCreating(true)
@@ -257,6 +258,9 @@ export function ProjectList({ projects }: ProjectListProps) {
                 </p>
               </button>
             </div>
+            <p className="mt-2 text-center text-xs text-slate-500">
+              Not sure? Start with Quick Capture &mdash; you can switch to Full Design later.
+            </p>
           </div>
         </div>
       )}
@@ -270,28 +274,52 @@ export function ProjectList({ projects }: ProjectListProps) {
         </p>
       )}
 
-      {projects.length > 5 && (
-        <div className="relative">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search projects..."
-            className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-10 pr-4 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400"
-          />
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-            aria-hidden
-          >
-            <path
-              fillRule="evenodd"
-              d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z"
-              clipRule="evenodd"
+      {projects.length > 0 && (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="relative flex-1">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search projects..."
+              className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-10 pr-4 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400"
             />
-          </svg>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+              aria-hidden
+            >
+              <path
+                fillRule="evenodd"
+                d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </div>
+          <div className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+            {(
+              [
+                ['all', 'All'],
+                ['scope', 'Quick Capture'],
+                ['architecture', 'Full Design'],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setModeFilter(value)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                  modeFilter === value
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -334,9 +362,10 @@ export function ProjectList({ projects }: ProjectListProps) {
           {projects
             .filter(
               (p) =>
-                !search ||
-                p.name.toLowerCase().includes(search.toLowerCase()) ||
-                p.description?.toLowerCase().includes(search.toLowerCase()),
+                (modeFilter === 'all' || p.mode === modeFilter) &&
+                (!search ||
+                  p.name.toLowerCase().includes(search.toLowerCase()) ||
+                  p.description?.toLowerCase().includes(search.toLowerCase())),
             )
             .map((project) => (
               <ProjectCard key={project.id} project={project} onDeleted={() => router.refresh()} />

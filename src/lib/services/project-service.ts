@@ -49,7 +49,7 @@ export async function createProject(input: {
     await supabase.from('modules').insert({
       project_id: project.id,
       name: 'Scope',
-      description: 'Auto-created scope module for scoping mode',
+      description: 'Your Quick Capture session',
       color: '#F59E0B',
       entry_points: [],
       exit_points: [],
