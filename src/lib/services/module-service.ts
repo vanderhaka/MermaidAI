@@ -15,6 +15,7 @@ function mapRowToModule(row: ModuleRow): Module {
     domain: row.domain ?? null,
     name: row.name,
     description: row.description ?? null,
+    prd_content: row.prd_content ?? '',
     position: { x: row.position_x ?? 0, y: row.position_y ?? 0 },
     color: row.color ?? '',
     entry_points: Array.isArray(row.entry_points) ? (row.entry_points as string[]) : [],

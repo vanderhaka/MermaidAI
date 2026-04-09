@@ -92,8 +92,9 @@ describe('ProjectList', () => {
 
     await user.click(screen.getByRole('button', { name: /new project/i }))
 
-    expect(screen.getByRole('button', { name: /quick capture/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /full design/i })).toBeInTheDocument()
+    const modeSelector = screen.getByTestId('mode-selector')
+    expect(within(modeSelector).getByRole('button', { name: /quick capture/i })).toBeInTheDocument()
+    expect(within(modeSelector).getByRole('button', { name: /full design/i })).toBeInTheDocument()
   })
 
   it('creates project with scope mode', async () => {
@@ -113,7 +114,8 @@ describe('ProjectList', () => {
     render(<ProjectList projects={sampleProjects} />)
 
     await user.click(screen.getByRole('button', { name: /new project/i }))
-    await user.click(screen.getByRole('button', { name: /quick capture/i }))
+    const modeSelector = screen.getByTestId('mode-selector')
+    await user.click(within(modeSelector).getByRole('button', { name: /quick capture/i }))
 
     expect(mockCreateProject).toHaveBeenCalledWith({
       name: 'Untitled Project',
@@ -139,7 +141,8 @@ describe('ProjectList', () => {
     render(<ProjectList projects={sampleProjects} />)
 
     await user.click(screen.getByRole('button', { name: /new project/i }))
-    await user.click(screen.getByRole('button', { name: /full design/i }))
+    const modeSelector = screen.getByTestId('mode-selector')
+    await user.click(within(modeSelector).getByRole('button', { name: /full design/i }))
 
     expect(mockCreateProject).toHaveBeenCalledWith({
       name: 'Untitled Project',
@@ -169,7 +172,8 @@ describe('ProjectList', () => {
     render(<ProjectList projects={sampleProjects} />)
 
     await user.click(screen.getByRole('button', { name: /new project/i }))
-    await user.click(screen.getByRole('button', { name: /quick capture/i }))
+    const modeSelector = screen.getByTestId('mode-selector')
+    await user.click(within(modeSelector).getByRole('button', { name: /quick capture/i }))
 
     expect(mockCreateProject).toHaveBeenCalledOnce()
     expect(mockPush).not.toHaveBeenCalled()

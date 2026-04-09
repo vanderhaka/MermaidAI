@@ -9,6 +9,7 @@ import {
 import { connectModules } from '@/lib/services/module-connection-service'
 import { lookupDocumentation } from '@/lib/services/doc-lookup-service'
 import { addNode, updateNode, removeNode, addEdge, removeEdge } from '@/lib/services/graph-service'
+import { updateProject } from '@/lib/services/project-service'
 import { createOpenQuestion, resolveOpenQuestion } from '@/lib/services/open-question-service'
 import type { ToolResult } from '@/lib/services/llm-client'
 import type { FlowNode } from '@/types/graph'
@@ -274,7 +275,39 @@ const resolveOpenQuestionTool: Anthropic.Tool = {
   },
 }
 
-export { addOpenQuestionsTool, resolveOpenQuestionTool }
+const writePrdTool: Anthropic.Tool = {
+  name: 'write_prd',
+  description:
+    'Write or append to the PRD (Product Requirements Document) for a module. Call this alongside flow-building tools to progressively document requirements, business rules, and decisions as they emerge from the conversation. Each call appends to the existing content.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      moduleId: {
+        type: 'string',
+        description: 'ID of the module to write PRD content for',
+      },
+      markdown: {
+        type: 'string',
+        description:
+          'Markdown content to append. Use headings, bullets, and tables. Cover: purpose, user stories, business rules, decision logic, integrations, and constraints.',
+      },
+    },
+    required: ['moduleId', 'markdown'],
+  },
+}
+
+const promoteProjectTool: Anthropic.Tool = {
+  name: 'promote_project',
+  description:
+    'Promote the project from scope mode to architecture mode. Call this when the user asks to build modules, break into architecture, or move beyond quick capture. After promoting, use create_module and connect_modules to build the module map.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {},
+    required: [],
+  },
+}
+
+export { addOpenQuestionsTool, resolveOpenQuestionTool, writePrdTool }
 
 // ---------------------------------------------------------------------------
 // Tool sets per mode
@@ -286,6 +319,7 @@ const MODULE_TOOLS = [
   deleteModuleTool,
   connectModulesTool,
   lookupDocsTool,
+  writePrdTool,
 ]
 const NODE_EDGE_TOOLS = [
   createNodeTool,
@@ -294,6 +328,7 @@ const NODE_EDGE_TOOLS = [
   createEdgeTool,
   deleteEdgeTool,
   lookupDocsTool,
+  writePrdTool,
 ]
 const ALL_TOOLS = [
   createModuleTool,
@@ -306,6 +341,7 @@ const ALL_TOOLS = [
   createEdgeTool,
   deleteEdgeTool,
   lookupDocsTool,
+  writePrdTool,
 ]
 const SCOPE_TOOLS = [
   createNodeTool,
@@ -315,6 +351,12 @@ const SCOPE_TOOLS = [
   deleteEdgeTool,
   addOpenQuestionsTool,
   resolveOpenQuestionTool,
+  writePrdTool,
+  lookupDocsTool,
+  promoteProjectTool,
+  createModuleTool,
+  updateModuleTool,
+  connectModulesTool,
 ]
 
 export function getToolsForMode(mode: PromptMode): Anthropic.Tool[] {
@@ -513,6 +555,30 @@ export function createToolExecutor(projectId: string) {
           const result = await lookupDocumentation(library, topic)
           return ok(result.summary, {
             lookup: { library, topic },
+          })
+        }
+
+        case 'promote_project': {
+          const result = await updateProject(projectId, { mode: 'architecture' })
+          if (!result.success) return fail(result.error)
+          return ok('Project promoted to architecture mode.', { promoted: true })
+        }
+
+        case 'write_prd': {
+          const moduleId = input.moduleId as string
+          const markdown = input.markdown as string
+
+          const modResult = await getModuleById(moduleId)
+          if (!modResult.success) return fail(modResult.error)
+
+          const existing = modResult.data.prd_content ?? ''
+          const updated = existing ? `${existing}\n\n${markdown}` : markdown
+
+          const result = await updateModule(moduleId, { prd_content: updated })
+          if (!result.success) return fail(result.error)
+
+          return ok(`Updated PRD for "${result.data.name}"`, {
+            module: result.data,
           })
         }
 

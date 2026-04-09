@@ -206,6 +206,7 @@ export type Database = {
           name: string
           position_x: number | null
           position_y: number | null
+          prd_content: string
           project_id: string
           updated_at: string
         }
@@ -220,6 +221,7 @@ export type Database = {
           name: string
           position_x?: number | null
           position_y?: number | null
+          prd_content?: string
           project_id: string
           updated_at?: string
         }
@@ -234,6 +236,7 @@ export type Database = {
           name?: string
           position_x?: number | null
           position_y?: number | null
+          prd_content?: string
           project_id?: string
           updated_at?: string
         }

@@ -24,6 +24,8 @@ export type Module = {
   domain: string | null
   name: string
   description: string | null
+  /** AI-authored PRD markdown for this module, written progressively via write_prd tool. */
+  prd_content: string
   position: Position
   color: string
   entry_points: string[]
@@ -32,7 +34,10 @@ export type Module = {
   updated_at: string
 }
 
-export type CreateModuleInput = Omit<Module, 'id' | 'created_at' | 'updated_at' | 'domain'> & {
+export type CreateModuleInput = Omit<
+  Module,
+  'id' | 'created_at' | 'updated_at' | 'domain' | 'prd_content'
+> & {
   domain?: string | null
 }
 

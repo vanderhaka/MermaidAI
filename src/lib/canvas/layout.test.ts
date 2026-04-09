@@ -38,6 +38,7 @@ function makeModule(overrides: Partial<Module> & { id: string }): Module {
     domain: null,
     name: 'Module',
     description: 'Description',
+    prd_content: '',
     position: { x: 0, y: 0 },
     color: '#000',
     entry_points: ['input'],

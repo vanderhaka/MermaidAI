@@ -10,6 +10,7 @@ function makeModule(overrides: Partial<Module> = {}): Module {
     domain: null,
     name: 'Auth',
     description: null,
+    prd_content: '',
     position: { x: 0, y: 0 },
     color: '#4F46E5',
     entry_points: ['start'],

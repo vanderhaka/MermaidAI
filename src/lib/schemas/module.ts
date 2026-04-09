@@ -21,6 +21,7 @@ export const updateModuleSchema = z
     name: z.string().trim().min(1).max(100),
     domain: z.union([z.string().trim().max(80), z.null()]),
     description: z.string(),
+    prd_content: z.string(),
     position: z.object({ x: z.number(), y: z.number() }),
     color: z.string(),
     entry_points: z.array(z.string()),

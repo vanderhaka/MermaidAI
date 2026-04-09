@@ -77,6 +77,7 @@ describe('Module type', () => {
     domain: null,
     name: 'Auth Module',
     description: null,
+    prd_content: '',
     position: { x: 100, y: 200 },
     color: '#3B82F6',
     entry_points: ['login', 'register'],

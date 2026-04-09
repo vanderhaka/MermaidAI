@@ -174,6 +174,10 @@ You have tools to create modules, nodes, edges, and connections. Only use them a
 1. When creating modules, always specify \`entry_points\` and \`exit_points\` that describe how data flows in and out.
 2. After creating all modules, use \`connect_modules\` to link them together. Every module should connect to at least one other module. The user should see arrows between modules showing the data flow.
 
+## Writing the PRD
+
+After creating modules or connecting them, call \`write_prd\` to document the high-level purpose and requirements for each module. Write in clear, client-facing language.
+
 ## File Path Instructions
 
 When writing pseudocode for process nodes, always include a \`// file: <path>\` comment at the top of each pseudocode block to indicate which source file the code belongs to.
@@ -255,14 +259,22 @@ You are currently in the **Map/Walk** phase:
 
 ${buildExistingModulesSection(context.modules)}
 
-## Using Tools
+## Building Modules — CRITICAL
 
-You have tools to create, update, delete, and connect modules. Use them when the user asks to modify the architecture. Briefly confirm what you're about to do before making changes.
+**When the user describes features, components, or areas of the system, create modules immediately.** Do not just discuss what modules should exist — use \`create_module\` to build them, then \`connect_modules\` to link them.
 
 **Important — always connect modules:**
 1. When creating modules, always specify \`entry_points\` and \`exit_points\` that describe how data flows in and out.
 2. After creating modules, use \`connect_modules\` to link them together. Every module should connect to at least one other module.
 3. If existing modules lack connections, proactively suggest connecting them.
+
+## When to Use lookup_docs
+
+If the project involves a 3rd party service or library (e.g. Stripe, Supabase, Twilio), use the \`lookup_docs\` tool to fetch current documentation from Context7. Use it proactively when creating modules that involve external integrations.
+
+## Writing the PRD
+
+After creating or updating modules, call \`write_prd\` to document the module's purpose, requirements, and business rules. Each call appends to the module's PRD. Write in clear, client-facing language.
 
 ## File Path Instructions
 
@@ -311,6 +323,19 @@ ${buildCurrentNodesSection(context.nodes)}
 
 ${buildCurrentEdgesSection(context.edges)}
 
+## Building the Flow — CRITICAL
+
+**Every response where the user describes behavior, logic, or steps MUST result in new nodes and edges on the canvas.** Do not just talk about what should happen — build it immediately.
+
+- When the user describes a step: create a \`process\` node and connect it to the previous step with an edge.
+- When the user describes a branch or condition: create a \`decision\` node with conditional edges.
+- When this is the first input for the module: start with a \`start\` node, then the described flow steps.
+- Connect new nodes to existing ones — extend the flow, don't create disconnected islands.
+- Include pseudocode on process nodes with a \`// file: <path>\` comment at the top.
+- After building flow nodes, also call \`write_prd\` to document the requirements.
+
+**Do NOT just write PRD without building nodes. Do NOT just ask questions without building. Build first, ask one follow-up question after.**
+
 ## Node Types
 
 Available node types: \`process\`, \`decision\`, \`entry\`, \`exit\`, \`start\`, \`end\`, \`question\`
@@ -323,17 +348,13 @@ Available node types: \`process\`, \`decision\`, \`entry\`, \`exit\`, \`start\`,
 - **end** — the termination of a flow
 - **question** — an open question or gap to resolve
 
-## Using Tools
-
-You have tools to create, update, and delete nodes and edges. Use them when the user asks to build or modify the flow. Briefly confirm what you're about to do before making changes.
-
 ## When to Use lookup_docs
 
 If the module involves a 3rd party service or library (e.g. Stripe, Supabase, Twilio), use the \`lookup_docs\` tool to fetch **library** documentation (Context7-backed in this app). Use that for API shapes and SDK patterns. Use the **Authoritative module notes** section above for this project's cross-module contracts — those come from repo markdown, not from Context7.
 
-## File Path Instructions
+## Writing the PRD
 
-When writing pseudocode for process nodes, always include a \`// file: <path>\` comment at the top of each pseudocode block.`.trim()
+After creating or modifying nodes and edges, call \`write_prd\` to document the module's detailed requirements, business rules, and decision logic. Each call appends to the PRD. Write in clear, client-facing language.`.trim()
 }
 
 function buildOpenQuestionsSection(questions?: PromptContext['openQuestions']): string {
@@ -417,6 +438,35 @@ Available node types: \`process\`, \`decision\`, \`question\`, \`start\`, \`end\
 - **question** — an open question or gap to resolve (created via \`add_open_questions\`)
 - **start** — the beginning of a flow
 - **end** — the termination of a flow
+
+## When to Use lookup_docs
+
+If the user mentions a 3rd party service or library (e.g. Stripe, Supabase, Twilio, SendGrid), use the \`lookup_docs\` tool to fetch current documentation from Context7. This gives you accurate API patterns and integration details to capture in the flow and PRD. Use it proactively — don't wait to be asked.
+
+## Promoting to Architecture
+
+When the user asks to "build modules", "break this into modules", or otherwise move beyond quick capture:
+
+1. Call \`promote_project\` first — this switches the project to architecture mode.
+2. Then call \`create_module\` for each module, with \`entry_points\` and \`exit_points\`.
+3. Then call \`connect_modules\` to link them together.
+4. Call \`write_prd\` for each module to document its purpose and requirements.
+
+Do NOT tell the user to go somewhere else or click a button. You have the tools — do it yourself in one response. Analyze the captured flow on the canvas and break it into logical modules.
+
+## Writing the PRD — CRITICAL
+
+After EVERY response where you create or modify nodes, also call \`write_prd\` to document what was captured. The PRD is a live document that grows alongside the flowchart. Write it in clear, client-facing language — not technical jargon.
+
+Each \`write_prd\` call appends markdown. Structure content with headings matching the flow sections you're building:
+
+- **Requirements** — what the system must do (user stories or acceptance criteria)
+- **Business rules** — conditions, validations, thresholds
+- **Decision logic** — what happens at each branch point and why
+- **Integrations** — external services, APIs, data sources
+- **Open questions** — gaps flagged during the conversation
+
+Keep it concise but complete. The PRD should be useful to a developer who hasn't seen the flowchart.
 
 ## Current Open Questions
 
