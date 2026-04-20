@@ -11,7 +11,8 @@ type FloatingChatProps = {
   streamingContent: string
   toolActivity: string | null
   toolCalls?: string[]
-  onSend: (message: string) => void
+  onSend: (message: string) => void | Promise<boolean | void>
+  onAttachFile?: (file: File, note: string) => void | Promise<boolean | void>
   isOpen: boolean
   onToggle: () => void
   subtitle?: string
@@ -26,6 +27,7 @@ export default function FloatingChat({
   toolActivity,
   toolCalls = [],
   onSend,
+  onAttachFile,
   isOpen,
   onToggle,
   subtitle = 'Ask MermaidAI to sketch modules or refine the active module flow.',
@@ -100,7 +102,12 @@ export default function FloatingChat({
           />
 
           <div className="shrink-0 border-t border-gray-200 p-4">
-            <ChatInput onSend={onSend} isLoading={isLoading} autoFocus />
+            <ChatInput
+              onSend={onSend}
+              onAttachFile={onAttachFile}
+              isLoading={isLoading}
+              autoFocus
+            />
           </div>
         </section>
       )}

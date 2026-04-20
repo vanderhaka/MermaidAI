@@ -89,10 +89,76 @@ function ToolCallsSummary({ calls }: { calls: string[] }) {
   )
 }
 
+/**
+ * Detects the scope-upload message marker. Upload messages are persisted as:
+ *   📎 <filename>
+ *
+ *   <optional user note>
+ *
+ *   -----BEGIN SCOPE DOCUMENT-----
+ *   <parsed text>
+ *   -----END SCOPE DOCUMENT-----
+ */
+const DOC_PREFIX = '📎 '
+const DOC_START = '-----BEGIN SCOPE DOCUMENT-----'
+const DOC_END = '-----END SCOPE DOCUMENT-----'
+
+function parseUploadedDoc(content: string): { filename: string; note: string } | null {
+  if (!content.startsWith(DOC_PREFIX)) return null
+  const newlineIdx = content.indexOf('\n')
+  if (newlineIdx === -1) return null
+  const startIdx = content.indexOf(DOC_START)
+  const endIdx = content.indexOf(DOC_END, startIdx + DOC_START.length)
+  if (startIdx === -1 || endIdx === -1) return null
+
+  const header = content.slice(DOC_PREFIX.length, newlineIdx)
+  const filename = header.trim()
+  if (!filename) return null
+
+  const between = content.slice(newlineIdx + 1, startIdx).trim()
+  return { filename, note: between }
+}
+
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user'
 
   if (isUser) {
+    const uploaded = parseUploadedDoc(message.content)
+    if (uploaded) {
+      return (
+        <article
+          aria-label="user message"
+          data-role="user"
+          data-upload
+          className="flex justify-end"
+        >
+          <div className="max-w-[80%] space-y-2">
+            <div className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                className="h-4 w-4 shrink-0"
+                aria-hidden
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M15.621 4.379a3 3 0 00-4.242 0l-7 7a3 3 0 004.241 4.243h.001l.497-.5a.75.75 0 011.064 1.057l-.498.501-.002.002a4.5 4.5 0 01-6.364-6.364l7-7a4.5 4.5 0 016.368 6.36l-3.455 3.553A2.625 2.625 0 119.52 9.52l3.45-3.451a.75.75 0 111.061 1.06l-3.45 3.451a1.125 1.125 0 001.587 1.595l3.454-3.553a3 3 0 000-4.242z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              <span className="truncate font-medium">{uploaded.filename}</span>
+            </div>
+            {uploaded.note && (
+              <div className="rounded-lg bg-blue-600 px-4 py-2 text-white">
+                <p className="whitespace-pre-wrap">{uploaded.note}</p>
+              </div>
+            )}
+          </div>
+        </article>
+      )
+    }
+
     return (
       <article aria-label="user message" data-role="user" className="flex justify-end">
         <div className="max-w-[80%] rounded-lg bg-blue-600 px-4 py-2 text-white">

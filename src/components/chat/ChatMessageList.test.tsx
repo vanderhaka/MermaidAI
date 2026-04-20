@@ -113,4 +113,43 @@ describe('ChatMessageList', () => {
       expect(screen.getByTestId('scroll-anchor')).toBeInTheDocument()
     })
   })
+
+  describe('uploaded-document messages', () => {
+    const uploadedMsg = makeMessage({
+      id: 'msg-upload',
+      role: 'user',
+      content:
+        "📎 client-brief.pdf\n\nHere is the brief from today's call\n\n-----BEGIN SCOPE DOCUMENT-----\nFull project description with many words that should not appear in the chat bubble.\n-----END SCOPE DOCUMENT-----",
+    })
+
+    it('renders a file chip with the filename', () => {
+      render(<ChatMessageList messages={[uploadedMsg]} isLoading={false} />)
+      expect(screen.getByText('client-brief.pdf')).toBeInTheDocument()
+    })
+
+    it('renders the user note alongside the chip', () => {
+      render(<ChatMessageList messages={[uploadedMsg]} isLoading={false} />)
+      expect(screen.getByText(/here is the brief from today/i)).toBeInTheDocument()
+    })
+
+    it('hides the raw document content from the chat bubble', () => {
+      render(<ChatMessageList messages={[uploadedMsg]} isLoading={false} />)
+      expect(
+        screen.queryByText(/full project description with many words/i),
+      ).not.toBeInTheDocument()
+      expect(screen.queryByText(/-----BEGIN SCOPE DOCUMENT-----/)).not.toBeInTheDocument()
+    })
+
+    it('marks the article with a data-upload attribute for styling hooks', () => {
+      render(<ChatMessageList messages={[uploadedMsg]} isLoading={false} />)
+      const article = screen.getByRole('article')
+      expect(article).toHaveAttribute('data-upload')
+    })
+
+    it('renders a plain bubble when the content has no upload marker', () => {
+      render(<ChatMessageList messages={[userMsg]} isLoading={false} />)
+      const article = screen.getByRole('article')
+      expect(article).not.toHaveAttribute('data-upload')
+    })
+  })
 })

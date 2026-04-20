@@ -823,18 +823,23 @@ test.describe('Cache poisoning vectors', () => {
   test('X-Forwarded-Host header injection does not alter page content', async ({ page }) => {
     // A cache poisoning attack vector: inject X-Forwarded-Host to make
     // the server generate links pointing to an attacker's domain
-    const response = await page.goto('/', {
-      headers: {
-        'X-Forwarded-Host': 'evil.com',
-        'X-Forwarded-Proto': 'https',
-      },
+    const context = page.context()
+    await context.setExtraHTTPHeaders({
+      'X-Forwarded-Host': 'evil.com',
+      'X-Forwarded-Proto': 'https',
     })
-    expect(response).not.toBeNull()
-    expect(response!.status()).toBe(200)
 
-    // Page content should not contain references to evil.com
-    const bodyText = await page.content()
-    expect(bodyText).not.toContain('evil.com')
+    try {
+      const response = await page.goto('/')
+      expect(response).not.toBeNull()
+      expect(response!.status()).toBe(200)
+
+      // Page content should not contain references to evil.com
+      const bodyText = await page.content()
+      expect(bodyText).not.toContain('evil.com')
+    } finally {
+      await context.setExtraHTTPHeaders({})
+    }
   })
 })
 

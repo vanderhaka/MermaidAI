@@ -1,6 +1,6 @@
 export type ChatRole = 'user' | 'assistant' | 'system'
 
-export type ChatMode = 'discovery' | 'module_map' | 'module_detail'
+export type ChatMode = 'discovery' | 'module_map' | 'module_detail' | 'scope_build'
 
 export type GraphOperationType =
   | 'create_module'

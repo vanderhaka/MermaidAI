@@ -42,3 +42,4 @@ export class RateLimiter {
 }
 
 export const chatRateLimiter = new RateLimiter({ maxRequests: 20, windowMs: 60_000 })
+export const uploadRateLimiter = new RateLimiter({ maxRequests: 6, windowMs: 60_000 })

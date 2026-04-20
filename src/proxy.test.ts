@@ -22,7 +22,7 @@ vi.mock('next/server', () => ({
   },
 }))
 
-import { middleware, config } from '@/middleware'
+import { proxy, config } from '@/proxy'
 
 function createMockRequest(pathname: string): NextRequest {
   const url = new URL(pathname, 'http://localhost:3000')
@@ -32,7 +32,7 @@ function createMockRequest(pathname: string): NextRequest {
   } as unknown as NextRequest
 }
 
-describe('Auth middleware', () => {
+describe('Auth proxy', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockRedirect.mockReturnValue({ status: 302, headers: new Headers() })
@@ -49,7 +49,7 @@ describe('Auth middleware', () => {
 
     it('redirects /dashboard to /login', async () => {
       const request = createMockRequest('/dashboard')
-      await middleware(request)
+      await proxy(request)
 
       expect(mockRedirect).toHaveBeenCalledTimes(1)
       const redirectUrl = mockRedirect.mock.calls[0][0] as URL
@@ -58,7 +58,7 @@ describe('Auth middleware', () => {
 
     it('redirects /dashboard/settings to /login', async () => {
       const request = createMockRequest('/dashboard/settings')
-      await middleware(request)
+      await proxy(request)
 
       expect(mockRedirect).toHaveBeenCalledTimes(1)
       const redirectUrl = mockRedirect.mock.calls[0][0] as URL
@@ -67,21 +67,21 @@ describe('Auth middleware', () => {
 
     it('allows access to /', async () => {
       const request = createMockRequest('/')
-      await middleware(request)
+      await proxy(request)
 
       expect(mockRedirect).not.toHaveBeenCalled()
     })
 
     it('allows access to /login', async () => {
       const request = createMockRequest('/login')
-      await middleware(request)
+      await proxy(request)
 
       expect(mockRedirect).not.toHaveBeenCalled()
     })
 
     it('allows access to /signup', async () => {
       const request = createMockRequest('/signup')
-      await middleware(request)
+      await proxy(request)
 
       expect(mockRedirect).not.toHaveBeenCalled()
     })
@@ -97,14 +97,14 @@ describe('Auth middleware', () => {
 
     it('allows access to /dashboard', async () => {
       const request = createMockRequest('/dashboard')
-      await middleware(request)
+      await proxy(request)
 
       expect(mockRedirect).not.toHaveBeenCalled()
     })
 
     it('redirects /login to /dashboard', async () => {
       const request = createMockRequest('/login')
-      await middleware(request)
+      await proxy(request)
 
       expect(mockRedirect).toHaveBeenCalledTimes(1)
       const redirectUrl = mockRedirect.mock.calls[0][0] as URL
@@ -113,7 +113,7 @@ describe('Auth middleware', () => {
 
     it('redirects /signup to /dashboard', async () => {
       const request = createMockRequest('/signup')
-      await middleware(request)
+      await proxy(request)
 
       expect(mockRedirect).toHaveBeenCalledTimes(1)
       const redirectUrl = mockRedirect.mock.calls[0][0] as URL
@@ -122,7 +122,7 @@ describe('Auth middleware', () => {
 
     it('allows access to /', async () => {
       const request = createMockRequest('/')
-      await middleware(request)
+      await proxy(request)
 
       expect(mockRedirect).not.toHaveBeenCalled()
     })
@@ -136,7 +136,7 @@ describe('Auth middleware', () => {
       })
 
       const request = createMockRequest('/')
-      await middleware(request)
+      await proxy(request)
 
       expect(mockGetUser).toHaveBeenCalledTimes(1)
     })

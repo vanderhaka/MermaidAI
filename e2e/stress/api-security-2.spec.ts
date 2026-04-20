@@ -976,7 +976,7 @@ test.describe('Protected route access without authentication', () => {
   for (const route of protectedRoutes) {
     test(`${route} redirects to /login when unauthenticated`, async ({ request }) => {
       const res = await request.get(`${BASE_URL}${route}`, {
-        followRedirects: false,
+        maxRedirects: 0,
       })
 
       // Should redirect to login

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { RateLimiter, chatRateLimiter } from '@/lib/rate-limiter'
+import { RateLimiter, chatRateLimiter, uploadRateLimiter } from '@/lib/rate-limiter'
 
 describe('RateLimiter', () => {
   beforeEach(() => {
@@ -93,6 +93,13 @@ describe('RateLimiter', () => {
     it('is pre-configured with 20 requests per 60 seconds', () => {
       const result = chatRateLimiter.check('test-user')
       expect(result).toEqual({ allowed: true, remaining: 19 })
+    })
+  })
+
+  describe('uploadRateLimiter', () => {
+    it('is pre-configured with 6 requests per 60 seconds', () => {
+      const result = uploadRateLimiter.check('upload-user')
+      expect(result).toEqual({ allowed: true, remaining: 5 })
     })
   })
 })

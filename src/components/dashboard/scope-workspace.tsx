@@ -264,7 +264,7 @@ export function ScopeWorkspace({
     }
   }
 
-  async function handleSend(message: string) {
+  async function handleSend(message: string): Promise<boolean> {
     const optimisticUserMessage: ChatMessage = {
       id: `local-user-${crypto.randomUUID()}`,
       role: 'user',
@@ -279,6 +279,8 @@ export function ScopeWorkspace({
     setToolActivity(null)
     setCurrentToolCalls([])
     setError(null)
+
+    let streamStarted = false
 
     try {
       const activeModuleId = modules[0]?.id ?? null
@@ -315,6 +317,7 @@ export function ScopeWorkspace({
       if (!reader) {
         throw new Error('Assistant response stream was unavailable')
       }
+      streamStarted = true
 
       const decoder = new TextDecoder()
       const parser = createStreamParser()
@@ -357,8 +360,13 @@ export function ScopeWorkspace({
         ])
       }
       setSaveCounter((n) => n + 1)
+      return true
     } catch (err) {
+      if (!streamStarted) {
+        setMessages((current) => current.filter((entry) => entry.id !== optimisticUserMessage.id))
+      }
       setError(err instanceof Error ? err.message : 'Something went wrong')
+      return false
     } finally {
       setIsSending(false)
       setStreamingContent('')
@@ -367,6 +375,46 @@ export function ScopeWorkspace({
         setPendingRefresh(false)
         router.refresh()
       }
+    }
+  }
+
+  async function handleAttachFile(file: File, note: string): Promise<boolean> {
+    setIsSending(true)
+    setError(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('projectId', project.id)
+
+      const uploadResponse = await fetch('/api/scope/upload', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!uploadResponse.ok) {
+        const payload = await uploadResponse.json().catch(() => null)
+        throw new Error(payload?.error ?? 'Failed to parse document')
+      }
+
+      const { filename, text, truncated } = (await uploadResponse.json()) as {
+        filename: string
+        text: string
+        truncated: boolean
+      }
+
+      const noteSection = note.trim() ? `${note.trim()}\n\n` : ''
+      const truncationNote = truncated
+        ? '\n\n[Note: document was truncated to fit the context window.]'
+        : ''
+
+      const fullContent = `📎 ${filename}\n\n${noteSection}-----BEGIN SCOPE DOCUMENT-----\n${text}${truncationNote}\n-----END SCOPE DOCUMENT-----`
+
+      return await handleSend(fullContent)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong')
+      setIsSending(false)
+      return false
     }
   }
 
@@ -495,7 +543,7 @@ export function ScopeWorkspace({
             questions={openQuestions}
             onResolve={(question) => {
               setAssistantOpen(true)
-              handleSend(`Let's resolve this open question: "${question}"`)
+              void handleSend(`Let's resolve this open question: "${question}"`)
             }}
           />
         </div>
@@ -514,6 +562,7 @@ export function ScopeWorkspace({
         toolActivity={toolActivity}
         toolCalls={currentToolCalls}
         onSend={handleSend}
+        onAttachFile={handleAttachFile}
         isOpen={assistantOpen}
         onToggle={() => setAssistantOpen((prev) => !prev)}
         subtitle="Describe what the client needs — I'll build the flowchart."

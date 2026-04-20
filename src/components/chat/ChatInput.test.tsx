@@ -85,6 +85,74 @@ describe('ChatInput', () => {
 
       expect(onSend).not.toHaveBeenCalled()
     })
+
+    it('keeps the message in place when onSend returns false', async () => {
+      const user = userEvent.setup()
+      const failingSend = vi.fn<(message: string) => Promise<boolean>>().mockResolvedValue(false)
+      render(<ChatInput onSend={failingSend} isLoading={false} />)
+
+      const input = screen.getByRole('textbox')
+      await user.type(input, 'Retry me')
+      await user.click(screen.getByRole('button', { name: /send/i }))
+
+      expect(failingSend).toHaveBeenCalledWith('Retry me')
+      expect(input).toHaveValue('Retry me')
+    })
+  })
+
+  describe('attachments', () => {
+    it('sends the selected file and note via onAttachFile', async () => {
+      const user = userEvent.setup()
+      const onAttachFile = vi.fn<(file: File, note: string) => void>()
+      render(<ChatInput onSend={onSend} onAttachFile={onAttachFile} isLoading={false} />)
+
+      const file = new File(['hello'], 'brief.txt', { type: 'text/plain' })
+      const fileInput = screen.getByTestId('chat-file-input') as HTMLInputElement
+
+      await user.upload(fileInput, file)
+      await user.type(screen.getByRole('textbox'), 'Use this brief')
+      await user.click(screen.getByRole('button', { name: /send/i }))
+
+      expect(onAttachFile).toHaveBeenCalledWith(file, 'Use this brief')
+      expect(onSend).not.toHaveBeenCalled()
+    })
+
+    it('clears the file pill and note after a successful attachment send', async () => {
+      const user = userEvent.setup()
+      const onAttachFile = vi.fn<(file: File, note: string) => void>()
+      render(<ChatInput onSend={onSend} onAttachFile={onAttachFile} isLoading={false} />)
+
+      const file = new File(['hello'], 'brief.txt', { type: 'text/plain' })
+      const fileInput = screen.getByTestId('chat-file-input') as HTMLInputElement
+      const input = screen.getByRole('textbox')
+
+      await user.upload(fileInput, file)
+      await user.type(input, 'Use this brief')
+      await user.click(screen.getByRole('button', { name: /send/i }))
+
+      expect(screen.queryByTestId('attached-file-pill')).not.toBeInTheDocument()
+      expect(input).toHaveValue('')
+    })
+
+    it('keeps the file and note when onAttachFile returns false', async () => {
+      const user = userEvent.setup()
+      const failingAttach = vi
+        .fn<(file: File, note: string) => Promise<boolean>>()
+        .mockResolvedValue(false)
+      render(<ChatInput onSend={onSend} onAttachFile={failingAttach} isLoading={false} />)
+
+      const file = new File(['hello'], 'brief.txt', { type: 'text/plain' })
+      const fileInput = screen.getByTestId('chat-file-input') as HTMLInputElement
+      const input = screen.getByRole('textbox')
+
+      await user.upload(fileInput, file)
+      await user.type(input, 'Try again')
+      await user.click(screen.getByRole('button', { name: /send/i }))
+
+      expect(failingAttach).toHaveBeenCalledWith(file, 'Try again')
+      expect(screen.getByTestId('attached-file-pill')).toBeInTheDocument()
+      expect(input).toHaveValue('Try again')
+    })
   })
 
   describe('IME composition', () => {
