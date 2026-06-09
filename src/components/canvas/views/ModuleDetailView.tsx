@@ -9,6 +9,8 @@ import {
   Background,
   BackgroundVariant,
   useReactFlow,
+  useStore,
+  useStoreApi,
   MarkerType,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -270,22 +272,28 @@ function buildFunnelLaneLayout(
 }
 
 function toReactFlowEdges(
+  nodes: FlowNode[],
   edges: FlowEdge[],
   layoutEdges: Map<string, ModuleConnectionSection[]>,
   showFunnelLanes = false,
 ): Edge[] {
+  const nodesById = new Map(nodes.map((node) => [node.id, node]))
+
   return edges.map((e) => {
-    const sourceHandle = inferDecisionSourceHandle(e.label, e.condition)
+    const sourceNode = nodesById.get(e.source_node_id)
+    const sourceHandle =
+      sourceNode?.node_type === 'decision'
+        ? inferDecisionSourceHandle(e.label, e.condition)
+        : undefined
     const s = getModuleFlowEdgeStyle({
       label: e.label,
       condition: e.condition,
       sourceHandle: sourceHandle ?? null,
     })
-    return {
+    const flowEdge: Edge = {
       id: e.id,
       source: e.source_node_id,
       target: e.target_node_id,
-      sourceHandle,
       type: 'condition',
       data: {
         label: e.label,
@@ -300,6 +308,12 @@ function toReactFlowEdges(
         strokeDasharray: s.isErrorPath ? '6 3' : undefined,
       },
     }
+
+    if (sourceHandle) {
+      flowEdge.sourceHandle = sourceHandle
+    }
+
+    return flowEdge
   })
 }
 
@@ -315,15 +329,23 @@ function ModuleDetailFlow({
   showFunnelLanes?: boolean
 }) {
   const { fitView } = useReactFlow()
+  const store = useStoreApi()
 
   const { rfNodes, rfEdges } = useMemo(() => {
     const layoutNodesMap = new Map(layout.nodes.map((n) => [n.id, n]))
     const layoutEdgesMap = new Map(layout.edges.map((e) => [e.id, e.sections]))
     return {
       rfNodes: toReactFlowNodes(nodes, layoutNodesMap, showFunnelLanes),
-      rfEdges: toReactFlowEdges(edges, layoutEdgesMap, showFunnelLanes),
+      rfEdges: toReactFlowEdges(nodes, edges, layoutEdgesMap, showFunnelLanes),
     }
   }, [nodes, edges, layout, showFunnelLanes])
+  const flowMeasurementReady = useStore(
+    (state) =>
+      Boolean(state.domNode) &&
+      state.width > 0 &&
+      state.height > 0 &&
+      state.nodeLookup.size >= rfNodes.length,
+  )
   const fitViewOptions = useMemo(() => {
     const processNodeTargets = rfNodes
       .filter((node) => node.type !== 'question')
@@ -335,26 +357,52 @@ function ModuleDetailFlow({
   }, [rfNodes])
 
   useEffect(() => {
-    if (rfNodes.length === 0) return
-    const timer = setTimeout(() => fitView({ ...fitViewOptions, duration: 300 }), 50)
-    return () => clearTimeout(timer)
-  }, [rfNodes, rfEdges, fitView, fitViewOptions])
+    if (rfNodes.length === 0 || !flowMeasurementReady) return
+    const internalsTimer = setTimeout(() => {
+      const { domNode, updateNodeInternals } = store.getState()
+      const updates = new Map()
+
+      for (const node of rfNodes) {
+        const nodeElement = domNode?.querySelector(`.react-flow__node[data-id="${node.id}"]`)
+        if (nodeElement instanceof HTMLDivElement) {
+          updates.set(node.id, { id: node.id, nodeElement, force: true })
+        }
+      }
+
+      if (updates.size > 0) {
+        updateNodeInternals(updates, { triggerFitView: false })
+      }
+    }, 0)
+    const fitTimer = setTimeout(() => fitView({ ...fitViewOptions, duration: 300 }), 80)
+    return () => {
+      clearTimeout(internalsTimer)
+      clearTimeout(fitTimer)
+    }
+  }, [rfNodes, rfEdges, flowMeasurementReady, fitView, fitViewOptions, store])
 
   return (
-    <ReactFlow
-      nodes={rfNodes}
-      edges={rfEdges}
-      nodeTypes={nodeTypes}
-      edgeTypes={edgeTypes}
-      fitView
-      fitViewOptions={fitViewOptions}
-      minZoom={0.12}
-      maxZoom={1.6}
-      proOptions={{ hideAttribution: true }}
+    <div
+      className="h-full w-full"
+      data-testid="module-detail-flow"
+      data-node-count={rfNodes.length}
+      data-edge-count={rfEdges.length}
+      data-layout-edge-count={layout.edges.length}
     >
-      <Controls />
-      <Background variant={BackgroundVariant.Dots} />
-    </ReactFlow>
+      <ReactFlow
+        nodes={rfNodes}
+        edges={rfEdges}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        fitView
+        fitViewOptions={fitViewOptions}
+        minZoom={0.12}
+        maxZoom={1.6}
+        proOptions={{ hideAttribution: true }}
+      >
+        <Controls />
+        <Background variant={BackgroundVariant.Dots} />
+      </ReactFlow>
+    </div>
   )
 }
 

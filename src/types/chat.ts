@@ -1,5 +1,9 @@
 export type ChatRole = 'user' | 'assistant' | 'system'
 
+export const AI_PROVIDERS = ['cerebras', 'anthropic'] as const
+
+export type AIProvider = (typeof AI_PROVIDERS)[number]
+
 export const CHAT_MODES = [
   'discovery',
   'module_map',
@@ -141,6 +145,7 @@ export type ChatContext = {
   activeModuleId: string | null
   mode: ChatMode
   modules: ModuleSummary[]
+  provider?: AIProvider
   resolvingOpenQuestion?: {
     id: string
     section: string

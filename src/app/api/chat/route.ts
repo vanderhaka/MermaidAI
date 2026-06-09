@@ -16,7 +16,7 @@ import {
   buildSelectedOpenQuestionHelpResponse,
   isClickOnlySelectedQuestionPrompt,
 } from '@/lib/services/selected-open-question'
-import { CHAT_MODES } from '@/types/chat'
+import { AI_PROVIDERS, CHAT_MODES } from '@/types/chat'
 
 const resolvingOpenQuestionSchema = z.object({
   id: z.string().min(1),
@@ -28,6 +28,7 @@ const chatRequestSchema = z.object({
   projectId: z.string().min(1),
   message: z.string().trim().min(1),
   mode: z.enum(CHAT_MODES),
+  provider: z.enum(AI_PROVIDERS).optional().default('cerebras'),
   context: z.object({
     projectId: z.string(),
     projectName: z.string(),
@@ -93,7 +94,7 @@ export async function POST(request: Request) {
     )
   }
 
-  const { projectId, message, mode, context, history } = parsed.data
+  const { projectId, message, mode, provider, context, history } = parsed.data
 
   let llmStream: ReadableStream<string>
   try {
@@ -138,7 +139,9 @@ export async function POST(request: Request) {
           })
         : createToolExecutor(projectId)
 
-      llmStream = await callLLMWithTools(systemPrompt, messages, tools, executeTool)
+      llmStream = await callLLMWithTools(systemPrompt, messages, tools, executeTool, {
+        provider,
+      })
     }
   } catch (err) {
     return NextResponse.json({ error: sanitizeError(err) }, { status: 500 })

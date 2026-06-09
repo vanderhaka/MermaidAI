@@ -15,7 +15,7 @@ import { getProjectModeConfig } from '@/lib/project-modes'
 import { updateProject } from '@/lib/services/project-service'
 import { createStreamParser } from '@/lib/stream-parser'
 import { useGraphStore } from '@/store/graph-store'
-import type { ChatMessage } from '@/types/chat'
+import type { AIProvider, ChatMessage } from '@/types/chat'
 import type {
   FlowEdge,
   FlowNode,
@@ -41,6 +41,20 @@ const TOOL_LABELS: Record<string, string> = {
   write_prd: 'Writing PRD',
   promote_project: 'Switching to Full Design',
 }
+
+const GRAPH_MUTATION_TOOLS = new Set([
+  'create_node',
+  'update_node',
+  'delete_node',
+  'create_edge',
+  'delete_edge',
+  'add_open_questions',
+  'resolve_open_question',
+  'create_module',
+  'update_module',
+  'delete_module',
+  'connect_modules',
+])
 
 type SendOptions = {
   resolvingOpenQuestion?: Pick<OpenQuestion, 'id' | 'section' | 'question'>
@@ -111,6 +125,7 @@ export function ScopeWorkspace({
   const [prdOpen, setPrdOpen] = useState(false)
   const [pendingRefresh, setPendingRefresh] = useState(false)
   const [saveCounter, setSaveCounter] = useState(0)
+  const [modelProvider, setModelProvider] = useState<AIProvider>('cerebras')
   const [activeResolutionQuestion, setActiveResolutionQuestion] = useState<Pick<
     OpenQuestion,
     'id' | 'section' | 'question'
@@ -215,6 +230,9 @@ export function ScopeWorkspace({
     setError(null)
 
     let streamStarted = false
+    let completedSuccessfully = false
+    let graphChangedDuringSend = false
+    let refreshAfterSend = false
 
     try {
       const activeModuleId = modules[0]?.id ?? null
@@ -228,6 +246,7 @@ export function ScopeWorkspace({
           projectId: project.id,
           message,
           mode: chatMode,
+          provider: modelProvider,
           context: {
             projectId: project.id,
             projectName: project.name,
@@ -274,6 +293,12 @@ export function ScopeWorkspace({
           if (event.status === 'start') {
             setToolActivity(formatToolName(event.tool))
           } else if (event.data) {
+            if (GRAPH_MUTATION_TOOLS.has(event.tool)) {
+              graphChangedDuringSend = true
+            }
+            if (event.tool === 'promote_project') {
+              refreshAfterSend = true
+            }
             handleToolEvent(event.tool, event.data)
           }
         }
@@ -300,6 +325,7 @@ export function ScopeWorkspace({
       if (resolvingOpenQuestion && !isOnlySelectingQuestion) {
         setActiveResolutionQuestion(null)
       }
+      completedSuccessfully = true
       return true
     } catch (err) {
       if (!streamStarted) {
@@ -311,7 +337,11 @@ export function ScopeWorkspace({
       setIsSending(false)
       setStreamingContent('')
       setToolActivity(null)
-      if (pendingRefresh) {
+      if (
+        pendingRefresh ||
+        refreshAfterSend ||
+        (graphChangedDuringSend && !completedSuccessfully)
+      ) {
         setPendingRefresh(false)
         router.refresh()
       }
@@ -522,6 +552,8 @@ export function ScopeWorkspace({
         subtitle={modeConfig.chatSubtitle}
         isPeeking={isPeeking}
         examplePrompts={modeConfig.examplePrompts}
+        modelProvider={modelProvider}
+        onModelProviderChange={setModelProvider}
       />
 
       <PrdPreviewPanel

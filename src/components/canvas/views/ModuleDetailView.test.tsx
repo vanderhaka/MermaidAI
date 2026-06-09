@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FlowNode, FlowEdge } from '@/types/graph'
 
 const mockFitView = vi.hoisted(() => vi.fn())
+const mockStoreUpdateNodeInternals = vi.hoisted(() => vi.fn())
 
 vi.mock('@xyflow/react', () => ({
   ReactFlow: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => (
@@ -21,6 +22,28 @@ vi.mock('@xyflow/react', () => ({
   ),
   ReactFlowProvider: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
   useReactFlow: () => ({ fitView: mockFitView }),
+  useStoreApi: () => ({
+    getState: () => ({
+      domNode: null,
+      updateNodeInternals: mockStoreUpdateNodeInternals,
+    }),
+  }),
+  useStore: (
+    selector: (state: {
+      edges: unknown[]
+      nodeLookup: Map<string, unknown>
+      nodesInitialized: boolean
+      width: number
+      height: number
+    }) => unknown,
+  ) =>
+    selector({
+      edges: [],
+      nodeLookup: new Map(),
+      nodesInitialized: true,
+      width: 0,
+      height: 0,
+    }),
   Controls: () => <div data-testid="controls" />,
   Background: () => <div data-testid="background" />,
   BackgroundVariant: { Dots: 'dots' },
@@ -96,6 +119,7 @@ const sampleEdges: FlowEdge[] = [
 describe('ModuleDetailView', () => {
   beforeEach(() => {
     mockFitView.mockClear()
+    mockStoreUpdateNodeInternals.mockClear()
   })
 
   it('renders module name as header', () => {
@@ -331,6 +355,53 @@ describe('ModuleDetailView', () => {
             }),
           }),
         ]),
+      )
+    })
+  })
+
+  it('only assigns yes/no source handles to decision source nodes', async () => {
+    const nodes: FlowNode[] = [
+      makeNode({ id: 'payment', node_type: 'process', label: 'Process Stripe Payment' }),
+      makeNode({ id: 'complete', node_type: 'end', label: 'Checkout Complete' }),
+      makeNode({ id: 'coupon-check', node_type: 'decision', label: 'Backend conditions met?' }),
+      makeNode({ id: 'discount', node_type: 'process', label: 'Apply Discount' }),
+    ]
+    const edges: FlowEdge[] = [
+      makeEdge({
+        id: 'process-success',
+        source_node_id: 'payment',
+        target_node_id: 'complete',
+        label: 'Success',
+      }),
+      makeEdge({
+        id: 'decision-valid',
+        source_node_id: 'coupon-check',
+        target_node_id: 'discount',
+        label: 'Valid',
+      }),
+    ]
+
+    render(<ModuleDetailView moduleName="Checkout" nodes={nodes} edges={edges} />)
+
+    await waitFor(() => {
+      const flow = screen.getByTestId('react-flow')
+      const rfEdges = JSON.parse(flow.getAttribute('data-edges') ?? '[]')
+      const processSuccess = rfEdges.find((edge: { id?: string }) => edge.id === 'process-success')
+      const decisionValid = rfEdges.find((edge: { id?: string }) => edge.id === 'decision-valid')
+
+      expect(processSuccess).toEqual(
+        expect.objectContaining({
+          source: 'payment',
+          target: 'complete',
+        }),
+      )
+      expect(processSuccess).not.toHaveProperty('sourceHandle')
+      expect(decisionValid).toEqual(
+        expect.objectContaining({
+          source: 'coupon-check',
+          target: 'discount',
+          sourceHandle: 'yes',
+        }),
       )
     })
   })

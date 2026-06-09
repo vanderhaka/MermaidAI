@@ -249,14 +249,20 @@ const FLOW_DETAIL_LAYOUT_OPTIONS: LayoutOptions = {
   'elk.direction': 'DOWN',
   'elk.edgeRouting': 'ORTHOGONAL',
   'elk.padding': '[top=40,left=40,bottom=40,right=40]',
-  'elk.spacing.nodeNode': '60',
-  'elk.layered.spacing.nodeNodeBetweenLayers': '100',
-  'elk.layered.spacing.edgeNodeBetweenLayers': '40',
+  'elk.spacing.nodeNode': '64',
+  'elk.layered.spacing.nodeNodeBetweenLayers': '72',
+  'elk.layered.spacing.edgeNodeBetweenLayers': '36',
   'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
   'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
   'elk.layered.cycleBreaking.strategy': 'MODEL_ORDER',
   'elk.separateConnectedComponents': 'true',
 }
+
+const FLOW_ROUTE_STUB = 44
+const FLOW_ROUTE_LANE_GAP = 136
+const FLOW_ROUTE_LANE_STEP = 34
+const FLOW_ROUTE_NODE_PADDING = 24
+const FLOW_ROUTE_GAP_MARGIN = 6
 
 export type FlowDetailLayoutResult = {
   nodes: Array<{ id: string; position: Position }>
@@ -286,17 +292,7 @@ export async function computeFlowDetailLayout(
     }
   }
 
-  // Sort so start/entry nodes come first and end/exit last.
-  // ELK's MODEL_ORDER cycle breaking respects this order, ensuring
-  // edges from Start flow downward instead of being reversed.
-  const sortedNodes = [...nodes].sort((a, b) => {
-    const rank = (t: FlowNodeType) => {
-      if (t === 'start' || t === 'entry') return 0
-      if (t === 'end' || t === 'exit') return 2
-      return 1
-    }
-    return rank(a.node_type) - rank(b.node_type)
-  })
+  const sortedNodes = buildPreferredFlowNodeOrder(nodes, edges)
 
   const nodesById = new Map(nodes.map((n) => [n.id, n]))
 
@@ -348,23 +344,22 @@ export async function computeFlowDetailLayout(
   }
 
   const laidOutNodes = new Map((laidOutGraph.children ?? []).map((n) => [n.id, n]))
-  const laidOutEdges = new Map((laidOutGraph.edges ?? []).map((e) => [e.id, e]))
+  const layoutNodes = nodes.map((node) => {
+    const layoutNode = laidOutNodes.get(node.id)
+    return {
+      id: node.id,
+      position: {
+        x: layoutNode?.x ?? node.position.x,
+        y: layoutNode?.y ?? node.position.y,
+      },
+    }
+  })
+  const layoutNodeById = new Map(layoutNodes.map((node) => [node.id, node.position]))
+  const routedEdges = routeFlowDetailEdges(nodes, edges, layoutNodeById)
 
   return {
-    nodes: nodes.map((node) => {
-      const layoutNode = laidOutNodes.get(node.id)
-      return {
-        id: node.id,
-        position: {
-          x: layoutNode?.x ?? node.position.x,
-          y: layoutNode?.y ?? node.position.y,
-        },
-      }
-    }),
-    edges: edges.map((edge) => ({
-      id: edge.id,
-      sections: extractSections(laidOutEdges.get(edge.id)),
-    })),
+    nodes: layoutNodes,
+    edges: routedEdges,
   }
 }
 
@@ -419,6 +414,563 @@ function getFlowNodeSourcePortId(edge: FlowEdge, sourceNode: FlowNode | undefine
     return `${edge.source_node_id}::yes`
   }
   return `${edge.source_node_id}::out`
+}
+
+function buildPreferredFlowNodeOrder(nodes: FlowNode[], edges: FlowEdge[]): FlowNode[] {
+  const nodesById = new Map(nodes.map((node) => [node.id, node]))
+  const originalOrder = new Map(nodes.map((node, index) => [node.id, index]))
+  const adjacency = new Map<string, string[]>()
+
+  for (const node of nodes) {
+    adjacency.set(node.id, [])
+  }
+
+  for (const edge of edges) {
+    if (!nodesById.has(edge.source_node_id) || !nodesById.has(edge.target_node_id)) continue
+    adjacency.get(edge.source_node_id)?.push(edge.target_node_id)
+  }
+
+  for (const targets of adjacency.values()) {
+    targets.sort((a, b) => (originalOrder.get(a) ?? 0) - (originalOrder.get(b) ?? 0))
+  }
+
+  const components = findStronglyConnectedComponents(
+    nodes.map((node) => node.id),
+    adjacency,
+  )
+  const componentByNode = new Map<string, number>()
+  components.forEach((component, componentIndex) => {
+    for (const nodeId of component) {
+      componentByNode.set(nodeId, componentIndex)
+    }
+  })
+
+  const componentGraph = new Map<number, Set<number>>()
+  const componentIndegree = new Map<number, number>()
+  const componentRank = new Map<number, number>()
+
+  components.forEach((component, componentIndex) => {
+    componentGraph.set(componentIndex, new Set())
+    componentIndegree.set(componentIndex, 0)
+    componentRank.set(
+      componentIndex,
+      component.some((id) => isFlowStart(nodesById.get(id))) ? 0 : 1,
+    )
+  })
+
+  for (const edge of edges) {
+    const sourceComponent = componentByNode.get(edge.source_node_id)
+    const targetComponent = componentByNode.get(edge.target_node_id)
+    if (sourceComponent == null || targetComponent == null || sourceComponent === targetComponent) {
+      continue
+    }
+
+    const targets = componentGraph.get(sourceComponent)
+    if (!targets?.has(targetComponent)) {
+      targets?.add(targetComponent)
+      componentIndegree.set(targetComponent, (componentIndegree.get(targetComponent) ?? 0) + 1)
+    }
+  }
+
+  const queue = Array.from(componentIndegree.entries())
+    .filter(([, indegree]) => indegree === 0)
+    .map(([componentIndex]) => componentIndex)
+    .sort((a, b) => compareComponentsByOriginalOrder(components, originalOrder, a, b))
+
+  while (queue.length > 0) {
+    const componentIndex = queue.shift()!
+    const nextRank = (componentRank.get(componentIndex) ?? 0) + 1
+
+    for (const targetComponent of componentGraph.get(componentIndex) ?? []) {
+      componentRank.set(
+        targetComponent,
+        Math.max(componentRank.get(targetComponent) ?? 0, nextRank),
+      )
+      const nextIndegree = (componentIndegree.get(targetComponent) ?? 0) - 1
+      componentIndegree.set(targetComponent, nextIndegree)
+      if (nextIndegree === 0) {
+        queue.push(targetComponent)
+        queue.sort((a, b) => compareComponentsByOriginalOrder(components, originalOrder, a, b))
+      }
+    }
+  }
+
+  const internalRank = buildInternalComponentRanks(
+    components,
+    edges,
+    componentByNode,
+    originalOrder,
+  )
+
+  return [...nodes].sort((a, b) => {
+    const componentA = componentByNode.get(a.id) ?? 0
+    const componentB = componentByNode.get(b.id) ?? 0
+    const rankDiff = (componentRank.get(componentA) ?? 0) - (componentRank.get(componentB) ?? 0)
+    if (rankDiff !== 0) return rankDiff
+
+    const internalDiff = (internalRank.get(a.id) ?? 0) - (internalRank.get(b.id) ?? 0)
+    if (internalDiff !== 0) return internalDiff
+
+    const typeDiff = getFlowNodeTypeOrder(a.node_type) - getFlowNodeTypeOrder(b.node_type)
+    if (typeDiff !== 0) return typeDiff
+
+    return (originalOrder.get(a.id) ?? 0) - (originalOrder.get(b.id) ?? 0)
+  })
+}
+
+function findStronglyConnectedComponents(
+  nodeIds: string[],
+  adjacency: Map<string, string[]>,
+): string[][] {
+  const indexByNode = new Map<string, number>()
+  const lowlinkByNode = new Map<string, number>()
+  const stack: string[] = []
+  const onStack = new Set<string>()
+  const components: string[][] = []
+  let index = 0
+
+  function visit(nodeId: string) {
+    indexByNode.set(nodeId, index)
+    lowlinkByNode.set(nodeId, index)
+    index += 1
+    stack.push(nodeId)
+    onStack.add(nodeId)
+
+    for (const targetId of adjacency.get(nodeId) ?? []) {
+      if (!indexByNode.has(targetId)) {
+        visit(targetId)
+        lowlinkByNode.set(
+          nodeId,
+          Math.min(lowlinkByNode.get(nodeId) ?? 0, lowlinkByNode.get(targetId) ?? 0),
+        )
+      } else if (onStack.has(targetId)) {
+        lowlinkByNode.set(
+          nodeId,
+          Math.min(lowlinkByNode.get(nodeId) ?? 0, indexByNode.get(targetId) ?? 0),
+        )
+      }
+    }
+
+    if (lowlinkByNode.get(nodeId) !== indexByNode.get(nodeId)) return
+
+    const component: string[] = []
+    let current: string | undefined
+    do {
+      current = stack.pop()
+      if (!current) break
+      onStack.delete(current)
+      component.push(current)
+    } while (current !== nodeId)
+
+    components.push(component)
+  }
+
+  for (const nodeId of nodeIds) {
+    if (!indexByNode.has(nodeId)) {
+      visit(nodeId)
+    }
+  }
+
+  return components
+}
+
+function buildInternalComponentRanks(
+  components: string[][],
+  edges: FlowEdge[],
+  componentByNode: Map<string, number>,
+  originalOrder: Map<string, number>,
+) {
+  const rankByNode = new Map<string, number>()
+
+  components.forEach((component, componentIndex) => {
+    if (component.length === 1) {
+      rankByNode.set(component[0], 0)
+      return
+    }
+
+    const componentSet = new Set(component)
+    const internalAdjacency = new Map(component.map((nodeId) => [nodeId, [] as string[]]))
+    const entryNodes = new Set<string>()
+
+    for (const edge of edges) {
+      const sourceComponent = componentByNode.get(edge.source_node_id)
+      const targetComponent = componentByNode.get(edge.target_node_id)
+      if (targetComponent !== componentIndex) continue
+
+      if (sourceComponent !== componentIndex) {
+        entryNodes.add(edge.target_node_id)
+      } else if (componentSet.has(edge.source_node_id) && componentSet.has(edge.target_node_id)) {
+        internalAdjacency.get(edge.source_node_id)?.push(edge.target_node_id)
+      }
+    }
+
+    for (const targets of internalAdjacency.values()) {
+      targets.sort((a, b) => (originalOrder.get(a) ?? 0) - (originalOrder.get(b) ?? 0))
+    }
+
+    const startNodes =
+      entryNodes.size > 0
+        ? Array.from(entryNodes)
+        : [
+            [...component].sort(
+              (a, b) => (originalOrder.get(a) ?? 0) - (originalOrder.get(b) ?? 0),
+            )[0],
+          ]
+    const queue = startNodes.map((nodeId) => ({ nodeId, rank: 0 }))
+
+    while (queue.length > 0) {
+      const current = queue.shift()!
+      const previousRank = rankByNode.get(current.nodeId)
+      if (previousRank != null && previousRank <= current.rank) continue
+
+      rankByNode.set(current.nodeId, current.rank)
+
+      for (const targetId of internalAdjacency.get(current.nodeId) ?? []) {
+        queue.push({ nodeId: targetId, rank: current.rank + 1 })
+      }
+    }
+
+    for (const nodeId of component) {
+      if (!rankByNode.has(nodeId)) {
+        rankByNode.set(nodeId, component.length)
+      }
+    }
+  })
+
+  return rankByNode
+}
+
+function compareComponentsByOriginalOrder(
+  components: string[][],
+  originalOrder: Map<string, number>,
+  a: number,
+  b: number,
+) {
+  return (
+    getComponentOriginalOrder(components[a], originalOrder) -
+    getComponentOriginalOrder(components[b], originalOrder)
+  )
+}
+
+function getComponentOriginalOrder(component: string[], originalOrder: Map<string, number>) {
+  return Math.min(
+    ...component.map((nodeId) => originalOrder.get(nodeId) ?? Number.MAX_SAFE_INTEGER),
+  )
+}
+
+function getFlowNodeTypeOrder(type: FlowNodeType) {
+  if (type === 'start' || type === 'entry') return 0
+  if (type === 'decision') return 1
+  if (type === 'process' || type === 'question') return 2
+  if (type === 'end' || type === 'exit') return 3
+  return 2
+}
+
+function isFlowStart(node: FlowNode | undefined) {
+  return node?.node_type === 'start' || node?.node_type === 'entry'
+}
+
+type FlowDetailBox = {
+  id: string
+  type: FlowNodeType
+  x: number
+  y: number
+  width: number
+  height: number
+  right: number
+  bottom: number
+}
+
+function routeFlowDetailEdges(
+  nodes: FlowNode[],
+  edges: FlowEdge[],
+  layoutNodeById: Map<string, Position>,
+): Array<{ id: string; sections: ModuleConnectionSection[] }> {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  const boxes = nodes
+    .map((node) => {
+      const position = layoutNodeById.get(node.id)
+      if (!position) return null
+      const dim = getFlowDetailNodeDimensions(node.node_type)
+      return {
+        id: node.id,
+        type: node.node_type,
+        x: position.x,
+        y: position.y,
+        width: dim.width,
+        height: dim.height,
+        right: position.x + dim.width,
+        bottom: position.y + dim.height,
+      }
+    })
+    .filter((box): box is FlowDetailBox => box != null)
+  const boxById = new Map(boxes.map((box) => [box.id, box]))
+
+  if (boxes.length === 0) {
+    return edges.map((edge) => ({ id: edge.id, sections: [] }))
+  }
+
+  const bounds = {
+    minX: Math.min(...boxes.map((box) => box.x)),
+    maxX: Math.max(...boxes.map((box) => box.right)),
+  }
+
+  return edges.map((edge, index) => {
+    const sourceBox = boxById.get(edge.source_node_id)
+    const targetBox = boxById.get(edge.target_node_id)
+    if (!sourceBox || !targetBox) return { id: edge.id, sections: [] }
+
+    const sourceNode = nodeById.get(edge.source_node_id)
+    const sourceHandle =
+      sourceNode?.node_type === 'decision'
+        ? inferDecisionSourceHandle(edge.label, edge.condition)
+        : undefined
+    const candidates = buildFlowRouteCandidates(sourceBox, targetBox, sourceHandle, bounds, index)
+    const collisionRects = boxes
+      .filter((box) => box.id !== sourceBox.id && box.id !== targetBox.id)
+      .map(padFlowBox)
+    const bestCandidate = candidates
+      .map((points) => ({
+        points: collapseFlowRoutePoints(points),
+        collisions: countFlowRouteCollisions(points, collisionRects),
+        length: measureFlowRoute(points),
+      }))
+      .sort((a, b) => a.collisions - b.collisions || a.length - b.length)[0]
+
+    return {
+      id: edge.id,
+      sections: bestCandidate ? pointsToFlowSections(bestCandidate.points) : [],
+    }
+  })
+}
+
+function buildFlowRouteCandidates(
+  sourceBox: FlowDetailBox,
+  targetBox: FlowDetailBox,
+  sourceHandle: string | undefined,
+  bounds: { minX: number; maxX: number },
+  edgeIndex: number,
+): Position[][] {
+  const sourcePoint = getFlowRouteSourcePoint(sourceBox, sourceHandle)
+  const targetPoint = getFlowRouteTargetPoint(targetBox)
+  const candidates: Position[][] = []
+  const sourceExitsRight = sourceHandle === 'no'
+  const downwardGap = targetPoint.y - sourcePoint.y
+
+  if (!sourceExitsRight && downwardGap > FLOW_ROUTE_STUB) {
+    const midY = sourcePoint.y + downwardGap / 2
+    candidates.push([
+      sourcePoint,
+      { x: sourcePoint.x, y: midY },
+      { x: targetPoint.x, y: midY },
+      targetPoint,
+    ])
+  }
+
+  if (sourceExitsRight && downwardGap > FLOW_ROUTE_STUB / 2) {
+    const sideX = Math.max(sourcePoint.x + FLOW_ROUTE_STUB, sourceBox.right + FLOW_ROUTE_STUB)
+    const gapLaneX = targetBox.x - FLOW_ROUTE_NODE_PADDING - FLOW_ROUTE_GAP_MARGIN
+    const targetInY = targetPoint.y - FLOW_ROUTE_STUB
+
+    if (gapLaneX > sourceBox.right + FLOW_ROUTE_NODE_PADDING) {
+      candidates.push([
+        sourcePoint,
+        { x: gapLaneX, y: sourcePoint.y },
+        { x: gapLaneX, y: targetInY },
+        { x: targetPoint.x, y: targetInY },
+        targetPoint,
+      ])
+    }
+
+    candidates.push([
+      sourcePoint,
+      { x: sideX, y: sourcePoint.y },
+      { x: sideX, y: targetInY },
+      { x: targetPoint.x, y: targetInY },
+      targetPoint,
+    ])
+  }
+
+  if (
+    !sourceExitsRight &&
+    downwardGap < -FLOW_ROUTE_STUB &&
+    targetBox.right + FLOW_ROUTE_NODE_PADDING < sourceBox.x
+  ) {
+    const gapLaneX = sourceBox.x - FLOW_ROUTE_NODE_PADDING - FLOW_ROUTE_GAP_MARGIN
+    const targetInY = targetPoint.y - FLOW_ROUTE_STUB
+    const sourceOutY = sourcePoint.y + FLOW_ROUTE_STUB
+
+    if (gapLaneX > targetBox.right + FLOW_ROUTE_NODE_PADDING) {
+      candidates.push([
+        sourcePoint,
+        { x: sourcePoint.x, y: sourceOutY },
+        { x: gapLaneX, y: sourceOutY },
+        { x: gapLaneX, y: targetInY },
+        { x: targetPoint.x, y: targetInY },
+        targetPoint,
+      ])
+    }
+  }
+
+  const laneOffset = (edgeIndex % 5) * FLOW_ROUTE_LANE_STEP
+  const rightLane = bounds.maxX + FLOW_ROUTE_LANE_GAP + laneOffset
+  const leftLane = bounds.minX - FLOW_ROUTE_LANE_GAP - laneOffset
+  const preferredLanes = sourceExitsRight ? [rightLane, leftLane] : [leftLane, rightLane]
+
+  for (const laneX of preferredLanes) {
+    candidates.push(buildPerimeterFlowRoute(sourcePoint, targetPoint, sourceExitsRight, laneX))
+  }
+
+  return candidates
+}
+
+function getFlowRouteSourcePoint(box: FlowDetailBox, sourceHandle: string | undefined): Position {
+  if (sourceHandle === 'no') {
+    return { x: box.right, y: box.y + box.height / 2 }
+  }
+  return { x: box.x + box.width / 2, y: box.bottom }
+}
+
+function getFlowRouteTargetPoint(box: FlowDetailBox): Position {
+  return { x: box.x + box.width / 2, y: box.y }
+}
+
+function buildPerimeterFlowRoute(
+  sourcePoint: Position,
+  targetPoint: Position,
+  sourceExitsRight: boolean,
+  laneX: number,
+): Position[] {
+  const targetInY = targetPoint.y - FLOW_ROUTE_STUB
+
+  if (sourceExitsRight) {
+    return [
+      sourcePoint,
+      { x: laneX, y: sourcePoint.y },
+      { x: laneX, y: targetInY },
+      { x: targetPoint.x, y: targetInY },
+      targetPoint,
+    ]
+  }
+
+  const sourceOutY = sourcePoint.y + FLOW_ROUTE_STUB
+  return [
+    sourcePoint,
+    { x: sourcePoint.x, y: sourceOutY },
+    { x: laneX, y: sourceOutY },
+    { x: laneX, y: targetInY },
+    { x: targetPoint.x, y: targetInY },
+    targetPoint,
+  ]
+}
+
+function padFlowBox(box: FlowDetailBox) {
+  return {
+    x: box.x - FLOW_ROUTE_NODE_PADDING,
+    y: box.y - FLOW_ROUTE_NODE_PADDING,
+    right: box.right + FLOW_ROUTE_NODE_PADDING,
+    bottom: box.bottom + FLOW_ROUTE_NODE_PADDING,
+  }
+}
+
+function countFlowRouteCollisions(
+  points: Position[],
+  rects: Array<{ x: number; y: number; right: number; bottom: number }>,
+) {
+  let count = 0
+  for (const rect of rects) {
+    if (flowRouteIntersectsRect(points, rect)) count += 1
+  }
+  return count
+}
+
+function flowRouteIntersectsRect(
+  points: Position[],
+  rect: { x: number; y: number; right: number; bottom: number },
+) {
+  for (let index = 1; index < points.length; index += 1) {
+    if (segmentIntersectsRect(points[index - 1], points[index], rect)) return true
+  }
+  return false
+}
+
+function segmentIntersectsRect(
+  a: Position,
+  b: Position,
+  rect: { x: number; y: number; right: number; bottom: number },
+) {
+  if (pointInRect(a, rect) || pointInRect(b, rect)) return true
+
+  const corners = [
+    { x: rect.x, y: rect.y },
+    { x: rect.right, y: rect.y },
+    { x: rect.right, y: rect.bottom },
+    { x: rect.x, y: rect.bottom },
+  ]
+
+  return corners.some((corner, index) =>
+    segmentsIntersect(a, b, corner, corners[(index + 1) % corners.length]),
+  )
+}
+
+function pointInRect(
+  point: Position,
+  rect: { x: number; y: number; right: number; bottom: number },
+) {
+  return point.x >= rect.x && point.x <= rect.right && point.y >= rect.y && point.y <= rect.bottom
+}
+
+function segmentsIntersect(a: Position, b: Position, c: Position, d: Position) {
+  const denominator = (b.x - a.x) * (d.y - c.y) - (b.y - a.y) * (d.x - c.x)
+  if (denominator === 0) return false
+
+  const ua = ((d.x - c.x) * (a.y - c.y) - (d.y - c.y) * (a.x - c.x)) / denominator
+  const ub = ((b.x - a.x) * (a.y - c.y) - (b.y - a.y) * (a.x - c.x)) / denominator
+
+  return ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1
+}
+
+function measureFlowRoute(points: Position[]) {
+  return points.slice(1).reduce((total, point, index) => {
+    const previous = points[index]
+    return total + Math.hypot(point.x - previous.x, point.y - previous.y)
+  }, 0)
+}
+
+function collapseFlowRoutePoints(points: Position[]) {
+  const collapsed: Position[] = []
+
+  for (const point of points) {
+    const last = collapsed[collapsed.length - 1]
+    if (last && last.x === point.x && last.y === point.y) continue
+
+    collapsed.push(point)
+
+    while (collapsed.length >= 3) {
+      const first = collapsed[collapsed.length - 3]
+      const middle = collapsed[collapsed.length - 2]
+      const lastPoint = collapsed[collapsed.length - 1]
+      const vertical = first.x === middle.x && middle.x === lastPoint.x
+      const horizontal = first.y === middle.y && middle.y === lastPoint.y
+      if (!vertical && !horizontal) break
+      collapsed.splice(collapsed.length - 2, 1)
+    }
+  }
+
+  return collapsed
+}
+
+function pointsToFlowSections(points: Position[]): ModuleConnectionSection[] {
+  const collapsed = collapseFlowRoutePoints(points)
+  if (collapsed.length < 2) return []
+
+  return [
+    {
+      startPoint: collapsed[0],
+      endPoint: collapsed[collapsed.length - 1],
+      bendPoints: collapsed.slice(1, -1),
+    },
+  ]
 }
 
 function computeGridLayout<T extends { id: string; position: Position }>(

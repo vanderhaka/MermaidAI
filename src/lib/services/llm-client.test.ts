@@ -16,6 +16,17 @@ function createMockStream() {
   }
 }
 
+async function readStreamToString(stream: ReadableStream<string>): Promise<string> {
+  const reader = stream.getReader()
+  let result = ''
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    result += value
+  }
+  return result
+}
+
 let mockStreamInstance = createMockStream()
 const mockStreamFn = vi.fn(() => mockStreamInstance)
 let constructorCallCount = 0
@@ -35,6 +46,13 @@ describe('sanitizeError', () => {
     const { sanitizeError } = await import('@/lib/services/llm-client')
     const result = sanitizeError(new Error('Auth failed for sk-ant-api03-secret-key'))
     expect(result).not.toContain('sk-ant')
+    expect(result).toContain('[REDACTED]')
+  })
+
+  it('redacts Cerebras API keys (csk-...)', async () => {
+    const { sanitizeError } = await import('@/lib/services/llm-client')
+    const result = sanitizeError(new Error('Auth failed for csk-secret-key'))
+    expect(result).not.toContain('csk-')
     expect(result).toContain('[REDACTED]')
   })
 
@@ -128,6 +146,7 @@ describe('llm-client', () => {
   afterEach(() => {
     process.env = originalEnv
     mockStreamFn.mockClear()
+    vi.unstubAllGlobals()
   })
 
   describe('callLLM', () => {
@@ -237,6 +256,394 @@ describe('llm-client', () => {
       // stream called twice but constructor only once (singleton)
       expect(mockStreamFn).toHaveBeenCalledTimes(2)
       expect(constructorCallCount).toBe(1)
+    })
+  })
+
+  describe('callLLMWithTools provider routing', () => {
+    it('uses Cerebras Chat Completions by default', async () => {
+      process.env.CEREBRAS_API_KEY = 'csk-test-key'
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: 'Built the flow.', tool_calls: null } }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+
+      const { callLLMWithTools } = await import('@/lib/services/llm-client')
+      const stream = await callLLMWithTools(
+        'System prompt',
+        [{ role: 'user', content: 'Create a checkout flow' }],
+        [],
+        vi.fn(),
+      )
+
+      await expect(readStreamToString(stream)).resolves.toBe('Built the flow.')
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://api.cerebras.ai/v1/chat/completions',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            Authorization: 'Bearer csk-test-key',
+            'Content-Type': 'application/json',
+          }),
+        }),
+      )
+      const [, init] = fetchMock.mock.calls[0]
+      const body = JSON.parse(String(init.body))
+      expect(body).toEqual(
+        expect.objectContaining({
+          model: 'gpt-oss-120b',
+          tool_choice: 'auto',
+          parallel_tool_calls: false,
+          reasoning_effort: 'medium',
+          max_completion_tokens: 1200,
+        }),
+      )
+      expect(body.messages).toEqual([
+        { role: 'system', content: 'System prompt' },
+        { role: 'user', content: 'Create a checkout flow' },
+      ])
+    })
+
+    it('allows Cerebras max completion tokens to be overridden by env', async () => {
+      process.env.CEREBRAS_API_KEY = 'csk-test-key'
+      process.env.CEREBRAS_MAX_COMPLETION_TOKENS = '2400'
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: 'Built the flow.', tool_calls: null } }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+
+      const { callLLMWithTools } = await import('@/lib/services/llm-client')
+      const stream = await callLLMWithTools(
+        'System prompt',
+        [{ role: 'user', content: 'Create a checkout flow' }],
+        [],
+        vi.fn(),
+      )
+
+      await readStreamToString(stream)
+      const [, init] = fetchMock.mock.calls[0]
+      const body = JSON.parse(String(init.body))
+      expect(body.max_completion_tokens).toBe(2400)
+    })
+
+    it('uses the existing Anthropic stream when explicitly selected', async () => {
+      mockStreamInstance.finalMessage.mockResolvedValue({
+        stop_reason: 'end_turn',
+        content: [],
+      })
+
+      const { callLLMWithTools } = await import('@/lib/services/llm-client')
+      const stream = await callLLMWithTools(
+        'System prompt',
+        [{ role: 'user', content: 'Create a checkout flow' }],
+        [],
+        vi.fn(),
+        { provider: 'anthropic' },
+      )
+
+      await readStreamToString(stream)
+      expect(mockStreamFn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: 'claude-haiku-4-5-20251001',
+          system: 'System prompt',
+          tool_choice: { type: 'auto', disable_parallel_tool_use: true },
+        }),
+      )
+    })
+
+    it('parses Cerebras tool calls, executes them, and continues with tool results', async () => {
+      process.env.CEREBRAS_API_KEY = 'csk-test-key'
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              choices: [
+                {
+                  message: {
+                    content: null,
+                    reasoning: 'Need a node.',
+                    tool_calls: [
+                      {
+                        id: 'call-1',
+                        type: 'function',
+                        function: {
+                          name: 'create_node',
+                          arguments:
+                            '{"moduleId":"mod-1","label":"Collect order","nodeType":"process"}',
+                        },
+                      },
+                    ],
+                  },
+                },
+              ],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              choices: [
+                { message: { content: 'Created the order intake node.', tool_calls: null } },
+              ],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        )
+      vi.stubGlobal('fetch', fetchMock)
+      const executeTool = vi.fn().mockResolvedValue({
+        content: 'Created node "Collect order"',
+        isError: false,
+        data: { node: { id: 'node-1', label: 'Collect order' } },
+      })
+
+      const { TOOL_EVENT_DELIMITER, callLLMWithTools } = await import('@/lib/services/llm-client')
+      const stream = await callLLMWithTools(
+        'System prompt',
+        [{ role: 'user', content: 'Create an order intake node' }],
+        [
+          {
+            name: 'create_node',
+            description: 'Create a node',
+            input_schema: {
+              type: 'object',
+              properties: {
+                moduleId: { type: 'string' },
+                label: { type: 'string' },
+                nodeType: { type: 'string' },
+              },
+              required: ['moduleId', 'label', 'nodeType'],
+            },
+          },
+        ],
+        executeTool,
+      )
+
+      const text = await readStreamToString(stream)
+
+      expect(executeTool).toHaveBeenCalledWith('create_node', {
+        moduleId: 'mod-1',
+        label: 'Collect order',
+        nodeType: 'process',
+      })
+      expect(text).toContain(`${TOOL_EVENT_DELIMITER}`)
+      expect(text).toContain('Created the order intake node.')
+
+      const [, secondInit] = fetchMock.mock.calls[1]
+      const secondBody = JSON.parse(String(secondInit.body))
+      expect(secondBody.messages).toContainEqual(
+        expect.objectContaining({
+          role: 'assistant',
+          reasoning: 'Need a node.',
+          tool_calls: [
+            expect.objectContaining({
+              id: 'call-1',
+              function: expect.objectContaining({ name: 'create_node' }),
+            }),
+          ],
+        }),
+      )
+      expect(secondBody.messages).toContainEqual({
+        role: 'tool',
+        tool_call_id: 'call-1',
+        content: 'Created node "Collect order"',
+      })
+    })
+
+    it('falls back to Anthropic when a follow-up Cerebras tool round is rate limited', async () => {
+      process.env.CEREBRAS_API_KEY = 'csk-test-key'
+      mockStreamInstance.finalMessage.mockImplementation(async () => {
+        mockStreamInstance.emit('text', 'Finished the flow with Claude.')
+        return {
+          stop_reason: 'end_turn',
+          content: [{ type: 'text', text: 'Finished the flow with Claude.' }],
+        }
+      })
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              choices: [
+                {
+                  message: {
+                    content: null,
+                    tool_calls: [
+                      {
+                        id: 'call-1',
+                        type: 'function',
+                        function: {
+                          name: 'create_node',
+                          arguments: '{"moduleId":"mod-1","label":"Collect order"}',
+                        },
+                      },
+                    ],
+                  },
+                },
+              ],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: { message: 'Too Many Requests' } }), {
+            status: 429,
+            headers: {
+              'Content-Type': 'application/json',
+              'retry-after': '2',
+              'x-ratelimit-remaining-tokens-minute': '0',
+            },
+          }),
+        )
+      vi.stubGlobal('fetch', fetchMock)
+      const executeTool = vi.fn().mockResolvedValue({
+        content: 'Created node "Collect order"',
+        isError: false,
+        data: { node: { id: 'node-1', label: 'Collect order' } },
+      })
+
+      const { TOOL_EVENT_DELIMITER, callLLMWithTools } = await import('@/lib/services/llm-client')
+      const stream = await callLLMWithTools(
+        'System prompt',
+        [{ role: 'user', content: 'Create an order intake node' }],
+        [
+          {
+            name: 'create_node',
+            description: 'Create a node',
+            input_schema: {
+              type: 'object',
+              properties: {
+                moduleId: { type: 'string' },
+                label: { type: 'string' },
+              },
+              required: ['moduleId', 'label'],
+            },
+          },
+        ],
+        executeTool,
+      )
+
+      const text = await readStreamToString(stream)
+
+      expect(executeTool).toHaveBeenCalledWith('create_node', {
+        moduleId: 'mod-1',
+        label: 'Collect order',
+      })
+      expect(text).toContain(`${TOOL_EVENT_DELIMITER}`)
+      expect(text).not.toContain('OSS is temporarily rate limited by Cerebras')
+      expect(text).toContain('Finished the flow with Claude.')
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(mockStreamFn).toHaveBeenCalledTimes(1)
+
+      const anthropicRequest = (
+        mockStreamFn.mock.calls as unknown as Array<[{ messages: unknown[] }]>
+      )[0]?.[0]
+      const anthropicMessages = anthropicRequest?.messages
+      expect(anthropicMessages).toContainEqual(
+        expect.objectContaining({
+          role: 'assistant',
+          content: [
+            expect.objectContaining({
+              type: 'tool_use',
+              id: 'call-1',
+              name: 'create_node',
+              input: {
+                moduleId: 'mod-1',
+                label: 'Collect order',
+              },
+            }),
+          ],
+        }),
+      )
+      expect(anthropicMessages).toContainEqual({
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call-1',
+            content: 'Created node "Collect order"',
+            is_error: undefined,
+          },
+        ],
+      })
+    })
+
+    it('adapts tool JSON schema for Cerebras strict mode', async () => {
+      const { adaptSchemaForCerebras } = await import('@/lib/services/llm-client')
+
+      const adapted = adaptSchemaForCerebras({
+        type: 'object',
+        properties: {
+          title: { type: ['string', 'null'], maxLength: 80, pattern: '.*' },
+          tags: {
+            type: 'array',
+            minItems: 1,
+            items: {
+              type: 'object',
+              properties: {
+                label: { type: 'string', minLength: 1 },
+              },
+              required: ['label'],
+            },
+          },
+        },
+        required: ['title'],
+      })
+
+      expect(adapted).toEqual({
+        type: 'object',
+        properties: {
+          title: {
+            anyOf: [{ type: 'string' }, { type: 'null' }],
+          },
+          tags: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                label: { type: 'string' },
+              },
+              required: ['label'],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ['title'],
+        additionalProperties: false,
+      })
+    })
+
+    it('preserves non-nullable union types as anyOf for Cerebras', async () => {
+      const { adaptSchemaForCerebras } = await import('@/lib/services/llm-client')
+
+      const adapted = adaptSchemaForCerebras({
+        type: 'object',
+        properties: {
+          value: { type: ['string', 'number'] },
+          single: { type: ['string'] },
+        },
+        required: ['value'],
+      })
+
+      expect(adapted).toEqual({
+        type: 'object',
+        properties: {
+          value: { anyOf: [{ type: 'string' }, { type: 'number' }] },
+          single: { type: 'string' },
+        },
+        required: ['value'],
+        additionalProperties: false,
+      })
     })
   })
 })
