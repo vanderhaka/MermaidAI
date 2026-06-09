@@ -19,6 +19,7 @@ import { MODULE_CARD_WIDTH, MODULE_CARD_HEIGHT } from '@/components/canvas/nodes
 import type { HandleSide } from '@/components/canvas/nodes/ModuleCardNode'
 import { expandConnectionHandlePoints } from '@/lib/canvas/handleSlots'
 import { inferDecisionSourceHandle } from '@/lib/canvas/flow-edge-style'
+import { separateOverlappingSegments } from '@/lib/canvas/edge-separation'
 
 /** Fallback when node type is unknown; prefer {@link getFlowDetailNodeDimensions}. */
 export const DEFAULT_NODE_WIDTH = 172
@@ -359,7 +360,9 @@ export async function computeFlowDetailLayout(
 
   return {
     nodes: layoutNodes,
-    edges: routedEdges,
+    // Routes are picked per edge with no knowledge of each other — spread
+    // corridors that landed on top of one another before rendering.
+    edges: separateOverlappingSegments(routedEdges),
   }
 }
 
