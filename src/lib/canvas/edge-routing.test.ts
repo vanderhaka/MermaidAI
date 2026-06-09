@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import * as edgeRouting from '@/lib/canvas/edge-routing'
 import {
+  buildBackEdgePath,
   buildPathFromSections,
   buildRoundedOrthogonalPath,
   getStrokeWidth,
@@ -12,11 +13,61 @@ import type { ModuleConnectionSection } from '@/lib/canvas/layout'
 describe('edge-routing public API', () => {
   it('keeps only component-consumed helpers exported', () => {
     expect(Object.keys(edgeRouting).sort()).toEqual([
+      'buildBackEdgePath',
       'buildPathFromSections',
       'buildRoundedOrthogonalPath',
+      'getPathMidpoint',
       'getStrokeWidth',
       'toRgba',
     ])
+  })
+})
+
+describe('buildBackEdgePath', () => {
+  it('routes through the gap between horizontally separated nodes', () => {
+    const { edgePath } = buildBackEdgePath({
+      sourceX: 95,
+      sourceY: 228,
+      targetX: 381,
+      targetY: 132,
+      sourceBounds: { x: 47, y: 132, width: 96, height: 96 },
+      targetBounds: { x: 231, y: 132, width: 300, height: 60 },
+      borderRadius: 0,
+    })
+
+    // Corridor at the midpoint of the 143..231 gap (187), approach 24px above the target.
+    expect(edgePath).toBe('M95 228 L95 252 L187 252 L187 108 L381 108 L381 132')
+  })
+
+  it('detours around the side with clearance when nodes overlap horizontally', () => {
+    const { edgePath } = buildBackEdgePath({
+      sourceX: 150,
+      sourceY: 260,
+      targetX: 170,
+      targetY: 0,
+      sourceBounds: { x: 0, y: 200, width: 300, height: 60 },
+      targetBounds: { x: 20, y: 0, width: 300, height: 60 },
+      borderRadius: 0,
+    })
+
+    // Left corridor sits a full clearance (24px) outside the leftmost node edge —
+    // never hugging or crossing either node.
+    expect(edgePath).toBe('M150 260 L150 284 L-24 284 L-24 -24 L170 -24 L170 0')
+  })
+
+  it('places the label on the corridor segment', () => {
+    const { labelX, labelY } = buildBackEdgePath({
+      sourceX: 95,
+      sourceY: 228,
+      targetX: 381,
+      targetY: 132,
+      sourceBounds: { x: 47, y: 132, width: 96, height: 96 },
+      targetBounds: { x: 231, y: 132, width: 300, height: 60 },
+      borderRadius: 0,
+    })
+
+    expect(labelX).toBe(187)
+    expect(labelY).toBe(129)
   })
 })
 

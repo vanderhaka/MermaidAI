@@ -2,10 +2,30 @@
 
 import { useState } from 'react'
 import type { CSSProperties } from 'react'
-import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, Position } from '@xyflow/react'
-import type { EdgeProps } from '@xyflow/react'
+import {
+  BaseEdge,
+  EdgeLabelRenderer,
+  getSmoothStepPath,
+  Position,
+  useInternalNode,
+} from '@xyflow/react'
+import type { EdgeProps, InternalNode } from '@xyflow/react'
 import type { ModuleConnectionSection } from '@/lib/canvas/layout'
-import { buildPathFromSections, toRgba, getStrokeWidth } from '@/lib/canvas/edge-routing'
+import {
+  buildBackEdgePath,
+  buildPathFromSections,
+  toRgba,
+  getStrokeWidth,
+  type NodeBounds,
+} from '@/lib/canvas/edge-routing'
+
+function getNodeBounds(node: InternalNode | undefined): NodeBounds | null {
+  if (!node) return null
+  const width = node.measured?.width ?? node.width ?? 0
+  const height = node.measured?.height ?? node.height ?? 0
+  if (width <= 0 || height <= 0) return null
+  return { x: node.internals.positionAbsolute.x, y: node.internals.positionAbsolute.y, width, height }
+}
 
 type ConditionEdgeData = {
   label?: string | null
@@ -16,6 +36,8 @@ type ConditionEdgeData = {
 
 export default function ConditionEdge({
   id,
+  source,
+  target,
   sourceX,
   sourceY,
   targetX,
@@ -28,6 +50,8 @@ export default function ConditionEdge({
   style,
 }: EdgeProps) {
   const [isHovered, setIsHovered] = useState(false)
+  const sourceNode = useInternalNode(source)
+  const targetNode = useInternalNode(target)
   const edgeData = (data as ConditionEdgeData) ?? {}
   const { label, condition } = edgeData
   const labelColor = edgeData.labelColor ?? '#16a34a'
@@ -37,6 +61,20 @@ export default function ConditionEdge({
   const { edgePath, labelX, labelY } = (() => {
     if (hasExplicitSections) {
       return buildPathFromSections(sections, sourcePosition, targetPosition, 12)
+    }
+
+    // Back edge (target above source, bottom → top): route around the endpoint
+    // nodes using their real bounds — smoothstep would hug or cross them.
+    const sourceBounds = getNodeBounds(sourceNode)
+    const targetBounds = getNodeBounds(targetNode)
+    if (
+      targetY < sourceY &&
+      sourcePosition === Position.Bottom &&
+      targetPosition === Position.Top &&
+      sourceBounds &&
+      targetBounds
+    ) {
+      return buildBackEdgePath({ sourceX, sourceY, targetX, targetY, sourceBounds, targetBounds })
     }
 
     const [p, lx, ly] = getSmoothStepPath({
