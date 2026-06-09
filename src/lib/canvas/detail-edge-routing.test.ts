@@ -15,8 +15,9 @@ describe('buildBackEdgePath', () => {
       borderRadius: 0,
     })
 
-    // Corridor at the midpoint of the 143..231 gap (187), approach 24px above the target.
-    expect(edgePath).toBe('M95 228 L95 252 L187 252 L187 108 L381 108 L381 132')
+    // Climbs right after clearing the source (143 + 24 = 167), then traverses
+    // at approach height (24px above the target).
+    expect(edgePath).toBe('M95 228 L95 252 L167 252 L167 108 L381 108 L381 132')
   })
 
   it('detours around the side with clearance when nodes overlap horizontally', () => {
@@ -46,8 +47,8 @@ describe('buildBackEdgePath', () => {
       borderRadius: 0,
     })
 
-    expect(labelX).toBe(187)
-    expect(labelY).toBe(129)
+    expect(labelX).toBe(167)
+    expect(labelY).toBe(109)
   })
 
   it('slides the corridor past third-party nodes in its way', () => {
@@ -66,9 +67,10 @@ describe('buildBackEdgePath', () => {
       borderRadius: 0,
     })
 
-    // Midpoint corridor collides with the parked node, slides left into the
-    // source node, and finally escapes left of everything: 47 - 24 = 23.
-    expect(edgePath).toBe('M95 228 L95 252 L23 252 L23 108 L381 108 L381 132')
+    // Near-source corridor (167) collides with the parked node and slides toward
+    // the target: past the parked node (210 + 24 = 234), then past the target
+    // node itself (531 + 24 = 555), approaching it from above on the far side.
+    expect(edgePath).toBe('M95 228 L95 252 L555 252 L555 108 L381 108 L381 132')
   })
 })
 

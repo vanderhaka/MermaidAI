@@ -90,24 +90,31 @@ export function buildBackEdgePath({
   const targetLeft = targetBounds.x
   const targetRight = targetBounds.x + targetBounds.width
 
-  const leftCorridor = Math.min(sourceLeft, targetLeft) - clearance
-  const rightCorridor = Math.max(sourceRight, targetRight) + clearance
-  const leftDetour = Math.abs(sourceX - leftCorridor) + Math.abs(targetX - leftCorridor)
-  const rightDetour = Math.abs(rightCorridor - sourceX) + Math.abs(rightCorridor - targetX)
-  const escapeDirection: 1 | -1 = leftDetour <= rightDetour ? -1 : 1
-
-  let corridorX: number
-  if (targetLeft - sourceRight >= clearance * 2) {
-    corridorX = (sourceRight + targetLeft) / 2
-  } else if (sourceLeft - targetRight >= clearance * 2) {
-    corridorX = (sourceLeft + targetRight) / 2
-  } else {
-    corridorX = escapeDirection === -1 ? leftCorridor : rightCorridor
-  }
-
   const stubY = sourceY + clearance
   const approachY = targetBounds.y - clearance
-  corridorX = resolveCorridorX(corridorX, escapeDirection, approachY, stubY, obstacles, clearance)
+
+  // Climb as soon as the edge clears the source node, so the long traverse runs
+  // at approach height — a mid-gap climb reads as an arbitrary jog in empty space.
+  let corridorX: number
+  if (targetLeft - sourceRight >= clearance * 2) {
+    corridorX = resolveCorridorX(sourceRight + clearance, 1, approachY, stubY, obstacles, clearance)
+  } else if (sourceLeft - targetRight >= clearance * 2) {
+    corridorX = resolveCorridorX(sourceLeft - clearance, -1, approachY, stubY, obstacles, clearance)
+  } else {
+    const leftCorridor = Math.min(sourceLeft, targetLeft) - clearance
+    const rightCorridor = Math.max(sourceRight, targetRight) + clearance
+    const leftDetour = Math.abs(sourceX - leftCorridor) + Math.abs(targetX - leftCorridor)
+    const rightDetour = Math.abs(rightCorridor - sourceX) + Math.abs(rightCorridor - targetX)
+    const escapeDirection: 1 | -1 = leftDetour <= rightDetour ? -1 : 1
+    corridorX = resolveCorridorX(
+      escapeDirection === -1 ? leftCorridor : rightCorridor,
+      escapeDirection,
+      approachY,
+      stubY,
+      obstacles,
+      clearance,
+    )
+  }
 
   return finishRoute(
     [
