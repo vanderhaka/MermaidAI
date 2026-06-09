@@ -98,6 +98,31 @@ export default function ConditionEdge({
   const sections = edgeData.sections ?? []
   const hasExplicitSections = sections.length > 0
 
+  // Incoming edges of different kinds (green success vs orange error) land at
+  // different spots on the target; same-kind edges still converge on one entry.
+  const spreadTargetX = (() => {
+    if (
+      targetPosition !== Position.Top ||
+      !targetNode ||
+      !SPREADABLE_SOURCE_TYPES.has(targetNode.type ?? '')
+    ) {
+      return targetX
+    }
+    const kinds: string[] = []
+    for (const sibling of allEdges) {
+      if (sibling.target !== target) continue
+      const kind = String((sibling.data as { labelColor?: string } | undefined)?.labelColor ?? '')
+      if (!kinds.includes(kind)) kinds.push(kind)
+    }
+    if (kinds.length < 2) return targetX
+    const order = kinds.indexOf(String(edgeData.labelColor ?? ''))
+    const bounds = getNodeBounds(targetNode)
+    if (order === -1 || !bounds) return targetX
+    const offset = (order - (kinds.length - 1) / 2) * 24
+    const limit = bounds.width / 2 - 20
+    return targetX + Math.max(Math.min(offset, limit), -limit)
+  })()
+
   const { edgePath, labelX, labelY } = (() => {
     if (hasExplicitSections) {
       return buildPathFromSections(sections, sourcePosition, targetPosition, 12)
@@ -120,7 +145,7 @@ export default function ConditionEdge({
       return buildBackEdgePath({
         sourceX: spreadSourceX,
         sourceY,
-        targetX,
+        targetX: spreadTargetX,
         targetY,
         sourceBounds,
         targetBounds,
@@ -138,7 +163,7 @@ export default function ConditionEdge({
       return buildSideExitPath({
         sourceX,
         sourceY,
-        targetX,
+        targetX: spreadTargetX,
         targetY,
         exitDirection: sourcePosition === Position.Right ? 1 : -1,
         targetBounds,
@@ -150,7 +175,7 @@ export default function ConditionEdge({
       sourceX: spreadSourceX,
       sourceY,
       sourcePosition,
-      targetX,
+      targetX: spreadTargetX,
       targetY,
       targetPosition,
       borderRadius: 14,

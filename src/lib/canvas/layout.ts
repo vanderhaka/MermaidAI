@@ -18,7 +18,7 @@ import type {
 import { MODULE_CARD_WIDTH, MODULE_CARD_HEIGHT } from '@/components/canvas/nodes/ModuleCardNode'
 import type { HandleSide } from '@/components/canvas/nodes/ModuleCardNode'
 import { expandConnectionHandlePoints } from '@/lib/canvas/handleSlots'
-import { inferDecisionSourceHandle } from '@/lib/canvas/flow-edge-style'
+import { getModuleFlowEdgeStyle, inferDecisionSourceHandle } from '@/lib/canvas/flow-edge-style'
 import { separateOverlappingSegments } from '@/lib/canvas/edge-separation'
 
 /** Fallback when node type is unknown; prefer {@link getFlowDetailNodeDimensions}. */
@@ -720,18 +720,32 @@ function routeFlowDetailEdges(
 
   // Outgoing edges that share a source port get distinct start offsets so they
   // leave the node from visibly different spots instead of one stacked stub.
+  // Incoming edges land apart by path kind (green success vs orange error) —
+  // same-kind edges still converge on one entry point.
   const sourcePortCounts = new Map<string, number>()
   const sourcePortOrder = new Map<string, number>()
+  const targetKinds = new Map<string, string[]>()
+  const edgeKindById = new Map<string, string>()
   for (const edge of edges) {
     const sourceNode = nodeById.get(edge.source_node_id)
-    const handle =
+    const inferredHandle =
       sourceNode?.node_type === 'decision'
         ? inferDecisionSourceHandle(edge.label, edge.condition)
-        : 'out'
-    const key = `${edge.source_node_id}::${handle}`
+        : undefined
+    const key = `${edge.source_node_id}::${inferredHandle ?? 'out'}`
     const order = sourcePortCounts.get(key) ?? 0
     sourcePortOrder.set(edge.id, order)
     sourcePortCounts.set(key, order + 1)
+
+    const kind = getModuleFlowEdgeStyle({
+      label: edge.label,
+      condition: edge.condition,
+      sourceHandle: inferredHandle ?? null,
+    }).stroke
+    edgeKindById.set(edge.id, kind)
+    const kinds = targetKinds.get(edge.target_node_id) ?? []
+    if (!kinds.includes(kind)) kinds.push(kind)
+    targetKinds.set(edge.target_node_id, kinds)
   }
 
   return edges.map((edge, index) => {
@@ -747,6 +761,10 @@ function routeFlowDetailEdges(
     const handleKey = `${edge.source_node_id}::${sourceHandle ?? 'out'}`
     const siblingCount = sourcePortCounts.get(handleKey) ?? 1
     const spreadIndex = (sourcePortOrder.get(edge.id) ?? 0) - (siblingCount - 1) / 2
+    const kinds = targetKinds.get(edge.target_node_id) ?? []
+    const kindIndex = kinds.indexOf(edgeKindById.get(edge.id) ?? '')
+    const targetSpreadIndex =
+      kinds.length > 1 && kindIndex !== -1 ? kindIndex - (kinds.length - 1) / 2 : 0
     const candidates = buildFlowRouteCandidates(
       sourceBox,
       targetBox,
@@ -754,6 +772,7 @@ function routeFlowDetailEdges(
       bounds,
       index,
       spreadIndex,
+      targetSpreadIndex,
     )
     const collisionRects = boxes
       .filter((box) => box.id !== sourceBox.id && box.id !== targetBox.id)
@@ -780,9 +799,10 @@ function buildFlowRouteCandidates(
   bounds: { minX: number; maxX: number },
   edgeIndex: number,
   spreadIndex = 0,
+  targetSpreadIndex = 0,
 ): Position[][] {
   const sourcePoint = getFlowRouteSourcePoint(sourceBox, sourceHandle, spreadIndex)
-  const targetPoint = getFlowRouteTargetPoint(targetBox)
+  const targetPoint = getFlowRouteTargetPoint(targetBox, targetSpreadIndex)
   const candidates: Position[][] = []
   const sourceExitsRight = sourceHandle === 'no'
   const downwardGap = targetPoint.y - sourcePoint.y
@@ -854,10 +874,17 @@ function buildFlowRouteCandidates(
   return candidates
 }
 
-/** Node shapes whose bottom edge is a straight line — safe to spread starts along. */
-const SPREADABLE_SOURCE_TYPES = new Set<FlowNodeType>(['process', 'question', 'entry', 'exit'])
+/** Node shapes whose top/bottom edges are straight lines — safe to spread stubs along. */
+const SPREADABLE_NODE_TYPES = new Set<FlowNodeType>(['process', 'question', 'entry', 'exit'])
 
-const SOURCE_SPREAD_STEP = 24
+const STUB_SPREAD_STEP = 24
+
+/** Diamonds and circles connect at a single vertex point, where offset stubs would float. */
+function getStubSpread(box: FlowDetailBox, spreadIndex: number): number {
+  if (!SPREADABLE_NODE_TYPES.has(box.type)) return 0
+  const limit = box.width / 2 - 20
+  return Math.max(Math.min(spreadIndex * STUB_SPREAD_STEP, limit), -limit)
+}
 
 function getFlowRouteSourcePoint(
   box: FlowDetailBox,
@@ -867,21 +894,11 @@ function getFlowRouteSourcePoint(
   if (sourceHandle === 'no') {
     return { x: box.right, y: box.y + box.height / 2 }
   }
-
-  // Spread sibling outputs along the bottom edge; diamonds and circles exit at
-  // a single vertex point, where offset starts would float beside the shape.
-  const spread = SPREADABLE_SOURCE_TYPES.has(box.type)
-    ? Math.max(
-        Math.min(spreadIndex * SOURCE_SPREAD_STEP, box.width / 2 - 20),
-        -(box.width / 2 - 20),
-      )
-    : 0
-
-  return { x: box.x + box.width / 2 + spread, y: box.bottom }
+  return { x: box.x + box.width / 2 + getStubSpread(box, spreadIndex), y: box.bottom }
 }
 
-function getFlowRouteTargetPoint(box: FlowDetailBox): Position {
-  return { x: box.x + box.width / 2, y: box.y }
+function getFlowRouteTargetPoint(box: FlowDetailBox, spreadIndex = 0): Position {
+  return { x: box.x + box.width / 2 + getStubSpread(box, spreadIndex), y: box.y }
 }
 
 function buildPerimeterFlowRoute(
