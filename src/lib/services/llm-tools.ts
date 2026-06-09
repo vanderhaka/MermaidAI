@@ -19,7 +19,7 @@ import {
 import { updateProject } from '@/lib/services/project-service'
 import { createOpenQuestion, resolveOpenQuestion } from '@/lib/services/open-question-service'
 import type { ToolResult } from '@/lib/services/llm-client'
-import type { FlowNode } from '@/types/graph'
+import type { FlowEdge, FlowNode } from '@/types/graph'
 import type { PromptMode } from '@/lib/services/prompt-builder'
 import { validateFlowGraph, type FlowGraphIssue } from '@/lib/canvas/graph-invariants'
 import { isClickOnlySelectedQuestionPrompt } from '@/lib/services/selected-open-question'
@@ -191,6 +191,40 @@ const createEdgeTool: Anthropic.Tool = {
   },
 }
 
+const insertNodeBetweenTool: Anthropic.Tool = {
+  name: 'insert_node_between',
+  description:
+    'Insert a new node between two existing nodes in one atomic operation: removes any direct edge source → target, creates the new node, and wires source → new node → target. Use this whenever a step must be added between two existing steps. Never replicate this manually with delete_edge/create_node/create_edge.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      moduleId: { type: 'string', description: 'ID of the module containing both nodes' },
+      sourceNodeId: { type: 'string', description: 'ID of the node the new step comes after' },
+      targetNodeId: { type: 'string', description: 'ID of the node the new step comes before' },
+      label: { type: 'string', description: 'Label for the new node' },
+      nodeType: {
+        type: 'string',
+        enum: ['process', 'decision', 'entry', 'exit', 'start', 'end'],
+        description: 'Type of the new node (usually process or decision)',
+      },
+      pseudocode: {
+        type: 'string',
+        description: 'Optional pseudocode for process nodes.',
+      },
+      incomingEdgeLabel: {
+        type: 'string',
+        description:
+          'Optional label for the edge source → new node. Defaults to the label of the replaced direct edge, if any.',
+      },
+      outgoingEdgeLabel: {
+        type: 'string',
+        description: 'Optional label for the edge new node → target.',
+      },
+    },
+    required: ['moduleId', 'sourceNodeId', 'targetNodeId', 'label', 'nodeType'],
+  },
+}
+
 const deleteEdgeTool: Anthropic.Tool = {
   name: 'delete_edge',
   description: 'Delete an edge from a module.',
@@ -308,10 +342,16 @@ const writePrdTool: Anthropic.Tool = {
 const promoteProjectTool: Anthropic.Tool = {
   name: 'promote_project',
   description:
-    'Promote the project from scope mode to architecture mode. Call this when the user asks to build modules, break into architecture, or move beyond quick capture. After promoting, use create_module and connect_modules to build the module map.',
+    'Switch the project to a different mode. Use "to": "architecture" when the user asks to build modules, break into architecture, or move to full design — then use create_module and connect_modules to build the module map. From brainstorm mode, "to": "scope" switches to Quick Capture with open-question tracking.',
   input_schema: {
     type: 'object' as const,
-    properties: {},
+    properties: {
+      to: {
+        type: 'string',
+        enum: ['architecture', 'scope'],
+        description: 'Target project mode. Defaults to architecture.',
+      },
+    },
     required: [],
   },
 }
@@ -358,6 +398,7 @@ const SCOPE_TOOLS = [
   deleteNodeTool,
   createEdgeTool,
   deleteEdgeTool,
+  insertNodeBetweenTool,
   addOpenQuestionsTool,
   resolveOpenQuestionTool,
   writePrdTool,
@@ -373,7 +414,18 @@ const FLOWCHART_TOOLS = [
   deleteNodeTool,
   createEdgeTool,
   deleteEdgeTool,
+  insertNodeBetweenTool,
   writePrdTool,
+]
+const BRAINSTORM_TOOLS = [
+  createNodeTool,
+  updateNodeTool,
+  deleteNodeTool,
+  createEdgeTool,
+  deleteEdgeTool,
+  insertNodeBetweenTool,
+  writePrdTool,
+  promoteProjectTool,
 ]
 
 export function getToolsForMode(mode: PromptMode): Anthropic.Tool[] {
@@ -388,6 +440,8 @@ export function getToolsForMode(mode: PromptMode): Anthropic.Tool[] {
       return SCOPE_TOOLS
     case 'flowchart_build':
       return FLOWCHART_TOOLS
+    case 'brainstorm_build':
+      return BRAINSTORM_TOOLS
   }
 }
 
@@ -637,6 +691,84 @@ export function createToolExecutor(projectId: string, options: ToolExecutorOptio
           return ok(`Deleted edge ${input.edgeId}`, { deletedEdgeId: input.edgeId })
         }
 
+        case 'insert_node_between': {
+          const moduleId = input.moduleId as string
+          const sourceNodeId = input.sourceNodeId as string
+          const targetNodeId = input.targetNodeId as string
+
+          if (sourceNodeId === targetNodeId) {
+            return fail('sourceNodeId and targetNodeId must be two different nodes.')
+          }
+
+          const graph = await getGraphForModule(moduleId)
+          if (!graph.success) return fail(graph.error)
+
+          const nodeIds = new Set(graph.data.nodes.map((node) => node.id))
+          const missing = [sourceNodeId, targetNodeId].filter((id) => !nodeIds.has(id))
+          if (missing.length > 0) {
+            const known = graph.data.nodes
+              .map((node) => `"${node.label}" (id: ${node.id})`)
+              .join(', ')
+            return fail(
+              `Node(s) not found in module: ${missing.join(', ')}. Existing nodes: ${known || 'none'}`,
+            )
+          }
+
+          const staleEdges = graph.data.edges.filter(
+            (edge) => edge.source_node_id === sourceNodeId && edge.target_node_id === targetNodeId,
+          )
+
+          const nodeResult = await addNode({
+            module_id: moduleId,
+            label: input.label as string,
+            node_type: input.nodeType as string,
+            pseudocode: (input.pseudocode as string) ?? '',
+            position: { x: 0, y: 0 },
+            color: DEFAULT_NODE_COLOR,
+          })
+          if (!nodeResult.success) return fail(nodeResult.error)
+
+          const removedEdgeIds: string[] = []
+          for (const edge of staleEdges) {
+            const removed = await removeEdge(edge.id)
+            if (removed.success) removedEdgeIds.push(edge.id)
+          }
+
+          const edges: FlowEdge[] = []
+          const failures: string[] = []
+          const incomingEdge = await addEdge({
+            module_id: moduleId,
+            source_node_id: sourceNodeId,
+            target_node_id: nodeResult.data.id,
+            label: (input.incomingEdgeLabel as string | undefined) ?? staleEdges[0]?.label ?? undefined,
+            condition: staleEdges[0]?.condition ?? undefined,
+          })
+          if (incomingEdge.success) edges.push(incomingEdge.data)
+          else failures.push(`incoming edge: ${incomingEdge.error}`)
+
+          const outgoingEdge = await addEdge({
+            module_id: moduleId,
+            source_node_id: nodeResult.data.id,
+            target_node_id: targetNodeId,
+            label: input.outgoingEdgeLabel as string | undefined,
+          })
+          if (outgoingEdge.success) edges.push(outgoingEdge.data)
+          else failures.push(`outgoing edge: ${outgoingEdge.error}`)
+
+          // Report partial failures as a warning (not isError) so the client still
+          // receives the node/edges that did land and the model can repair the rest.
+          const warning =
+            failures.length > 0
+              ? ` WARNING: ${failures.join('; ')}. Finish wiring with create_edge.`
+              : ''
+
+          return okWithGraphCheck(
+            `Inserted node "${nodeResult.data.label}" (id: ${nodeResult.data.id}) between ${sourceNodeId} and ${targetNodeId}.${warning}`,
+            moduleId,
+            { node: nodeResult.data, edges, removedEdgeIds },
+          )
+        }
+
         case 'lookup_docs': {
           const library = input.library as string
           const topic = input.topic as string
@@ -647,9 +779,10 @@ export function createToolExecutor(projectId: string, options: ToolExecutorOptio
         }
 
         case 'promote_project': {
-          const result = await updateProject(projectId, { mode: 'architecture' })
+          const to = input.to === 'scope' ? 'scope' : 'architecture'
+          const result = await updateProject(projectId, { mode: to })
           if (!result.success) return fail(result.error)
-          return ok('Project promoted to architecture mode.', { promoted: true })
+          return ok(`Project promoted to ${to} mode.`, { promoted: true, mode: to })
         }
 
         case 'write_prd': {

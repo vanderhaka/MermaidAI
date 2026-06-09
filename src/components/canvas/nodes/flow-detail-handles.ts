@@ -1,6 +1,8 @@
 import type { CSSProperties } from 'react'
 
-export const FLOW_DETAIL_HANDLE_BASE_CLASS = '!h-[4px] !w-[4px] !border-0'
+// Handles are pure edge anchors in flow-detail views (no manual connecting) —
+// keep them invisible so arrowheads terminate cleanly at the node border.
+export const FLOW_DETAIL_HANDLE_BASE_CLASS = '!h-[4px] !w-[4px] !border-0 !opacity-0'
 
 export const FLOW_DETAIL_HANDLE_COLOR = {
   success: '!bg-green-500',

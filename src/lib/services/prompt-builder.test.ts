@@ -348,7 +348,8 @@ describe('buildSystemPrompt', () => {
       const prompt = buildSystemPrompt(mode, baseContext)
       expect(prompt).toContain('Graph check:')
       expect(prompt).toContain('repair those issues')
-      expect(prompt).toContain('delete the stale direct edge')
+      expect(prompt).toContain('insert_node_between')
+      expect(prompt).toContain('removes the stale direct edge')
       expect(prompt).toContain('contradictory failure branches')
     })
 
@@ -602,6 +603,137 @@ describe('buildSystemPrompt', () => {
         },
       })
       expect(prompt).toContain('mod-flowchart-123')
+      expect(prompt).toContain('Never ask the user for a module ID')
+    })
+  })
+
+  describe('brainstorm_build mode', () => {
+    const mode: PromptMode = 'brainstorm_build'
+
+    function makeBrainstormNode(
+      id: string,
+      label: string,
+      nodeType: 'start' | 'process' | 'decision' | 'end',
+    ) {
+      return {
+        id,
+        module_id: 'mod-1',
+        node_type: nodeType,
+        label,
+        pseudocode: '',
+        position: { x: 0, y: 0 },
+        color: '#F43F5E',
+        created_at: '',
+        updated_at: '',
+      } as const
+    }
+
+    it('returns a non-empty string with the project name', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toBeTruthy()
+      expect(prompt).toContain('TaskFlow')
+      expect(prompt.toLowerCase()).toContain('brainstorm mode')
+    })
+
+    it('instructs the AI to ask exactly one follow-up question with a recommended answer', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt.toLowerCase()).toContain('exactly one follow-up question')
+      expect(prompt).toContain('Recommended answer:')
+    })
+
+    it('forbids the AI from declaring the brainstorm finished', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toContain('Never declare the brainstorm finished')
+    })
+
+    it('references insert_node_between for inserting steps between existing nodes', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toContain('insert_node_between')
+    })
+
+    it('instructs the AI to disambiguate fuzzy node references instead of guessing', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toContain('Never guess between distinct matches')
+    })
+
+    it('reports an empty canvas in the detected gaps section', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toContain('Detected Gaps')
+      expect(prompt).toContain('The canvas is empty')
+    })
+
+    it('surfaces structural gaps from the graph invariants scan', () => {
+      const prompt = buildSystemPrompt(mode, {
+        ...baseContext,
+        nodes: [
+          makeBrainstormNode('start-1', 'Start', 'start'),
+          makeBrainstormNode('proc-1', 'Take Payment', 'process'),
+        ],
+        edges: [
+          {
+            id: 'edge-1',
+            module_id: 'mod-1',
+            source_node_id: 'start-1',
+            target_node_id: 'proc-1',
+            label: null,
+            condition: null,
+            created_at: '',
+          },
+        ],
+      })
+      expect(prompt).toContain('Structural gaps detected')
+      expect(prompt).toContain('dead_end')
+      expect(prompt).toContain('Take Payment')
+    })
+
+    it('redirects to substance questions when the graph is structurally clean', () => {
+      const prompt = buildSystemPrompt(mode, {
+        ...baseContext,
+        nodes: [
+          makeBrainstormNode('start-1', 'Start', 'start'),
+          makeBrainstormNode('end-1', 'Done', 'end'),
+        ],
+        edges: [
+          {
+            id: 'edge-1',
+            module_id: 'mod-1',
+            source_node_id: 'start-1',
+            target_node_id: 'end-1',
+            label: null,
+            condition: null,
+            created_at: '',
+          },
+        ],
+      })
+      expect(prompt).toContain('No structural gaps detected')
+    })
+
+    it('only promotes when the user explicitly chooses a target mode', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toContain('promote_project')
+      expect(prompt).toContain('to: "scope"')
+      expect(prompt).toContain('to: "architecture"')
+    })
+
+    it('includes module ID when currentModule is provided', () => {
+      const prompt = buildSystemPrompt(mode, {
+        ...baseContext,
+        currentModule: {
+          id: 'mod-brainstorm-123',
+          name: 'Brainstorm',
+          description: 'Brainstorm module',
+          prd_content: '',
+          domain: null,
+          project_id: 'proj-1',
+          position: { x: 0, y: 0 },
+          color: '#F43F5E',
+          entry_points: [],
+          exit_points: [],
+          created_at: '',
+          updated_at: '',
+        },
+      })
+      expect(prompt).toContain('mod-brainstorm-123')
       expect(prompt).toContain('Never ask the user for a module ID')
     })
   })

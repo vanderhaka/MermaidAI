@@ -17,7 +17,7 @@ export default function QuestionNode({ data }: NodeProps) {
   const { question } = data as QuestionNodeData
 
   return (
-    <div className="group relative box-border w-[300px] rounded-lg border-2 border-amber-400 bg-amber-50 px-4 py-2 shadow-sm transition-shadow hover:shadow-md hover:border-amber-500">
+    <div className="group relative box-border flex min-h-[60px] w-[300px] flex-col justify-center rounded-lg border-2 border-amber-400 bg-amber-50 px-4 py-2 shadow-sm transition-shadow hover:shadow-md hover:border-amber-500">
       <NodeTooltip
         type="Open Question"
         description="An unresolved question that needs an answer."

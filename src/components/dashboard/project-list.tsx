@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getProjectModeConfig } from '@/lib/project-modes'
 import { createProject, deleteProject } from '@/lib/services/project-service'
@@ -163,6 +163,27 @@ export function ProjectList({ projects }: ProjectListProps) {
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [modeFilter, setModeFilter] = useState<'all' | ProjectMode>('all')
+  const modeSelectorRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!showModeSelector) return
+
+    function handlePointerDown(e: PointerEvent) {
+      if (modeSelectorRef.current && !modeSelectorRef.current.contains(e.target as Node)) {
+        setShowModeSelector(false)
+      }
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setShowModeSelector(false)
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [showModeSelector])
 
   async function handleCreateWithMode(mode: ProjectMode) {
     setIsCreating(true)
@@ -211,6 +232,7 @@ export function ProjectList({ projects }: ProjectListProps) {
       {showModeSelector && (
         <div className="pointer-events-none absolute inset-x-0 top-0 z-50 flex justify-end px-6 pt-20">
           <div
+            ref={modeSelectorRef}
             data-testid="mode-selector"
             className="pointer-events-auto w-72 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl"
           >
@@ -235,7 +257,7 @@ export function ProjectList({ projects }: ProjectListProps) {
               </button>
             </div>
             <div className="grid gap-2">
-              {(['scope', 'flowchart', 'architecture'] as const).map((mode) => {
+              {(['scope', 'brainstorm', 'flowchart', 'architecture'] as const).map((mode) => {
                 const config = getProjectModeConfig(mode)
                 return (
                   <button
@@ -295,6 +317,7 @@ export function ProjectList({ projects }: ProjectListProps) {
               [
                 ['all', 'All'],
                 ['scope', getProjectModeConfig('scope').selectorLabel],
+                ['brainstorm', getProjectModeConfig('brainstorm').selectorLabel],
                 ['flowchart', getProjectModeConfig('flowchart').selectorLabel],
                 ['architecture', getProjectModeConfig('architecture').selectorLabel],
               ] as const

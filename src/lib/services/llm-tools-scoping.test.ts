@@ -10,7 +10,9 @@ const mockRemoveNode = vi.fn()
 const mockAddNode = vi.fn()
 const mockUpdateNode = vi.fn()
 const mockAddEdge = vi.fn()
+const mockRemoveEdge = vi.fn()
 const mockGetGraphForModule = vi.fn()
+const mockUpdateProject = vi.fn()
 
 vi.mock('@/lib/services/open-question-service', () => ({
   createOpenQuestion: vi.fn(),
@@ -22,8 +24,12 @@ vi.mock('@/lib/services/graph-service', () => ({
   updateNode: (...args: unknown[]) => mockUpdateNode(...args),
   removeNode: (...args: unknown[]) => mockRemoveNode(...args),
   addEdge: (...args: unknown[]) => mockAddEdge(...args),
-  removeEdge: vi.fn(),
+  removeEdge: (...args: unknown[]) => mockRemoveEdge(...args),
   getGraphForModule: (...args: unknown[]) => mockGetGraphForModule(...args),
+}))
+
+vi.mock('@/lib/services/project-service', () => ({
+  updateProject: (...args: unknown[]) => mockUpdateProject(...args),
 }))
 
 import {
@@ -102,6 +108,7 @@ describe('flowchart_build tools', () => {
       'delete_node',
       'create_edge',
       'delete_edge',
+      'insert_node_between',
       'write_prd',
     ])
   })
@@ -134,6 +141,7 @@ describe('existing mode tool scopes', () => {
       'delete_node',
       'create_edge',
       'delete_edge',
+      'insert_node_between',
       'add_open_questions',
       'resolve_open_question',
       'write_prd',
@@ -142,6 +150,21 @@ describe('existing mode tool scopes', () => {
       'create_module',
       'update_module',
       'connect_modules',
+    ])
+  })
+
+  it('exposes brainstorm tools without scope or architecture capabilities', () => {
+    const brainstormTools = getToolsForMode('brainstorm_build').map((tool) => tool.name)
+
+    expect(brainstormTools).toEqual([
+      'create_node',
+      'update_node',
+      'delete_node',
+      'create_edge',
+      'delete_edge',
+      'insert_node_between',
+      'write_prd',
+      'promote_project',
     ])
   })
 
@@ -211,6 +234,168 @@ describe('createToolExecutor selected open question guard', () => {
       'oq-cart-editing',
       'Users can edit items before checkout.',
     )
+  })
+})
+
+describe('createToolExecutor insert_node_between', () => {
+  const baseNode = {
+    module_id: 'mod-1',
+    pseudocode: '',
+    position: { x: 0, y: 0 },
+    color: '',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  }
+  const graphWithDirectEdge = {
+    success: true,
+    data: {
+      nodes: [
+        { ...baseNode, id: 'node-a', node_type: 'process', label: 'Send Quote' },
+        { ...baseNode, id: 'node-b', node_type: 'process', label: 'Send Invoice' },
+      ],
+      edges: [
+        {
+          id: 'edge-ab',
+          module_id: 'mod-1',
+          source_node_id: 'node-a',
+          target_node_id: 'node-b',
+          label: 'approved',
+          condition: null,
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+    },
+  }
+
+  beforeEach(() => {
+    mockAddNode.mockResolvedValue({
+      success: true,
+      data: { ...baseNode, id: 'node-new', node_type: 'process', label: 'Review Quote' },
+    })
+    mockRemoveEdge.mockResolvedValue({ success: true, data: null })
+    mockAddEdge
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          id: 'edge-in',
+          module_id: 'mod-1',
+          source_node_id: 'node-a',
+          target_node_id: 'node-new',
+          label: 'approved',
+          condition: null,
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          id: 'edge-out',
+          module_id: 'mod-1',
+          source_node_id: 'node-new',
+          target_node_id: 'node-b',
+          label: null,
+          condition: null,
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      })
+  })
+
+  it('splits an existing direct edge and rewires source → new → target', async () => {
+    mockGetGraphForModule.mockResolvedValue(graphWithDirectEdge)
+    const executeTool = createToolExecutor('proj-1')
+
+    const result = await executeTool('insert_node_between', {
+      moduleId: 'mod-1',
+      sourceNodeId: 'node-a',
+      targetNodeId: 'node-b',
+      label: 'Review Quote',
+      nodeType: 'process',
+    })
+
+    expect(result.isError).toBe(false)
+    expect(mockRemoveEdge).toHaveBeenCalledWith('edge-ab')
+    expect(mockAddEdge).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        source_node_id: 'node-a',
+        target_node_id: 'node-new',
+        label: 'approved',
+      }),
+    )
+    expect(mockAddEdge).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ source_node_id: 'node-new', target_node_id: 'node-b' }),
+    )
+    expect(result.data).toEqual(
+      expect.objectContaining({
+        node: expect.objectContaining({ id: 'node-new' }),
+        removedEdgeIds: ['edge-ab'],
+        edges: [
+          expect.objectContaining({ id: 'edge-in' }),
+          expect.objectContaining({ id: 'edge-out' }),
+        ],
+      }),
+    )
+  })
+
+  it('bridges two nodes without removing edges when no direct edge exists', async () => {
+    mockGetGraphForModule.mockResolvedValue({
+      success: true,
+      data: { nodes: graphWithDirectEdge.data.nodes, edges: [] },
+    })
+    const executeTool = createToolExecutor('proj-1')
+
+    const result = await executeTool('insert_node_between', {
+      moduleId: 'mod-1',
+      sourceNodeId: 'node-a',
+      targetNodeId: 'node-b',
+      label: 'Review Quote',
+      nodeType: 'process',
+    })
+
+    expect(result.isError).toBe(false)
+    expect(mockRemoveEdge).not.toHaveBeenCalled()
+    expect(result.data?.removedEdgeIds).toEqual([])
+  })
+
+  it('fails with the known node list when a referenced node does not exist', async () => {
+    mockGetGraphForModule.mockResolvedValue(graphWithDirectEdge)
+    const executeTool = createToolExecutor('proj-1')
+
+    const result = await executeTool('insert_node_between', {
+      moduleId: 'mod-1',
+      sourceNodeId: 'node-a',
+      targetNodeId: 'node-missing',
+      label: 'Review Quote',
+      nodeType: 'process',
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content).toContain('node-missing')
+    expect(result.content).toContain('Send Quote')
+    expect(mockAddNode).not.toHaveBeenCalled()
+  })
+})
+
+describe('createToolExecutor promote_project', () => {
+  beforeEach(() => {
+    mockUpdateProject.mockResolvedValue({ success: true, data: {} })
+  })
+
+  it('promotes to architecture by default', async () => {
+    const executeTool = createToolExecutor('proj-1')
+    const result = await executeTool('promote_project', {})
+
+    expect(mockUpdateProject).toHaveBeenCalledWith('proj-1', { mode: 'architecture' })
+    expect(result.data).toEqual({ promoted: true, mode: 'architecture' })
+  })
+
+  it('promotes to scope when requested', async () => {
+    const executeTool = createToolExecutor('proj-1')
+    const result = await executeTool('promote_project', { to: 'scope' })
+
+    expect(mockUpdateProject).toHaveBeenCalledWith('proj-1', { mode: 'scope' })
+    expect(result.data).toEqual({ promoted: true, mode: 'scope' })
   })
 })
 

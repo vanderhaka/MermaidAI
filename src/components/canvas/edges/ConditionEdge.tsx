@@ -2,10 +2,46 @@
 
 import { useState } from 'react'
 import type { CSSProperties } from 'react'
-import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, Position } from '@xyflow/react'
-import type { EdgeProps } from '@xyflow/react'
+import {
+  BaseEdge,
+  EdgeLabelRenderer,
+  getSmoothStepPath,
+  Position,
+  useEdges,
+  useInternalNode,
+  useNodes,
+} from '@xyflow/react'
+import type { EdgeProps, InternalNode, Node } from '@xyflow/react'
 import type { ModuleConnectionSection } from '@/lib/canvas/layout'
+import {
+  buildBackEdgePath,
+  buildSideExitPath,
+  type NodeBounds,
+} from '@/lib/canvas/detail-edge-routing'
 import { buildPathFromSections, toRgba, getStrokeWidth } from '@/lib/canvas/edge-routing'
+
+function getNodeBounds(node: InternalNode | undefined): NodeBounds | null {
+  if (!node) return null
+  const width = node.measured?.width ?? node.width ?? 0
+  const height = node.measured?.height ?? node.height ?? 0
+  if (width <= 0 || height <= 0) return null
+  return { x: node.internals.positionAbsolute.x, y: node.internals.positionAbsolute.y, width, height }
+}
+
+/** Node shapes with a straight bottom edge — safe to spread output stubs along. */
+const SPREADABLE_SOURCE_TYPES = new Set(['process', 'question', 'entry', 'exit'])
+
+function toObstacles(nodes: Node[]): NodeBounds[] {
+  return nodes
+    .filter((node) => node.type !== 'funnelLane')
+    .map((node) => ({
+      x: node.position.x,
+      y: node.position.y,
+      width: node.measured?.width ?? node.width ?? 0,
+      height: node.measured?.height ?? node.height ?? 0,
+    }))
+    .filter((bounds) => bounds.width > 0 && bounds.height > 0)
+}
 
 type ConditionEdgeData = {
   label?: string | null
@@ -16,6 +52,8 @@ type ConditionEdgeData = {
 
 export default function ConditionEdge({
   id,
+  source,
+  target,
   sourceX,
   sourceY,
   targetX,
@@ -28,22 +66,116 @@ export default function ConditionEdge({
   style,
 }: EdgeProps) {
   const [isHovered, setIsHovered] = useState(false)
+  const sourceNode = useInternalNode(source)
+  const targetNode = useInternalNode(target)
+  const allNodes = useNodes()
+  const allEdges = useEdges()
+
+  // Sibling outputs from the same source port leave from different spots on the
+  // node's bottom edge instead of one stacked stub.
+  const spreadSourceX = (() => {
+    if (
+      sourcePosition !== Position.Bottom ||
+      !sourceNode ||
+      !SPREADABLE_SOURCE_TYPES.has(sourceNode.type ?? '')
+    ) {
+      return sourceX
+    }
+    const siblings = allEdges.filter(
+      (edge) => edge.source === source && (edge.sourceHandle ?? null) === (sourceHandleId ?? null),
+    )
+    if (siblings.length < 2) return sourceX
+    const order = siblings.findIndex((edge) => edge.id === id)
+    const bounds = getNodeBounds(sourceNode)
+    if (order === -1 || !bounds) return sourceX
+    const offset = (order - (siblings.length - 1) / 2) * 24
+    const limit = bounds.width / 2 - 20
+    return sourceX + Math.max(Math.min(offset, limit), -limit)
+  })()
   const edgeData = (data as ConditionEdgeData) ?? {}
   const { label, condition } = edgeData
   const labelColor = edgeData.labelColor ?? '#16a34a'
   const sections = edgeData.sections ?? []
   const hasExplicitSections = sections.length > 0
 
+  // Incoming edges of different kinds (green success vs orange error) land at
+  // different spots on the target; same-kind edges still converge on one entry.
+  const spreadTargetX = (() => {
+    if (
+      targetPosition !== Position.Top ||
+      !targetNode ||
+      !SPREADABLE_SOURCE_TYPES.has(targetNode.type ?? '')
+    ) {
+      return targetX
+    }
+    const kinds: string[] = []
+    for (const sibling of allEdges) {
+      if (sibling.target !== target) continue
+      const kind = String((sibling.data as { labelColor?: string } | undefined)?.labelColor ?? '')
+      if (!kinds.includes(kind)) kinds.push(kind)
+    }
+    if (kinds.length < 2) return targetX
+    const order = kinds.indexOf(String(edgeData.labelColor ?? ''))
+    const bounds = getNodeBounds(targetNode)
+    if (order === -1 || !bounds) return targetX
+    const offset = (order - (kinds.length - 1) / 2) * 24
+    const limit = bounds.width / 2 - 20
+    return targetX + Math.max(Math.min(offset, limit), -limit)
+  })()
+
   const { edgePath, labelX, labelY } = (() => {
     if (hasExplicitSections) {
       return buildPathFromSections(sections, sourcePosition, targetPosition, 12)
     }
 
+    // Smoothstep knows nothing about node bounds; route the two shapes it gets
+    // visibly wrong with the position-aware detail routers instead.
+    const sourceBounds = getNodeBounds(sourceNode)
+    const targetBounds = getNodeBounds(targetNode)
+    const obstacles = toObstacles(allNodes)
+
+    // Back edge: target above source, bottom → top handles.
+    if (
+      targetY < sourceY &&
+      sourcePosition === Position.Bottom &&
+      targetPosition === Position.Top &&
+      sourceBounds &&
+      targetBounds
+    ) {
+      return buildBackEdgePath({
+        sourceX: spreadSourceX,
+        sourceY,
+        targetX: spreadTargetX,
+        targetY,
+        sourceBounds,
+        targetBounds,
+        obstacles,
+      })
+    }
+
+    // Side exit: decision branch leaving left/right, descending into a top handle.
+    if (
+      targetY > sourceY &&
+      (sourcePosition === Position.Left || sourcePosition === Position.Right) &&
+      targetPosition === Position.Top &&
+      targetBounds
+    ) {
+      return buildSideExitPath({
+        sourceX,
+        sourceY,
+        targetX: spreadTargetX,
+        targetY,
+        exitDirection: sourcePosition === Position.Right ? 1 : -1,
+        targetBounds,
+        obstacles,
+      })
+    }
+
     const [p, lx, ly] = getSmoothStepPath({
-      sourceX,
+      sourceX: spreadSourceX,
       sourceY,
       sourcePosition,
-      targetX,
+      targetX: spreadTargetX,
       targetY,
       targetPosition,
       borderRadius: 14,

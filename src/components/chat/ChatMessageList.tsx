@@ -300,8 +300,20 @@ export default function ChatMessageList({
   examplePrompts,
 }: ChatMessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const pinnedToBottomRef = useRef(true)
+
+  function handleScroll() {
+    const el = containerRef.current
+    if (!el) return
+    pinnedToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+  }
 
   useEffect(() => {
+    // Sending a message re-pins; otherwise respect the user scrolling up to read.
+    const last = messages[messages.length - 1]
+    if (last?.role === 'user') pinnedToBottomRef.current = true
+    if (!pinnedToBottomRef.current) return
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingContent])
 
@@ -350,7 +362,13 @@ export default function ChatMessageList({
   const showCompletedTools = toolCalls.length > 0
 
   return (
-    <div role="log" aria-live="polite" className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
+    <div
+      role="log"
+      aria-live="polite"
+      ref={containerRef}
+      onScroll={handleScroll}
+      className="flex flex-1 flex-col gap-3 overflow-y-auto p-4"
+    >
       {messages.map((msg) => (
         <MessageBubble key={msg.id} message={msg} onSend={onSend} isLoading={isLoading} />
       ))}

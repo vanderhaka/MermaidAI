@@ -12,6 +12,9 @@ vi.mock('@xyflow/react', () => ({
   ),
   Position: { Top: 'top', Bottom: 'bottom', Left: 'left', Right: 'right' },
   MarkerType: { ArrowClosed: 'arrowclosed' },
+  useInternalNode: () => undefined,
+  useNodes: () => [],
+  useEdges: () => [],
 }))
 
 import type { ComponentProps } from 'react'

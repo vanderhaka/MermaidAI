@@ -14,6 +14,7 @@ describe('edge-routing public API', () => {
     expect(Object.keys(edgeRouting).sort()).toEqual([
       'buildPathFromSections',
       'buildRoundedOrthogonalPath',
+      'getPathMidpoint',
       'getStrokeWidth',
       'toRgba',
     ])

@@ -1,10 +1,13 @@
 import type { ChatMode } from '@/types/chat'
 import type { ProjectMode } from '@/types/graph'
 
-export const PROJECT_MODES = ['scope', 'architecture', 'flowchart'] as const
+export const PROJECT_MODES = ['scope', 'architecture', 'flowchart', 'brainstorm'] as const
 
-type SingleCanvasMode = Extract<ProjectMode, 'scope' | 'flowchart'>
-type SingleCanvasChatMode = Extract<ChatMode, 'scope_build' | 'flowchart_build'>
+type SingleCanvasMode = Extract<ProjectMode, 'scope' | 'flowchart' | 'brainstorm'>
+type SingleCanvasChatMode = Extract<
+  ChatMode,
+  'scope_build' | 'flowchart_build' | 'brainstorm_build'
+>
 
 type SingleCanvasModuleDefaults = {
   name: string
@@ -86,6 +89,30 @@ export const PROJECT_MODE_CONFIG: Record<ProjectMode, ProjectModeConfig> = {
       'Create a follow-up funnel after a quote request',
     ],
     showFunnelLanes: true,
+  },
+  brainstorm: {
+    label: 'Brainstorm',
+    selectorLabel: 'Brainstorm',
+    selectorDescription: 'Free-flow ideation — sketch, rework, and pressure-test a flow',
+    selectorClassName:
+      'rounded-xl border border-rose-300 bg-rose-50 p-3 text-left transition hover:border-rose-400 hover:bg-rose-100',
+    badgeClassName: 'bg-rose-100 text-rose-800',
+    singleCanvas: true,
+    chatMode: 'brainstorm_build',
+    defaultModule: {
+      name: 'Brainstorm',
+      description: 'Your brainstorm canvas',
+      color: '#F43F5E',
+    },
+    workspaceLabel: 'Brainstorm',
+    welcomeMessage:
+      'Welcome to Brainstorm mode! Think out loud — I\'ll keep the flowchart in sync as we go, and after every change I\'ll ask the one question most worth answering next. We keep iterating until you\'re happy.\n\nYou can rework anything anytime: *"insert a review step between quote and invoice"*, *"that branch is wrong, redo it"*.\n\nAs I work, hold **⌥ Option** to peek at your flowchart behind this chat.',
+    chatSubtitle: "Think out loud — I'll build, then ask the next smart question.",
+    examplePrompts: [
+      'Brainstorm an onboarding flow for a coaching app',
+      'Sketch how refunds should work, then poke holes in it',
+      'Map a rough idea: clients book, pay a deposit, get reminders',
+    ],
   },
 }
 
