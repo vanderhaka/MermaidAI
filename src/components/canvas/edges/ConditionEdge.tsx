@@ -8,16 +8,16 @@ import {
   getSmoothStepPath,
   Position,
   useInternalNode,
+  useNodes,
 } from '@xyflow/react'
-import type { EdgeProps, InternalNode } from '@xyflow/react'
+import type { EdgeProps, InternalNode, Node } from '@xyflow/react'
 import type { ModuleConnectionSection } from '@/lib/canvas/layout'
 import {
   buildBackEdgePath,
-  buildPathFromSections,
-  toRgba,
-  getStrokeWidth,
+  buildSideExitPath,
   type NodeBounds,
-} from '@/lib/canvas/edge-routing'
+} from '@/lib/canvas/detail-edge-routing'
+import { buildPathFromSections, toRgba, getStrokeWidth } from '@/lib/canvas/edge-routing'
 
 function getNodeBounds(node: InternalNode | undefined): NodeBounds | null {
   if (!node) return null
@@ -25,6 +25,18 @@ function getNodeBounds(node: InternalNode | undefined): NodeBounds | null {
   const height = node.measured?.height ?? node.height ?? 0
   if (width <= 0 || height <= 0) return null
   return { x: node.internals.positionAbsolute.x, y: node.internals.positionAbsolute.y, width, height }
+}
+
+function toObstacles(nodes: Node[]): NodeBounds[] {
+  return nodes
+    .filter((node) => node.type !== 'funnelLane')
+    .map((node) => ({
+      x: node.position.x,
+      y: node.position.y,
+      width: node.measured?.width ?? node.width ?? 0,
+      height: node.measured?.height ?? node.height ?? 0,
+    }))
+    .filter((bounds) => bounds.width > 0 && bounds.height > 0)
 }
 
 type ConditionEdgeData = {
@@ -52,6 +64,7 @@ export default function ConditionEdge({
   const [isHovered, setIsHovered] = useState(false)
   const sourceNode = useInternalNode(source)
   const targetNode = useInternalNode(target)
+  const allNodes = useNodes()
   const edgeData = (data as ConditionEdgeData) ?? {}
   const { label, condition } = edgeData
   const labelColor = edgeData.labelColor ?? '#16a34a'
@@ -63,10 +76,13 @@ export default function ConditionEdge({
       return buildPathFromSections(sections, sourcePosition, targetPosition, 12)
     }
 
-    // Back edge (target above source, bottom → top): route around the endpoint
-    // nodes using their real bounds — smoothstep would hug or cross them.
+    // Smoothstep knows nothing about node bounds; route the two shapes it gets
+    // visibly wrong with the position-aware detail routers instead.
     const sourceBounds = getNodeBounds(sourceNode)
     const targetBounds = getNodeBounds(targetNode)
+    const obstacles = toObstacles(allNodes)
+
+    // Back edge: target above source, bottom → top handles.
     if (
       targetY < sourceY &&
       sourcePosition === Position.Bottom &&
@@ -74,7 +90,33 @@ export default function ConditionEdge({
       sourceBounds &&
       targetBounds
     ) {
-      return buildBackEdgePath({ sourceX, sourceY, targetX, targetY, sourceBounds, targetBounds })
+      return buildBackEdgePath({
+        sourceX,
+        sourceY,
+        targetX,
+        targetY,
+        sourceBounds,
+        targetBounds,
+        obstacles,
+      })
+    }
+
+    // Side exit: decision branch leaving left/right, descending into a top handle.
+    if (
+      targetY > sourceY &&
+      (sourcePosition === Position.Left || sourcePosition === Position.Right) &&
+      targetPosition === Position.Top &&
+      targetBounds
+    ) {
+      return buildSideExitPath({
+        sourceX,
+        sourceY,
+        targetX,
+        targetY,
+        exitDirection: sourcePosition === Position.Right ? 1 : -1,
+        targetBounds,
+        obstacles,
+      })
     }
 
     const [p, lx, ly] = getSmoothStepPath({
