@@ -547,6 +547,20 @@ describe('POST /api/chat', () => {
       expect.any(Array),
       tools,
       mockExecutor,
+      { provider: 'cerebras' },
+    )
+  })
+
+  it('passes explicit Anthropic provider selection to callLLMWithTools', async () => {
+    const { POST } = await import('@/app/api/chat/route')
+    await POST(makeRequest({ ...validBody(), provider: 'anthropic' }))
+
+    expect(mockCallLLMWithTools).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      expect.any(Array),
+      mockExecutor,
+      { provider: 'anthropic' },
     )
   })
 
@@ -604,6 +618,7 @@ describe('POST /api/chat', () => {
       ]),
       expect.any(Array),
       expect.any(Function),
+      { provider: 'cerebras' },
     )
   })
 

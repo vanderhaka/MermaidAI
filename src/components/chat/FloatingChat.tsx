@@ -3,7 +3,7 @@
 import { useEffect, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import ChatInput from '@/components/chat/ChatInput'
 import ChatMessageList from '@/components/chat/ChatMessageList'
-import type { ChatMessage } from '@/types/chat'
+import type { AIProvider, ChatMessage } from '@/types/chat'
 
 type FloatingChatProps = {
   messages: ChatMessage[]
@@ -18,7 +18,14 @@ type FloatingChatProps = {
   subtitle?: string
   isPeeking?: boolean
   examplePrompts?: string[]
+  modelProvider?: AIProvider
+  onModelProviderChange?: (provider: AIProvider) => void
 }
+
+const MODEL_PROVIDER_OPTIONS: Array<{ value: AIProvider; label: string }> = [
+  { value: 'cerebras', label: 'OSS' },
+  { value: 'anthropic', label: 'Claude' },
+]
 
 const DEFAULT_CHAT_SIZE = {
   width: 760,
@@ -98,8 +105,10 @@ export default function FloatingChat({
   subtitle = 'Ask MermaidAI to sketch modules or refine the active module flow.',
   isPeeking = false,
   examplePrompts,
+  modelProvider = 'cerebras',
+  onModelProviderChange,
 }: FloatingChatProps) {
-  const [chatSize, setChatSize] = useState<ChatSize>(readStoredChatSize)
+  const [chatSize, setChatSize] = useState<ChatSize>(DEFAULT_CHAT_SIZE)
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -117,6 +126,12 @@ export default function FloatingChat({
   }, [isOpen, onToggle])
 
   useEffect(() => {
+    const restoreStoredSize = window.setTimeout(() => {
+      const next = readStoredChatSize()
+      storeChatSize(next)
+      setChatSize(next)
+    }, 0)
+
     function handleWindowResize() {
       setChatSize((current) => {
         const next = clampChatSize(current)
@@ -125,9 +140,11 @@ export default function FloatingChat({
       })
     }
 
-    handleWindowResize()
     window.addEventListener('resize', handleWindowResize)
-    return () => window.removeEventListener('resize', handleWindowResize)
+    return () => {
+      window.clearTimeout(restoreStoredSize)
+      window.removeEventListener('resize', handleWindowResize)
+    }
   }, [])
 
   function startResize(axis: ResizeAxis, event: ReactPointerEvent<HTMLButtonElement>) {
@@ -219,28 +236,63 @@ export default function FloatingChat({
               <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
                 Assistant
               </h2>
-              <p className="mt-1 text-sm text-gray-500">{subtitle}</p>
+              <p className="mt-1 text-pretty text-sm text-gray-500">{subtitle}</p>
             </div>
-            <button
-              type="button"
-              onClick={onToggle}
-              className="shrink-0 rounded-lg p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-900"
-              aria-label="Minimize assistant"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-                className="h-5 w-5"
-                aria-hidden
+            <div className="flex shrink-0 items-center gap-2">
+              <div className="relative shrink-0">
+                <label htmlFor="assistant-model-provider" className="sr-only">
+                  AI model
+                </label>
+                <select
+                  id="assistant-model-provider"
+                  value={modelProvider}
+                  onChange={(event) => onModelProviderChange?.(event.target.value as AIProvider)}
+                  disabled={isLoading}
+                  title="AI model"
+                  className="h-9 cursor-pointer appearance-none rounded-lg border border-gray-200 bg-white pl-2.5 pr-8 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {MODEL_PROVIDER_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <svg
+                  aria-hidden
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  stroke="currentColor"
+                  className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400"
+                >
+                  <path
+                    d="M6 8l4 4 4-4"
+                    strokeWidth="1.75"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </div>
+              <button
+                type="button"
+                onClick={onToggle}
+                className="shrink-0 rounded-lg p-2 text-gray-500 transition-[background-color,color,scale] duration-150 ease-out hover:bg-gray-100 hover:text-gray-900 active:scale-[0.96]"
+                aria-label="Minimize assistant"
               >
-                <path
-                  fillRule="evenodd"
-                  d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </button>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  className="h-5 w-5"
+                  aria-hidden
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </button>
+            </div>
           </div>
 
           <ChatMessageList

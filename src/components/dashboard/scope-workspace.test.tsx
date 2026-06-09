@@ -4,8 +4,9 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ScopeWorkspace } from '@/components/dashboard/scope-workspace'
+import { TOOL_EVENT_DELIMITER } from '@/lib/services/llm-client'
 import { useGraphStore } from '@/store/graph-store'
-import type { Module, OpenQuestion, ProjectMode } from '@/types/graph'
+import type { FlowEdge, Module, OpenQuestion, ProjectMode } from '@/types/graph'
 
 const mockRefresh = vi.fn()
 
@@ -147,9 +148,50 @@ function successfulStreamResponse() {
   return new Response('Assistant response', { status: 200 })
 }
 
+function makeEdge(overrides: Partial<FlowEdge> = {}): FlowEdge {
+  return {
+    id: 'edge-1',
+    module_id: 'mod-scope',
+    source_node_id: 'node-1',
+    target_node_id: 'node-2',
+    label: null,
+    condition: null,
+    created_at: '2026-01-01T00:00:00Z',
+    ...overrides,
+  }
+}
+
+function streamErrorAfterToolEventResponse(edge: FlowEdge) {
+  const encoder = new TextEncoder()
+  let didSendToolEvent = false
+
+  return new Response(
+    new ReadableStream({
+      pull(controller) {
+        if (!didSendToolEvent) {
+          didSendToolEvent = true
+          controller.enqueue(
+            encoder.encode(
+              `${TOOL_EVENT_DELIMITER}${JSON.stringify({
+                tool: 'create_edge',
+                data: { edge },
+              })}\n`,
+            ),
+          )
+          return
+        }
+
+        controller.error(new Error('stream failed after tool event'))
+      },
+    }),
+    { status: 200 },
+  )
+}
+
 describe('ScopeWorkspace chat mode routing', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    mockRefresh.mockClear()
     useGraphStore.getState().reset()
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(successfulStreamResponse()))
   })
@@ -181,6 +223,7 @@ describe('ScopeWorkspace chat mode routing', () => {
         projectId: 'proj-1',
         message: 'Map the lead journey',
         mode: 'flowchart_build',
+        provider: 'cerebras',
         context: expect.objectContaining({
           activeModuleId: 'mod-flowchart',
           mode: 'flowchart_build',
@@ -207,6 +250,7 @@ describe('ScopeWorkspace chat mode routing', () => {
     const body = JSON.parse(String(init?.body))
 
     expect(body.mode).toBe('scope_build')
+    expect(body.provider).toBe('cerebras')
     expect(body.context).toEqual(
       expect.objectContaining({
         activeModuleId: 'mod-scope',
@@ -217,6 +261,23 @@ describe('ScopeWorkspace chat mode routing', () => {
       'data-show-funnel-lanes',
       'false',
     )
+  })
+
+  it('refreshes persisted graph state after a stream error follows graph tool events', async () => {
+    const user = userEvent.setup()
+    const edge = makeEdge()
+    vi.mocked(fetch).mockResolvedValueOnce(streamErrorAfterToolEventResponse(edge))
+    renderWorkspace('scope', makeModule({ id: 'mod-scope', name: 'Scope' }))
+
+    await waitFor(() => {
+      expect(useGraphStore.getState().modules[0]?.id).toBe('mod-scope')
+    })
+    await user.click(screen.getByRole('button', { name: /send test message/i }))
+
+    await waitFor(() => {
+      expect(useGraphStore.getState().edges).toEqual([edge])
+      expect(mockRefresh).toHaveBeenCalled()
+    })
   })
 
   it('sends selected open question identity in chat context when resolving from the drawer', async () => {

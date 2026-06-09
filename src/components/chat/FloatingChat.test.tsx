@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import FloatingChat from '@/components/chat/FloatingChat'
 
@@ -57,7 +57,7 @@ describe('FloatingChat', () => {
     expect(panel.parentElement).toHaveStyle({ width: '860px' })
   })
 
-  it('remembers the stretched chat size', () => {
+  it('remembers the stretched chat size', async () => {
     const { unmount } = render(<FloatingChat {...baseProps} />)
 
     fireEvent.pointerDown(screen.getByTestId('chat-resize-handle'), {
@@ -75,7 +75,24 @@ describe('FloatingChat', () => {
     render(<FloatingChat {...baseProps} />)
 
     const panel = screen.getByTestId('chat-panel')
-    expect(panel).toHaveStyle({ height: '690px' })
-    expect(panel.parentElement).toHaveStyle({ width: '820px' })
+    await waitFor(() => {
+      expect(panel).toHaveStyle({ height: '690px' })
+      expect(panel.parentElement).toHaveStyle({ width: '820px' })
+    })
+  })
+
+  it('defaults the model selector to OSS', () => {
+    render(<FloatingChat {...baseProps} />)
+
+    expect(screen.getByLabelText('AI model')).toHaveValue('cerebras')
+  })
+
+  it('notifies when the model selector changes', () => {
+    const onModelProviderChange = vi.fn()
+    render(<FloatingChat {...baseProps} onModelProviderChange={onModelProviderChange} />)
+
+    fireEvent.change(screen.getByLabelText('AI model'), { target: { value: 'anthropic' } })
+
+    expect(onModelProviderChange).toHaveBeenCalledWith('anthropic')
   })
 })

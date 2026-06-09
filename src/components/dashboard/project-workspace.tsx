@@ -16,7 +16,7 @@ import { updateProject, deleteProject } from '@/lib/services/project-service'
 import { createStreamParser } from '@/lib/stream-parser'
 import { groupModulesByDomain } from '@/lib/module-hierarchy'
 import { useGraphStore } from '@/store/graph-store'
-import type { ChatMessage } from '@/types/chat'
+import type { AIProvider, ChatMessage } from '@/types/chat'
 import type {
   FlowEdge,
   FlowNode,
@@ -94,6 +94,7 @@ export function ProjectWorkspace({
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [prdOpen, setPrdOpen] = useState(false)
   const [saveCounter, setSaveCounter] = useState(0)
+  const [modelProvider, setModelProvider] = useState<AIProvider>('cerebras')
 
   const hasScopeModule = initialModules.some((m) => m.name === 'Scope')
   const [showOnboarding, setShowOnboarding] = useState(() => {
@@ -236,6 +237,7 @@ export function ProjectWorkspace({
           projectId: project.id,
           message,
           mode,
+          provider: modelProvider,
           context: {
             projectId: project.id,
             projectName: project.name,
@@ -764,6 +766,8 @@ export function ProjectWorkspace({
           onSend={handleSend}
           isOpen={assistantOpen}
           onToggle={() => setAssistantOpen((o) => !o)}
+          modelProvider={modelProvider}
+          onModelProviderChange={setModelProvider}
         />
 
         <PrdPreviewPanel
