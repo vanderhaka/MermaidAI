@@ -2,17 +2,30 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { NextRequest } from 'next/server'
 
-const { mockGetUser, mockSignInWithPassword, mockRedirect, mockNext } = vi.hoisted(() => ({
+const {
+  mockGetUser,
+  mockSignInWithPassword,
+  mockRedirect,
+  mockNext,
+  mockResponseCookies,
+  mockRedirectCookieSet,
+} = vi.hoisted(() => ({
   mockGetUser: vi.fn(),
   mockSignInWithPassword: vi.fn(),
   mockRedirect: vi.fn(),
   mockNext: vi.fn(() => ({ status: 200, headers: new Headers() })),
+  mockResponseCookies: [] as Array<{ name: string; value: string; path?: string }>,
+  mockRedirectCookieSet: vi.fn(),
 }))
 
 vi.mock('@/lib/supabase/middleware', () => ({
   createSupabaseMiddlewareClient: vi.fn(() => ({
     supabase: { auth: { getUser: mockGetUser, signInWithPassword: mockSignInWithPassword } },
-    response: { status: 200, headers: new Headers() },
+    response: {
+      status: 200,
+      headers: new Headers(),
+      cookies: { getAll: () => mockResponseCookies },
+    },
   })),
 }))
 
@@ -37,7 +50,12 @@ describe('Auth proxy', () => {
   beforeEach(() => {
     vi.unstubAllEnvs()
     vi.clearAllMocks()
-    mockRedirect.mockReturnValue({ status: 302, headers: new Headers() })
+    mockResponseCookies.length = 0
+    mockRedirect.mockReturnValue({
+      status: 302,
+      headers: new Headers(),
+      cookies: { set: mockRedirectCookieSet },
+    })
     mockNext.mockReturnValue({ status: 200, headers: new Headers() })
   })
 
@@ -182,6 +200,25 @@ describe('Auth proxy', () => {
       expect(mockRedirect).toHaveBeenCalledTimes(1)
       const redirectUrl = mockRedirect.mock.calls[0][0] as URL
       expect(redirectUrl.pathname).toBe('/login')
+    })
+
+    it('carries session cookies written during dev sign-in onto the /login → /dashboard redirect', async () => {
+      vi.stubEnv('DEV_AUTH_SKIP', 'true')
+      vi.stubEnv('TEST_USER_EMAIL', 'dev@example.com')
+      vi.stubEnv('TEST_USER_PASSWORD', 'password123')
+      mockResponseCookies.push({ name: 'sb-auth-token', value: 'session-jwt', path: '/' })
+
+      const request = createMockRequest('/login')
+      await proxy(request)
+
+      expect(mockRedirect).toHaveBeenCalledTimes(1)
+      const redirectUrl = mockRedirect.mock.calls[0][0] as URL
+      expect(redirectUrl.pathname).toBe('/dashboard')
+      expect(mockRedirectCookieSet).toHaveBeenCalledWith({
+        name: 'sb-auth-token',
+        value: 'session-jwt',
+        path: '/',
+      })
     })
   })
 
