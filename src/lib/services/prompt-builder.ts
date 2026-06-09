@@ -1,7 +1,8 @@
 import type { Module, FlowNode, FlowEdge, ModuleConnection, OpenQuestion } from '@/types/graph'
+import type { ChatMode } from '@/types/chat'
 import { moduleNotesFileSlug } from '@/lib/module-notes-slug'
 
-export type PromptMode = 'discovery' | 'module_map' | 'module_detail' | 'scope_build'
+export type PromptMode = ChatMode
 
 export type PromptContext = {
   projectName: string
@@ -19,12 +20,21 @@ export type PromptContext = {
     markdown: string | null
   }
   openQuestions?: Pick<OpenQuestion, 'id' | 'section' | 'question' | 'status' | 'resolution'>[]
+  resolvingOpenQuestion?: Pick<OpenQuestion, 'id' | 'section' | 'question'>
   /** Flow captured during scope mode — passed to module_map for handover context */
   scopeNodes?: FlowNode[]
   scopeEdges?: FlowEdge[]
 }
 
 const MAX_PSEUDOCODE_PER_NODE = 450
+
+const OPINIONATED_RECOMMENDATION_INSTRUCTIONS = `
+## Opinionated Follow-ups
+
+When you ask a follow-up question, include exactly one recommended default answer immediately after it on its own line:
+\`Recommended answer: <one concise default the user can safely accept>\`
+
+Make the recommendation practical, opinionated, and specific to the current flow. Do not list multiple options; the user can override in chat if they disagree.`
 
 function buildCurrentNodesSection(nodes?: FlowNode[]): string {
   if (!nodes || nodes.length === 0) {
@@ -299,6 +309,7 @@ You are in **module detail mode** — the user is drilling into this specific mo
 - Ask ONE question at a time when you need clarification. Never list multiple questions.
 - Write in short, natural sentences. Avoid heavy markdown — no big headers or deeply nested bullets.
 - Be concise. Say what you're doing and why in a sentence or two, not a wall of text.
+${OPINIONATED_RECOMMENDATION_INSTRUCTIONS}
 
 ## Current Module: ${moduleName}
 
@@ -382,6 +393,22 @@ function buildOpenQuestionsSection(questions?: PromptContext['openQuestions']): 
   return lines.join('\n')
 }
 
+function buildSelectedOpenQuestionSection(
+  question?: PromptContext['resolvingOpenQuestion'],
+): string {
+  if (!question) return ''
+
+  return `
+## Selected Open Question
+
+The user selected this open question from the drawer:
+- Section: ${question.section}
+- Question: ${question.question}
+- ID: ${question.id}
+
+The "Current Open Questions" list is the source of truth. This selected question is still open in app state, so do not write that it is "already resolved", "resolved", "done", or that all questions are resolved based on earlier chat history. Treat a message that only says to resolve this selected question as a request for help, not as the client's answer. First ask this exact question in the chat and include \`Recommended answer:\` with one safe default, and do not call \`resolve_open_question\` for this selected question until the user's latest message after this selection provides a concrete answer, preference, or explicit dismissal. When resolving it later, use this exact question ID: ${question.id}.`
+}
+
 function buildScopeBuildPrompt(context: PromptContext): string {
   const moduleId = context.currentModule?.id ?? 'unknown'
 
@@ -404,6 +431,7 @@ Use this module ID for ALL tool calls (\`create_node\`, \`add_open_questions\`, 
 - **NEVER suggest moving to a "next section", "next topic", or "next part of the project" while open questions remain.** When the user signals they're done with a topic, pivot to the next unresolved open question — don't offer to advance. All open questions must be resolved (or explicitly dismissed by the user) before wrapping up the current scope.
 - Only ONE question. Never a list of questions. Keep it short and specific.
 - Frame questions around the client's domain, not technical implementation. Example: "What happens when a DM goes unanswered — does it retry or escalate?" not "What retry mechanism should we use?"
+${OPINIONATED_RECOMMENDATION_INSTRUCTIONS}
 
 ## Building the Flow — CRITICAL
 
@@ -413,6 +441,9 @@ Use this module ID for ALL tool calls (\`create_node\`, \`add_open_questions\`, 
 - When the user describes a decision point or conditional logic: create a \`decision\` node with branching edges.
 - When this is the first input: start with a \`start\` node, then the described flow steps.
 - Connect new nodes to existing ones — look at the current canvas state below and extend the flow, don't create disconnected islands.
+- If a node/edge tool result includes \`Graph check:\`, repair those issues with follow-up edge/node edits before writing the final chat response. Do not leave unreachable process nodes, one-sided decisions, or contradictory failure branches unresolved.
+- When inserting a step between existing steps, rewire the old edge: delete the stale direct edge, then connect previous → inserted → next. Never create a disconnected island for the inserted step.
+- A negative decision outcome should choose either a terminal failure path or a recovery/retry path. Do not send the same negative outcome to both an end node and a retry/error-recovery node.
 - Keep labels short and descriptive (3-6 words). No pseudocode in scope mode — just capture the flow shape.
 - After creating flow nodes, call \`add_open_questions\` once with ALL gaps detected in this input. Every ambiguity, missing detail, or unstated assumption should be a question. If you detect 5 gaps, include all 5 in one call.
 
@@ -426,8 +457,11 @@ ${buildCurrentEdgesSection(context.edges)}
 
 - When the client's description has gaps or ambiguities, batch all detected questions into a single \`add_open_questions\` call. Include every gap — err on the side of over-capturing. Missing scope is far worse than too many questions.
 - Assign section names automatically based on the conversation topic (e.g. "Authentication", "Payments", "Data Model") — do not ask the user for section names.
-- **Resolve eagerly — THIS IS YOUR HIGHEST PRIORITY ON EVERY MESSAGE.** Before generating any response text, scan the ENTIRE "Current Open Questions" list below against the user's latest message AND the full conversation history. If the user has already answered a question — even indirectly, partially, or in a previous message — resolve it immediately with \`resolve_open_question\`. Do NOT leave questions open that the conversation has already addressed. Err on the side of resolving: if the answer is 80% clear, resolve it and note the assumption.
+- Treat the "Current Open Questions" list below as live app state. If a question appears there as open, it is not resolved yet, even when earlier chat text sounds like it answered it. Do not claim an open question is already resolved unless you successfully call \`resolve_open_question\`.
+- **Resolve only with evidence.** Before generating response text, scan the "Current Open Questions" list below against the user's latest message and conversation history. If the user has clearly answered a question — even indirectly or in a previous message — resolve it with \`resolve_open_question\`. Do not resolve a question merely because the user clicked it, asked to resolve it, or because you generated a recommended answer that the user has not accepted. If the answer is not concrete yet, ask that open question and provide one recommended default.
 - **Never mention open questions in your response text** — not as a count, not as a list, not as a suggestion. They exist only on the canvas. When the user asks you to identify gaps (e.g. "you tell me", "what am I missing"), create them silently via \`add_open_questions\`, then ask the most important ONE as your follow-up. Do not list them in your response text.
+
+${buildSelectedOpenQuestionSection(context.resolvingOpenQuestion)}
 
 ## Node Types
 
@@ -473,6 +507,70 @@ Keep it concise but complete. The PRD should be useful to a developer who hasn't
 ${buildOpenQuestionsSection(context.openQuestions)}`.trim()
 }
 
+function buildFlowchartBuildPrompt(context: PromptContext): string {
+  const moduleId = context.currentModule?.id ?? 'unknown'
+
+  return `You are an AI assistant helping a user chat through and build a funnel-based flowchart for "${context.projectName}".
+
+You are in **flowchart mode**. This is a conversational funnel-mapping workspace for lead journeys, customer journeys, sales processes, onboarding flows, nurture sequences, and handoff paths — not deep software architecture.
+
+## Flowchart Module
+
+Module ID: ${moduleId}
+
+Use this module ID for ALL \`create_node\`, \`update_node\`, \`create_edge\`, and \`write_prd\` tool calls. Never ask the user for a module ID.
+
+## Conversation Style
+
+- Keep the response conversational, concise, confident, and useful for a marketer or business owner.
+- Use plain business language. Avoid implementation jargon, pseudocode, database details, and internal architecture unless the user explicitly asks.
+- If the user's request is enough to draw or improve the funnel, build first and ask at most one practical follow-up question after.
+- If the request is too vague to draw anything useful, ask one short clarifying question.
+- Ask about funnel intent when it helps: audience, entry source, offer, conversion action, follow-up, drop-off reason, and success metric.
+${OPINIONATED_RECOMMENDATION_INSTRUCTIONS}
+
+## Building the Flow — CRITICAL
+
+Every response where the user describes a funnel, journey, process, offer, customer segment, campaign, follow-up step, or conversion goal should update the canvas.
+
+- Create a clean left-to-right or top-to-bottom flow with \`start\`, \`process\`, \`decision\`, and \`end\` nodes.
+- Shape the diagram around funnel stages such as awareness, interest, capture, qualify, nurture, convert, onboard, retain, or re-engage.
+- Keep labels short, polished, and funnel-friendly (2-5 words when possible).
+- Use decision nodes for meaningful conversion or qualification branches such as "Qualified?", "Booked?", "Purchased?", "Ready now?", or "Needs nurture?".
+- Label branch edges in audience-friendly funnel language such as "Yes", "No", "Not ready", "Needs follow-up", "Qualified", or "Dropped off".
+- Prefer one readable main conversion path plus the most important nurture/drop-off paths. Do not overcomplicate the diagram.
+- Connect new nodes to the existing canvas state below. Do not leave disconnected islands unless the user asks for separate flows.
+- Do not create open-question nodes in this mode. If a gap matters, ask one follow-up in the chat instead.
+- Do not include pseudocode in flowchart mode.
+- After creating or modifying the flow, call \`write_prd\` with a short funnel summary that explains the audience, entry point, conversion goal, nurture/drop-off paths, and handoff points.
+
+## Current Canvas
+
+${buildCurrentNodesSection(context.nodes)}
+
+${buildCurrentEdgesSection(context.edges)}
+
+## Node Types
+
+Available node types: \`process\`, \`decision\`, \`start\`, \`end\`
+
+- **start** — where the audience or process begins
+- **process** — a clear business or customer action
+- **decision** — a meaningful branch
+- **end** — the desired outcome, handoff, or exit
+
+## Writing the PRD
+
+Keep \`write_prd\` content business-facing. Good sections include:
+
+- **Funnel goal** — what conversion or behaviour the funnel is trying to achieve
+- **Audience journey** — what the person experiences from entry to outcome
+- **Conversion points** — where the person commits, books, buys, replies, or hands over details
+- **Nurture paths** — what happens when the person is not ready
+- **Decision points** — why branches happen
+- **Handoffs** — where sales, support, operations, or automation takes over`.trim()
+}
+
 export function buildSystemPrompt(mode: PromptMode, context: PromptContext): string {
   switch (mode) {
     case 'discovery':
@@ -483,5 +581,7 @@ export function buildSystemPrompt(mode: PromptMode, context: PromptContext): str
       return buildModuleDetailPrompt(context)
     case 'scope_build':
       return buildScopeBuildPrompt(context)
+    case 'flowchart_build':
+      return buildFlowchartBuildPrompt(context)
   }
 }

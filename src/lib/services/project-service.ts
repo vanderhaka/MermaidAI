@@ -1,8 +1,10 @@
 'use server'
 
 import { createProjectSchema, updateProjectSchema } from '@/lib/schemas/project'
+import { getUserWithDevAuth } from '@/lib/auth/dev-auth'
+import { getSingleCanvasModuleDefaults } from '@/lib/project-modes'
 import { createClient } from '@/lib/supabase/server'
-import type { Project } from '@/types/graph'
+import type { Project, ProjectMode } from '@/types/graph'
 
 type ServiceResult<T> = { success: true; data: T } | { success: false; error: string }
 
@@ -16,7 +18,7 @@ type ProjectSummary = Pick<
 export async function createProject(input: {
   name: string
   description?: string | null
-  mode?: 'scope' | 'architecture'
+  mode?: ProjectMode
 }): Promise<ServiceResult<Project>> {
   const parsed = createProjectSchema.safeParse(input)
   if (!parsed.success) {
@@ -27,7 +29,7 @@ export async function createProject(input: {
 
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await getUserWithDevAuth(supabase)
   if (!user) {
     return { success: false, error: 'Not authenticated' }
   }
@@ -44,18 +46,22 @@ export async function createProject(input: {
 
   const project = data as Project
 
-  // Auto-create a hidden "Scope" module for scope projects
-  if (project.mode === 'scope') {
-    await supabase.from('modules').insert({
+  // Auto-create the single canvas module used by lightweight modes.
+  const moduleDefaults = getSingleCanvasModuleDefaults(project.mode)
+  if (moduleDefaults) {
+    const { error: moduleError } = await supabase.from('modules').insert({
       project_id: project.id,
-      name: 'Scope',
-      description: 'Your Quick Capture session',
-      color: '#F59E0B',
+      ...moduleDefaults,
       entry_points: [],
       exit_points: [],
       position_x: 0,
       position_y: 0,
     })
+
+    if (moduleError) {
+      await supabase.from('projects').delete().eq('id', project.id)
+      return { success: false, error: moduleError.message }
+    }
   }
 
   return { success: true, data: project }
@@ -63,7 +69,7 @@ export async function createProject(input: {
 
 export async function updateProject(
   id: string,
-  input: { name?: string; description?: string | null; mode?: 'scope' | 'architecture' },
+  input: { name?: string; description?: string | null; mode?: ProjectMode },
 ): Promise<ServiceResult<Project>> {
   const parsed = updateProjectSchema.safeParse(input)
   if (!parsed.success) {

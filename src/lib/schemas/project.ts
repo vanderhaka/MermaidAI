@@ -1,6 +1,8 @@
 import { z } from 'zod'
 
-export const PROJECT_MODES = ['scope', 'architecture'] as const
+import { PROJECT_MODES } from '@/lib/project-modes'
+
+export { PROJECT_MODES }
 
 export const createProjectSchema = z.object({
   name: z.string().trim().min(1).max(100),

@@ -30,6 +30,14 @@ import QuestionNode from '@/components/canvas/nodes/QuestionNode'
 import ConditionEdge from '@/components/canvas/edges/ConditionEdge'
 import ModuleNotesSheet from '@/components/canvas/views/ModuleNotesSheet'
 
+type FunnelLaneData = {
+  title: string
+  description: string
+  width: number
+  height: number
+  tone: 'teal' | 'blue' | 'amber' | 'emerald' | 'rose'
+}
+
 function NotesGlyph({ className }: { className?: string }) {
   return (
     <svg
@@ -56,6 +64,7 @@ const nodeTypes = {
   start: StartNode,
   end: EndNode,
   question: QuestionNode,
+  funnelLane: FunnelLaneNode,
 }
 
 const edgeTypes = {
@@ -68,14 +77,59 @@ type ModuleDetailViewProps = {
   domainLabel?: string
   nodes: FlowNode[]
   edges: FlowEdge[]
+  showFunnelLanes?: boolean
   onBack?: () => void
+}
+
+function FunnelLaneNode({ data }: { data: FunnelLaneData }) {
+  const toneStyles = {
+    teal: 'border-teal-200 bg-teal-50/50 text-teal-700',
+    blue: 'border-blue-200 bg-blue-50/50 text-blue-700',
+    amber: 'border-amber-200 bg-amber-50/50 text-amber-700',
+    emerald: 'border-emerald-200 bg-emerald-50/50 text-emerald-700',
+    rose: 'border-rose-200 bg-rose-50/50 text-rose-700',
+  }
+
+  return (
+    <div
+      className={`pointer-events-none rounded-md border border-dashed px-4 py-3 shadow-sm ${toneStyles[data.tone]}`}
+      style={{ width: data.width, height: data.height }}
+    >
+      <p className="text-xs font-bold uppercase tracking-wide">{data.title}</p>
+      <p className="mt-1 max-w-sm text-[11px] leading-snug opacity-80">{data.description}</p>
+    </div>
+  )
 }
 
 function toReactFlowNodes(
   nodes: FlowNode[],
   layoutNodes: Map<string, { id: string; position: { x: number; y: number } }>,
+  showFunnelLanes = false,
 ): Node[] {
-  return nodes.map((n) => {
+  const getNodeData = (node: FlowNode) =>
+    node.node_type === 'question'
+      ? { label: node.label, pseudocode: node.pseudocode, question: node.label }
+      : { label: node.label, pseudocode: node.pseudocode }
+
+  if (showFunnelLanes) {
+    const funnelLayout = buildFunnelLaneLayout(nodes, layoutNodes)
+    const flowNodes = nodes.map((n) => {
+      const dim = getFlowDetailNodeDimensions(n.node_type)
+      const layoutPos = funnelLayout.positions.get(n.id) ?? n.position
+      return {
+        id: n.id,
+        type: n.node_type,
+        position: layoutPos,
+        width: dim.width,
+        height: dim.height,
+        data: getNodeData(n),
+      }
+    })
+
+    return [...funnelLayout.lanes, ...flowNodes]
+  }
+
+  const flowNodes = nodes.map((n) => {
     const dim = getFlowDetailNodeDimensions(n.node_type)
     const layoutPos = layoutNodes.get(n.id)?.position ?? n.position
     return {
@@ -84,14 +138,141 @@ function toReactFlowNodes(
       position: layoutPos,
       width: dim.width,
       height: dim.height,
-      data: { label: n.label, pseudocode: n.pseudocode },
+      data: getNodeData(n),
     }
   })
+
+  return flowNodes
+}
+
+type FunnelLaneDefinition = {
+  id: string
+  title: string
+  description: string
+  tone: FunnelLaneData['tone']
+}
+
+const FUNNEL_LANES: FunnelLaneDefinition[] = [
+  {
+    id: 'sources',
+    title: 'Sources',
+    description: 'Where leads enter the funnel.',
+    tone: 'teal',
+  },
+  {
+    id: 'capture',
+    title: 'Capture',
+    description: 'Pages, magnets, and forms that convert attention into a lead.',
+    tone: 'blue',
+  },
+  {
+    id: 'score',
+    title: 'Score',
+    description: 'Qualification and lead-score routing before the next action.',
+    tone: 'amber',
+  },
+  {
+    id: 'sales',
+    title: 'Sales',
+    description: 'High-intent booking, sales call, quote, and won-job path.',
+    tone: 'emerald',
+  },
+  {
+    id: 'nurture',
+    title: 'Nurture & Outlets',
+    description: 'Follow-up, lost reasons, redirects, and re-engagement paths.',
+    tone: 'rose',
+  },
+]
+
+function getFunnelLaneId(node: FlowNode): FunnelLaneDefinition['id'] {
+  const label = node.label.toLowerCase()
+
+  if (
+    node.node_type === 'start' ||
+    /\b(instagram|meta|google|referral|website direct|past client|source|ad|search)\b/.test(label)
+  ) {
+    return 'sources'
+  }
+
+  if (/\b(landing|lead magnet|form|quote request|capture)\b/.test(label)) {
+    return 'capture'
+  }
+
+  if (/\b(score|qualif|intent|disqualified|out of service|service area)\b/.test(label)) {
+    return 'score'
+  }
+
+  if (/\b(high|fast book|booked|sales call|quote sent|quote response|won|job won)\b/.test(label)) {
+    return 'sales'
+  }
+
+  return 'nurture'
+}
+
+function buildFunnelLaneLayout(
+  nodes: FlowNode[],
+  layoutNodes: Map<string, { id: string; position: { x: number; y: number } }>,
+): { positions: Map<string, { x: number; y: number }>; lanes: Node<FunnelLaneData>[] } {
+  if (nodes.length === 0) return { positions: new Map(), lanes: [] }
+
+  const positionedNodes = nodes.map((node) => {
+    const dim = getFlowDetailNodeDimensions(node.node_type)
+    const position = layoutNodes.get(node.id)?.position ?? node.position
+    return { node, dim, position, laneId: getFunnelLaneId(node) }
+  })
+
+  const positions = new Map<string, { x: number; y: number }>()
+  const laneWidth = 230
+  const laneGap = 56
+  const laneTop = 0
+  const nodeTop = 132
+  const laneLeft = -20
+  const laneHeights = new Map<string, number>()
+
+  for (const [laneIndex, lane] of FUNNEL_LANES.entries()) {
+    const laneItems = positionedNodes
+      .filter((item) => item.laneId === lane.id)
+      .sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x)
+    const laneX = laneLeft + laneIndex * (laneWidth + laneGap)
+    let nextY = nodeTop
+
+    for (const item of laneItems) {
+      positions.set(item.node.id, {
+        x: laneX + (laneWidth - item.dim.width) / 2,
+        y: nextY,
+      })
+      nextY += item.dim.height + 58
+    }
+
+    laneHeights.set(lane.id, Math.max(520, nextY - laneTop + 32))
+  }
+
+  const maxLaneHeight = Math.max(...Array.from(laneHeights.values()))
+  const lanes = FUNNEL_LANES.map((lane, laneIndex) => ({
+    id: `funnel-lane-${lane.id}`,
+    type: 'funnelLane',
+    position: { x: laneLeft + laneIndex * (laneWidth + laneGap), y: laneTop },
+    selectable: false,
+    draggable: false,
+    focusable: false,
+    zIndex: -10,
+    data: {
+      title: lane.title,
+      description: lane.description,
+      width: laneWidth,
+      height: maxLaneHeight,
+      tone: lane.tone,
+    },
+  }))
+
+  return { positions, lanes }
 }
 
 function toReactFlowEdges(
   edges: FlowEdge[],
   layoutEdges: Map<string, ModuleConnectionSection[]>,
+  showFunnelLanes = false,
 ): Edge[] {
   return edges.map((e) => {
     const sourceHandle = inferDecisionSourceHandle(e.label, e.condition)
@@ -110,7 +291,7 @@ function toReactFlowEdges(
         label: e.label,
         condition: e.condition,
         labelColor: s.labelColor,
-        sections: layoutEdges.get(e.id) ?? [],
+        sections: showFunnelLanes ? [] : (layoutEdges.get(e.id) ?? []),
       },
       markerEnd: { type: MarkerType.ArrowClosed, color: s.markerColor, width: 16, height: 16 },
       style: {
@@ -126,10 +307,12 @@ function ModuleDetailFlow({
   nodes,
   edges,
   layout,
+  showFunnelLanes = false,
 }: {
   nodes: FlowNode[]
   edges: FlowEdge[]
   layout: FlowDetailLayoutResult
+  showFunnelLanes?: boolean
 }) {
   const { fitView } = useReactFlow()
 
@@ -137,16 +320,25 @@ function ModuleDetailFlow({
     const layoutNodesMap = new Map(layout.nodes.map((n) => [n.id, n]))
     const layoutEdgesMap = new Map(layout.edges.map((e) => [e.id, e.sections]))
     return {
-      rfNodes: toReactFlowNodes(nodes, layoutNodesMap),
-      rfEdges: toReactFlowEdges(edges, layoutEdgesMap),
+      rfNodes: toReactFlowNodes(nodes, layoutNodesMap, showFunnelLanes),
+      rfEdges: toReactFlowEdges(edges, layoutEdgesMap, showFunnelLanes),
     }
-  }, [nodes, edges, layout])
+  }, [nodes, edges, layout, showFunnelLanes])
+  const fitViewOptions = useMemo(() => {
+    const processNodeTargets = rfNodes
+      .filter((node) => node.type !== 'question')
+      .map((node) => ({ id: node.id }))
+    return {
+      padding: 0.3,
+      ...(processNodeTargets.length > 0 ? { nodes: processNodeTargets } : {}),
+    }
+  }, [rfNodes])
 
   useEffect(() => {
     if (rfNodes.length === 0) return
-    const timer = setTimeout(() => fitView({ padding: 0.3, duration: 300 }), 50)
+    const timer = setTimeout(() => fitView({ ...fitViewOptions, duration: 300 }), 50)
     return () => clearTimeout(timer)
-  }, [rfNodes, rfEdges, fitView])
+  }, [rfNodes, rfEdges, fitView, fitViewOptions])
 
   return (
     <ReactFlow
@@ -155,7 +347,7 @@ function ModuleDetailFlow({
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
       fitView
-      fitViewOptions={{ padding: 0.3 }}
+      fitViewOptions={fitViewOptions}
       minZoom={0.12}
       maxZoom={1.6}
       proOptions={{ hideAttribution: true }}
@@ -171,6 +363,7 @@ export default function ModuleDetailView({
   domainLabel,
   nodes,
   edges,
+  showFunnelLanes = false,
   onBack,
 }: ModuleDetailViewProps) {
   const [notesOpen, setNotesOpen] = useState(false)
@@ -242,7 +435,12 @@ export default function ModuleDetailView({
       {hasNodes ? (
         <div className="flex-1 min-h-0">
           <ReactFlowProvider>
-            <ModuleDetailFlow nodes={nodes} edges={edges} layout={layout} />
+            <ModuleDetailFlow
+              nodes={nodes}
+              edges={edges}
+              layout={layout}
+              showFunnelLanes={showFunnelLanes}
+            />
           </ReactFlowProvider>
         </div>
       ) : (

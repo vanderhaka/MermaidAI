@@ -7,14 +7,14 @@ const SKIP_CONFIRM_KEY = 'question-resolve-skip-confirm'
 
 interface OpenQuestionsPanelProps {
   questions: OpenQuestion[]
-  onResolve?: (question: string) => void
+  onResolve?: (question: OpenQuestion) => void
 }
 
 export default function OpenQuestionsPanel({ questions, onResolve }: OpenQuestionsPanelProps) {
   const openCount = useMemo(() => questions.filter((q) => q.status === 'open').length, [questions])
 
   const [isOpen, setIsOpen] = useState(true)
-  const [pendingQuestion, setPendingQuestion] = useState<string | null>(null)
+  const [pendingQuestion, setPendingQuestion] = useState<OpenQuestion | null>(null)
   const [skipConfirm, setSkipConfirm] = useState(false)
 
   const openOnly = useMemo(() => questions.filter((q) => q.status === 'open'), [questions])
@@ -29,7 +29,7 @@ export default function OpenQuestionsPanel({ questions, onResolve }: OpenQuestio
     return map
   }, [openOnly])
 
-  function handleQuestionClick(question: string) {
+  function handleQuestionClick(question: OpenQuestion) {
     if (!onResolve) return
     const shouldSkip = localStorage.getItem(SKIP_CONFIRM_KEY) === '1'
     if (shouldSkip) {
@@ -94,7 +94,7 @@ export default function OpenQuestionsPanel({ questions, onResolve }: OpenQuestio
                           {onResolve ? (
                             <button
                               type="button"
-                              onClick={() => handleQuestionClick(q.question)}
+                              onClick={() => handleQuestionClick(q)}
                               className="flex w-full items-start gap-2 rounded-lg px-1.5 py-1 text-left text-sm transition hover:bg-amber-50"
                               title="Click to resolve with AI"
                             >
@@ -135,7 +135,7 @@ export default function OpenQuestionsPanel({ questions, onResolve }: OpenQuestio
               This will send the question to the chat assistant to help resolve it:
             </p>
             <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
-              &ldquo;{pendingQuestion}&rdquo;
+              &ldquo;{pendingQuestion.question}&rdquo;
             </p>
             <label className="mt-3 flex items-center gap-2 text-sm text-gray-500">
               <input

@@ -2,30 +2,39 @@ import type Anthropic from '@anthropic-ai/sdk'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 
+import { getUserWithDevAuth } from '@/lib/auth/dev-auth'
 import { createClient } from '@/lib/supabase/server'
 import { chatRateLimiter } from '@/lib/rate-limiter'
 import { buildSystemPrompt } from '@/lib/services/prompt-builder'
-import type { PromptContext, PromptMode } from '@/lib/services/prompt-builder'
+import type { PromptMode } from '@/lib/services/prompt-builder'
 import { callLLMWithTools, sanitizeError } from '@/lib/services/llm-client'
 import { createStreamParser } from '@/lib/stream-parser'
 import { getToolsForMode, createToolExecutor } from '@/lib/services/llm-tools'
 import { addChatMessage } from '@/lib/services/chat-message-service'
-import { listModulesByProject, getModuleById } from '@/lib/services/module-service'
-import { listConnectionsByProject } from '@/lib/services/module-connection-service'
-import { getGraphForModule } from '@/lib/services/graph-service'
-import { loadModuleNotesForChat } from '@/lib/module-notes/load-for-prompt'
-import { listOpenOpenQuestions } from '@/lib/services/open-question-service'
+import { loadChatPromptContext } from '@/lib/services/chat-context-loader'
+import {
+  buildSelectedOpenQuestionHelpResponse,
+  isClickOnlySelectedQuestionPrompt,
+} from '@/lib/services/selected-open-question'
+import { CHAT_MODES } from '@/types/chat'
+
+const resolvingOpenQuestionSchema = z.object({
+  id: z.string().min(1),
+  section: z.string().min(1),
+  question: z.string().min(1),
+})
 
 const chatRequestSchema = z.object({
   projectId: z.string().min(1),
   message: z.string().trim().min(1),
-  mode: z.enum(['discovery', 'module_map', 'module_detail', 'scope_build']),
+  mode: z.enum(CHAT_MODES),
   context: z.object({
     projectId: z.string(),
     projectName: z.string(),
     activeModuleId: z.string().nullable(),
-    mode: z.enum(['discovery', 'module_map', 'module_detail', 'scope_build']),
+    mode: z.enum(CHAT_MODES),
     modules: z.array(z.object({ id: z.string(), name: z.string() })),
+    resolvingOpenQuestion: resolvingOpenQuestionSchema.optional(),
   }),
   history: z
     .array(
@@ -37,6 +46,15 @@ const chatRequestSchema = z.object({
     .optional()
     .default([]),
 })
+
+function makeTextStream(text: string): ReadableStream<string> {
+  return new ReadableStream<string>({
+    start(controller) {
+      controller.enqueue(text)
+      controller.close()
+    },
+  })
+}
 
 export async function POST(request: Request) {
   let body: unknown
@@ -50,7 +68,7 @@ export async function POST(request: Request) {
   const {
     data: { user },
     error: authError,
-  } = await supabase.auth.getUser()
+  } = await getUserWithDevAuth(supabase)
 
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -79,78 +97,49 @@ export async function POST(request: Request) {
 
   let llmStream: ReadableStream<string>
   try {
-    // Build full prompt context with live data from the database
-    const promptContext: PromptContext = { projectName: context.projectName }
+    const promptContext = await loadChatPromptContext({
+      projectId,
+      projectName: context.projectName,
+      mode: mode as PromptMode,
+      activeModuleId: context.activeModuleId,
+      resolvingOpenQuestion: context.resolvingOpenQuestion,
+    })
 
-    const [modulesResult, connectionsResult] = await Promise.all([
-      listModulesByProject(projectId),
-      listConnectionsByProject(projectId),
-    ])
-    if (modulesResult.success) {
-      promptContext.modules = modulesResult.data
-    }
-    if (connectionsResult.success) {
-      promptContext.connections = connectionsResult.data
-    }
-
-    // Always load open questions — they carry over from scope to architecture
-    const oqResult = await listOpenOpenQuestions(projectId)
-    if (oqResult.success) {
-      promptContext.openQuestions = oqResult.data.map((q) => ({
-        id: q.id,
-        section: q.section,
-        question: q.question,
-        status: q.status,
-        resolution: q.resolution,
-      }))
-    }
-
-    // In module_map mode, load the scope module's graph so the AI knows what was captured
-    if (mode === 'module_map' && !context.activeModuleId) {
-      const modules = promptContext.modules ?? []
-      const scopeModule = modules.find(
-        (m) => m.name.toLowerCase() === 'scope' || modules.length === 1,
+    const selectedOpenQuestion =
+      context.resolvingOpenQuestion &&
+      promptContext.openQuestions?.find(
+        (question) =>
+          question.id === context.resolvingOpenQuestion?.id && question.status === 'open',
       )
-      if (scopeModule) {
-        const graphResult = await getGraphForModule(scopeModule.id)
-        if (graphResult.success && graphResult.data.nodes.length > 0) {
-          promptContext.scopeNodes = graphResult.data.nodes
-          promptContext.scopeEdges = graphResult.data.edges
-        }
-      }
+
+    if (
+      context.resolvingOpenQuestion &&
+      selectedOpenQuestion &&
+      isClickOnlySelectedQuestionPrompt(message, context.resolvingOpenQuestion)
+    ) {
+      llmStream = makeTextStream(
+        buildSelectedOpenQuestionHelpResponse(context.resolvingOpenQuestion),
+      )
+    } else {
+      const systemPrompt = buildSystemPrompt(mode as PromptMode, promptContext)
+
+      const messages: Anthropic.MessageParam[] = [
+        ...history.map((h) => ({
+          role: h.role as 'user' | 'assistant',
+          content: h.content,
+        })),
+        { role: 'user' as const, content: message },
+      ]
+      const tools = getToolsForMode(mode as PromptMode)
+      const executeTool = context.resolvingOpenQuestion
+        ? createToolExecutor(projectId, {
+            latestUserMessage: message,
+            resolvingOpenQuestion: context.resolvingOpenQuestion,
+          })
+        : createToolExecutor(projectId)
+
+      llmStream = await callLLMWithTools(systemPrompt, messages, tools, executeTool)
     }
-
-    if (context.activeModuleId) {
-      const moduleResult = await getModuleById(context.activeModuleId)
-      if (moduleResult.success) {
-        promptContext.currentModule = moduleResult.data
-        const loaded = await loadModuleNotesForChat(moduleResult.data.name)
-        promptContext.moduleNotes =
-          loaded.source === 'none'
-            ? { source: 'none', markdown: null }
-            : { source: loaded.source, markdown: loaded.markdown }
-      }
-
-      const graphResult = await getGraphForModule(context.activeModuleId)
-      if (graphResult.success) {
-        promptContext.nodes = graphResult.data.nodes
-        promptContext.edges = graphResult.data.edges
-      }
-    }
-
-    const systemPrompt = buildSystemPrompt(mode as PromptMode, promptContext)
-
-    const messages: Anthropic.MessageParam[] = [
-      ...history.map((h) => ({
-        role: h.role as 'user' | 'assistant',
-        content: h.content,
-      })),
-      { role: 'user' as const, content: message },
-    ]
-    const tools = getToolsForMode(mode as PromptMode)
-    const executeTool = createToolExecutor(projectId)
-
-    llmStream = await callLLMWithTools(systemPrompt, messages, tools, executeTool)
   } catch (err) {
     return NextResponse.json({ error: sanitizeError(err) }, { status: 500 })
   }

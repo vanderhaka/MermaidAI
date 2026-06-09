@@ -393,6 +393,104 @@ describe('POST /api/chat', () => {
     )
   })
 
+  it('passes selected open question identity into the prompt context', async () => {
+    mockListOpenOpenQuestions.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          id: 'oq-cart-editing',
+          section: 'Cart Management',
+          question: 'Can users edit cart items?',
+          status: 'open',
+          resolution: null,
+        },
+      ],
+    })
+
+    const { POST } = await import('@/app/api/chat/route')
+    const base = validBody()
+    const body = {
+      ...base,
+      message: 'Yes, users can edit cart items until payment is submitted.',
+      mode: 'scope_build',
+      context: {
+        ...base.context,
+        mode: 'scope_build' as const,
+        resolvingOpenQuestion: {
+          id: 'oq-cart-editing',
+          section: 'Cart Management',
+          question: 'Can users edit cart items?',
+        },
+      },
+    }
+
+    await POST(makeRequest(body))
+
+    expect(mockBuildSystemPrompt).toHaveBeenCalledWith(
+      'scope_build',
+      expect.objectContaining({
+        resolvingOpenQuestion: {
+          id: 'oq-cart-editing',
+          section: 'Cart Management',
+          question: 'Can users edit cart items?',
+        },
+        openQuestions: [
+          expect.objectContaining({
+            id: 'oq-cart-editing',
+            question: 'Can users edit cart items?',
+          }),
+        ],
+      }),
+    )
+  })
+
+  it('returns a deterministic selected-question helper for click-only resolve requests', async () => {
+    mockListOpenOpenQuestions.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          id: 'oq-payment-fail',
+          section: 'Payments',
+          question:
+            'What happens when payment fails — does the user get a retry option or error details?',
+          status: 'open',
+          resolution: null,
+        },
+      ],
+    })
+
+    const { POST } = await import('@/app/api/chat/route')
+    const base = validBody()
+    const body = {
+      ...base,
+      message:
+        'Resolve this open question from Payments: "What happens when payment fails — does the user get a retry option or error details?"',
+      mode: 'scope_build',
+      context: {
+        ...base.context,
+        mode: 'scope_build' as const,
+        resolvingOpenQuestion: {
+          id: 'oq-payment-fail',
+          section: 'Payments',
+          question:
+            'What happens when payment fails — does the user get a retry option or error details?',
+        },
+      },
+    }
+
+    const response = await POST(makeRequest(body))
+    const text = await readStreamToString(response)
+
+    expect(text).toContain(
+      'What happens when payment fails — does the user get a retry option or error details?',
+    )
+    expect(text).toContain('Recommended answer:')
+    expect(text).toContain('let the user retry with a different card or payment method')
+    expect(text.toLowerCase()).not.toContain('already resolved')
+    expect(mockCallLLMWithTools).not.toHaveBeenCalled()
+    expect(mockCreateToolExecutor).not.toHaveBeenCalled()
+  })
+
   it('loads module notes when activeModuleId is set and module resolves', async () => {
     mockGetModuleById.mockResolvedValue({
       success: true,
@@ -457,6 +555,39 @@ describe('POST /api/chat', () => {
     await POST(makeRequest(validBody()))
 
     expect(mockCreateToolExecutor).toHaveBeenCalledWith('proj-1')
+  })
+
+  it('passes selected open question guard context to the tool executor', async () => {
+    const { POST } = await import('@/app/api/chat/route')
+    const base = validBody()
+    const body = {
+      ...base,
+      message: 'Yes, users can edit cart items until payment is submitted.',
+      mode: 'scope_build',
+      context: {
+        ...base.context,
+        mode: 'scope_build' as const,
+        resolvingOpenQuestion: {
+          id: 'oq-cart-editing',
+          section: 'Cart Management',
+          question: 'Can users edit cart items?',
+        },
+      },
+    }
+
+    await POST(makeRequest(body))
+
+    expect(mockCreateToolExecutor).toHaveBeenCalledWith(
+      'proj-1',
+      expect.objectContaining({
+        latestUserMessage: 'Yes, users can edit cart items until payment is submitted.',
+        resolvingOpenQuestion: {
+          id: 'oq-cart-editing',
+          section: 'Cart Management',
+          question: 'Can users edit cart items?',
+        },
+      }),
+    )
   })
 
   it('calls callLLMWithTools with system prompt and message history', async () => {
@@ -634,6 +765,44 @@ describe('POST /api/chat', () => {
     }
     const response = await POST(makeRequest(body))
     expect(response.status).toBe(200)
+  })
+
+  it('accepts flowchart_build as a valid mode', async () => {
+    mockGetModuleById.mockResolvedValue({
+      success: true,
+      data: {
+        id: 'mod-flowchart',
+        project_id: 'proj-1',
+        domain: null,
+        name: 'Marketing Flowchart',
+        description: 'Test',
+        position: { x: 0, y: 0 },
+        color: '#14b8a6',
+        entry_points: [],
+        exit_points: [],
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    })
+
+    const { POST } = await import('@/app/api/chat/route')
+    const body = {
+      ...validBody(),
+      mode: 'flowchart_build',
+      context: {
+        ...validBody().context,
+        mode: 'flowchart_build',
+        activeModuleId: 'mod-flowchart',
+      },
+    }
+    const response = await POST(makeRequest(body))
+    expect(response.status).toBe(200)
+    expect(mockBuildSystemPrompt).toHaveBeenCalledWith(
+      'flowchart_build',
+      expect.objectContaining({
+        currentModule: expect.objectContaining({ id: 'mod-flowchart' }),
+      }),
+    )
   })
 
   it('loads open questions for scope_build mode', async () => {

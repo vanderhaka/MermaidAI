@@ -13,7 +13,8 @@ const mockOrder = vi.fn()
 const mockDeleteEq = vi.fn()
 const mockEq = vi.fn(() => ({ single: mockSingle, select: mockSelect }))
 const mockSelect = vi.fn(() => ({ single: mockSingle, order: mockOrder, eq: mockEq }))
-const mockInsert = vi.fn(() => ({ select: mockSelect }))
+type InsertResult = Promise<{ error: { message: string } | null }> | { select: typeof mockSelect }
+const mockInsert = vi.fn(defaultInsert)
 const mockUpdate = vi.fn(() => ({ eq: mockEq }))
 const mockDelete = vi.fn(() => ({ eq: mockDeleteEq }))
 const mockGetUser = vi.fn().mockResolvedValue({
@@ -26,6 +27,14 @@ const mockFrom = vi.fn(() => ({
   delete: mockDelete,
 }))
 
+function defaultInsert(payload?: Record<string, unknown>): InsertResult {
+  if (payload && 'project_id' in payload) {
+    return Promise.resolve({ error: null })
+  }
+
+  return { select: mockSelect }
+}
+
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(() => Promise.resolve({ from: mockFrom, auth: { getUser: mockGetUser } })),
 }))
@@ -33,6 +42,7 @@ vi.mock('@/lib/supabase/server', () => ({
 describe('createProject', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockInsert.mockImplementation(defaultInsert)
   })
 
   it('returns success with inserted project for valid input', async () => {
@@ -106,6 +116,71 @@ describe('createProject', () => {
       mode: 'scope',
       user_id: 'user-1',
     })
+    expect(mockFrom).toHaveBeenCalledWith('modules')
+    expect(mockInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        project_id: 'proj-3',
+        name: 'Scope',
+        description: 'Your Quick Capture session',
+      }),
+    )
+  })
+
+  it('creates flowchart mode project with a marketing flowchart module', async () => {
+    const project = {
+      id: 'proj-4',
+      user_id: 'user-1',
+      name: 'Lead Journey',
+      description: null,
+      mode: 'flowchart',
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    }
+    mockSingle.mockResolvedValue({ data: project, error: null })
+
+    const result = await createProject({ name: 'Lead Journey', mode: 'flowchart' })
+
+    expect(result).toEqual({ success: true, data: project })
+    expect(mockInsert).toHaveBeenCalledWith({
+      name: 'Lead Journey',
+      mode: 'flowchart',
+      user_id: 'user-1',
+    })
+    expect(mockFrom).toHaveBeenCalledWith('modules')
+    expect(mockInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        project_id: 'proj-4',
+        name: 'Marketing Flowchart',
+        description: 'A conversational funnel map for marketing and sales',
+      }),
+    )
+  })
+
+  it('rolls back a single-canvas project when the required module cannot be created', async () => {
+    const project = {
+      id: 'proj-5',
+      user_id: 'user-1',
+      name: 'Broken Capture',
+      description: null,
+      mode: 'scope',
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    }
+    mockSingle.mockResolvedValue({ data: project, error: null })
+    mockInsert.mockImplementation((payload?: Record<string, unknown>) => {
+      if (payload && 'project_id' in payload) {
+        return Promise.resolve({ error: { message: 'Module insert failed' } })
+      }
+
+      return { select: mockSelect }
+    })
+    mockDeleteEq.mockResolvedValue({ error: null })
+
+    const result = await createProject({ name: 'Broken Capture', mode: 'scope' })
+
+    expect(result).toEqual({ success: false, error: 'Module insert failed' })
+    expect(mockDelete).toHaveBeenCalled()
+    expect(mockDeleteEq).toHaveBeenCalledWith('id', 'proj-5')
   })
 
   it('returns failure when input validation fails', async () => {

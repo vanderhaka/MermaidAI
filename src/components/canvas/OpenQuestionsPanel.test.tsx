@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import OpenQuestionsPanel from '@/components/canvas/OpenQuestionsPanel'
 import type { OpenQuestion } from '@/types/graph'
 
@@ -34,6 +34,10 @@ const questions: OpenQuestion[] = [
 ]
 
 describe('OpenQuestionsPanel', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
   it('renders the panel', () => {
     render(<OpenQuestionsPanel questions={questions} />)
     expect(screen.getByTestId('open-questions-panel')).toBeInTheDocument()
@@ -87,5 +91,34 @@ describe('OpenQuestionsPanel', () => {
     // Expand
     await user.click(screen.getByText('Open Questions'))
     expect(screen.getByText('OAuth providers?')).toBeInTheDocument()
+  })
+
+  it('resolves the selected open question by structured identity, not text alone', async () => {
+    const user = userEvent.setup()
+    const onResolve = vi.fn()
+    render(
+      <OpenQuestionsPanel
+        questions={[
+          makeQ({ id: 'oq-duplicate-1', section: 'Cart', question: 'Can users edit cart items?' }),
+          makeQ({
+            id: 'oq-duplicate-2',
+            section: 'Checkout',
+            question: 'Can users edit cart items?',
+          }),
+        ]}
+        onResolve={onResolve}
+      />,
+    )
+
+    await user.click(screen.getAllByRole('button', { name: /can users edit cart items/i })[0])
+    await user.click(screen.getByRole('button', { name: /^resolve$/i }))
+
+    expect(onResolve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'oq-duplicate-1',
+        section: 'Cart',
+        question: 'Can users edit cart items?',
+      }),
+    )
   })
 })

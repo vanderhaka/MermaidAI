@@ -7,6 +7,10 @@ const MIGRATION_PATH = resolve(
   __dirname,
   '../../supabase/migrations/20260406000000_create_core_tables.sql',
 )
+const FLOWCHART_MODE_MIGRATION_PATH = resolve(
+  __dirname,
+  '../../supabase/migrations/20260430000000_add_flowchart_project_mode.sql',
+)
 
 const TABLES = [
   'profiles',
@@ -156,5 +160,26 @@ describe('Core tables migration', () => {
         expect(sql).toMatch(pattern)
       }
     })
+  })
+})
+
+describe('Flowchart project mode migration', () => {
+  let sql: string
+
+  beforeAll(() => {
+    sql = readFileSync(FLOWCHART_MODE_MIGRATION_PATH, 'utf-8')
+  })
+
+  it('replaces the projects mode check constraint', () => {
+    expect(sql).toMatch(
+      /alter\s+table\s+(public\.)?projects\s+drop\s+constraint\s+if\s+exists\s+projects_mode_check/is,
+    )
+    expect(sql).toMatch(
+      /alter\s+table\s+(public\.)?projects\s+add\s+constraint\s+projects_mode_check/is,
+    )
+  })
+
+  it('allows scope, architecture, and flowchart modes', () => {
+    expect(sql).toMatch(/mode\s+in\s*\(\s*'scope'\s*,\s*'architecture'\s*,\s*'flowchart'\s*\)/is)
   })
 })

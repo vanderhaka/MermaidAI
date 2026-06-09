@@ -1,14 +1,18 @@
 // @vitest-environment happy-dom
 import { render, screen, act, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FlowNode, FlowEdge } from '@/types/graph'
+
+const mockFitView = vi.hoisted(() => vi.fn())
 
 vi.mock('@xyflow/react', () => ({
   ReactFlow: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => (
     <div
       data-testid="react-flow"
       data-nodes={JSON.stringify(props.nodes)}
+      data-edges={JSON.stringify(props.edges)}
+      data-fit-view-options={JSON.stringify(props.fitViewOptions)}
       data-edge-types={props.edgeTypes ? Object.keys(props.edgeTypes as object).join(',') : ''}
       data-node-types={props.nodeTypes ? Object.keys(props.nodeTypes as object).join(',') : ''}
     >
@@ -16,7 +20,7 @@ vi.mock('@xyflow/react', () => ({
     </div>
   ),
   ReactFlowProvider: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
-  useReactFlow: () => ({ fitView: vi.fn() }),
+  useReactFlow: () => ({ fitView: mockFitView }),
   Controls: () => <div data-testid="controls" />,
   Background: () => <div data-testid="background" />,
   BackgroundVariant: { Dots: 'dots' },
@@ -29,7 +33,18 @@ vi.mock('@/lib/canvas/layout', () => ({
   ),
   computeFlowDetailLayout: vi.fn(async (nodes: FlowNode[]) => ({
     nodes: nodes.map((n, i) => ({ id: n.id, position: { x: i * 100, y: i * 50 } })),
-    edges: [],
+    edges: [
+      {
+        id: 'e1',
+        sections: [
+          {
+            startPoint: { x: 10, y: 20 },
+            endPoint: { x: 30, y: 40 },
+            bendPoints: [{ x: 20, y: 30 }],
+          },
+        ],
+      },
+    ],
   })),
   getFlowDetailNodeDimensions: (nodeType: FlowNode['node_type']) =>
     nodeType === 'decision' ? { width: 176, height: 176 } : { width: 172, height: 36 },
@@ -79,6 +94,10 @@ const sampleEdges: FlowEdge[] = [
 ]
 
 describe('ModuleDetailView', () => {
+  beforeEach(() => {
+    mockFitView.mockClear()
+  })
+
   it('renders module name as header', () => {
     render(<ModuleDetailView moduleName="Auth Flow" nodes={[]} edges={[]} />)
     expect(screen.getByRole('heading', { name: 'Auth Flow' })).toBeInTheDocument()
@@ -114,6 +133,39 @@ describe('ModuleDetailView', () => {
     })
   })
 
+  it('passes question text to question nodes and excludes them from fit targets', async () => {
+    const nodesWithQuestion: FlowNode[] = [
+      makeNode({ id: 'start', node_type: 'start', label: 'Start' }),
+      makeNode({ id: 'process', node_type: 'process', label: 'View Cart' }),
+      makeNode({
+        id: 'question',
+        node_type: 'question',
+        label: 'Can users edit cart items?',
+      }),
+    ]
+
+    render(<ModuleDetailView moduleName="Cart" nodes={nodesWithQuestion} edges={[]} />)
+
+    await waitFor(() => {
+      const flow = screen.getByTestId('react-flow')
+      const rfNodes = JSON.parse(flow.getAttribute('data-nodes') ?? '[]')
+      expect(rfNodes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'question',
+            type: 'question',
+            data: expect.objectContaining({
+              question: 'Can users edit cart items?',
+            }),
+          }),
+        ]),
+      )
+
+      const fitOptions = JSON.parse(flow.getAttribute('data-fit-view-options') ?? '{}')
+      expect(fitOptions.nodes).toEqual([{ id: 'start' }, { id: 'process' }])
+    })
+  })
+
   it('applies computeFlowDetailLayout to position nodes', async () => {
     const { computeFlowDetailLayout } = (await import('@/lib/canvas/layout')) as unknown as {
       computeFlowDetailLayout: ReturnType<typeof vi.fn>
@@ -140,6 +192,163 @@ describe('ModuleDetailView', () => {
     expect(types).toContain('exit')
     expect(types).toContain('start')
     expect(types).toContain('end')
+    expect(types).toContain('funnelLane')
+  })
+
+  it('adds funnel lane background nodes when enabled', async () => {
+    const marketingNodes: FlowNode[] = [
+      makeNode({ id: 'source', node_type: 'start', label: 'Instagram/Meta Ad' }),
+      makeNode({ id: 'capture', node_type: 'process', label: 'Landing Page' }),
+      makeNode({ id: 'score', node_type: 'decision', label: 'Lead Score' }),
+      makeNode({ id: 'sales', node_type: 'process', label: 'Fast Book Call' }),
+      makeNode({ id: 'lost', node_type: 'end', label: 'Lost - Not Ready Yet' }),
+    ]
+
+    render(
+      <ModuleDetailView
+        moduleName="Marketing Flowchart"
+        nodes={marketingNodes}
+        edges={[]}
+        showFunnelLanes
+      />,
+    )
+
+    await waitFor(() => {
+      const flow = screen.getByTestId('react-flow')
+      const rfNodes = JSON.parse(flow.getAttribute('data-nodes') ?? '[]')
+      expect(rfNodes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'funnel-lane-sources',
+            type: 'funnelLane',
+            data: expect.objectContaining({ title: 'Sources' }),
+          }),
+          expect.objectContaining({
+            id: 'funnel-lane-capture',
+            type: 'funnelLane',
+            data: expect.objectContaining({ title: 'Capture' }),
+          }),
+          expect.objectContaining({
+            id: 'funnel-lane-score',
+            type: 'funnelLane',
+            data: expect.objectContaining({ title: 'Score' }),
+          }),
+          expect.objectContaining({
+            id: 'funnel-lane-sales',
+            type: 'funnelLane',
+            data: expect.objectContaining({ title: 'Sales' }),
+          }),
+          expect.objectContaining({
+            id: 'funnel-lane-nurture',
+            type: 'funnelLane',
+            data: expect.objectContaining({ title: 'Nurture & Outlets' }),
+          }),
+        ]),
+      )
+    })
+  })
+
+  it('does not add funnel lane nodes by default', async () => {
+    render(<ModuleDetailView moduleName="Auth" nodes={sampleNodes} edges={sampleEdges} />)
+
+    await waitFor(() => {
+      const flow = screen.getByTestId('react-flow')
+      const rfNodes = JSON.parse(flow.getAttribute('data-nodes') ?? '[]')
+      expect(rfNodes.some((node: { type?: string }) => node.type === 'funnelLane')).toBe(false)
+    })
+  })
+
+  it('keeps edge context visible when funnel lanes are enabled', async () => {
+    const funnelNodes: FlowNode[] = [
+      makeNode({ id: 'source', node_type: 'start', label: 'Meta Ad' }),
+      makeNode({ id: 'capture', node_type: 'process', label: 'Landing Page' }),
+      makeNode({ id: 'score', node_type: 'decision', label: 'Lead Score' }),
+      makeNode({ id: 'sales', node_type: 'process', label: 'Fast Book Call' }),
+      makeNode({ id: 'nurture', node_type: 'end', label: 'Lost - Nurture' }),
+    ]
+    const funnelEdges: FlowEdge[] = [
+      makeEdge({
+        id: 'e1',
+        source_node_id: 'source',
+        target_node_id: 'capture',
+        label: 'lead_source',
+        condition: 'Paid traffic starts a lead',
+      }),
+      makeEdge({
+        id: 'e2',
+        source_node_id: 'score',
+        target_node_id: 'nurture',
+        label: 'No',
+        condition: 'Lead is not ready yet',
+      }),
+    ]
+
+    render(
+      <ModuleDetailView
+        moduleName="Marketing Flowchart"
+        nodes={funnelNodes}
+        edges={funnelEdges}
+        showFunnelLanes
+      />,
+    )
+
+    await waitFor(() => {
+      const flow = screen.getByTestId('react-flow')
+      const rfEdges = JSON.parse(flow.getAttribute('data-edges') ?? '[]')
+
+      expect(rfEdges).toHaveLength(2)
+      expect(rfEdges).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'e1',
+            source: 'source',
+            target: 'capture',
+            type: 'condition',
+            data: expect.objectContaining({
+              label: 'lead_source',
+              condition: 'Paid traffic starts a lead',
+              labelColor: '#16a34a',
+              sections: [],
+            }),
+            style: expect.objectContaining({ stroke: '#22c55e', strokeWidth: 2 }),
+          }),
+          expect.objectContaining({
+            id: 'e2',
+            source: 'score',
+            target: 'nurture',
+            sourceHandle: 'no',
+            type: 'condition',
+            data: expect.objectContaining({
+              label: 'No',
+              condition: 'Lead is not ready yet',
+              labelColor: '#ea580c',
+              sections: [],
+            }),
+            style: expect.objectContaining({
+              stroke: '#f97316',
+              strokeWidth: 1.5,
+              strokeDasharray: '6 3',
+            }),
+          }),
+        ]),
+      )
+    })
+  })
+
+  it('preserves explicit layout sections outside funnel lane mode', async () => {
+    render(<ModuleDetailView moduleName="Auth" nodes={sampleNodes} edges={sampleEdges} />)
+
+    await waitFor(() => {
+      const flow = screen.getByTestId('react-flow')
+      const rfEdges = JSON.parse(flow.getAttribute('data-edges') ?? '[]')
+      expect(rfEdges[0].data.sections).toEqual([
+        {
+          startPoint: { x: 10, y: 20 },
+          endPoint: { x: 30, y: 40 },
+          bendPoints: [{ x: 20, y: 30 }],
+        },
+      ])
+    })
   })
 
   it('registers custom edgeTypes', () => {

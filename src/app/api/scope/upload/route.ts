@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+import { getUserWithDevAuth } from '@/lib/auth/dev-auth'
 import { createClient } from '@/lib/supabase/server'
 import { uploadRateLimiter } from '@/lib/rate-limiter'
 import { MAX_UPLOAD_BYTES, parseDocument } from '@/lib/services/document-parser'
@@ -22,7 +23,7 @@ export async function POST(request: Request) {
   const {
     data: { user },
     error: authError,
-  } = await supabase.auth.getUser()
+  } = await getUserWithDevAuth(supabase)
 
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

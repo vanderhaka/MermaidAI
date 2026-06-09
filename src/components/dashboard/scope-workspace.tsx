@@ -10,6 +10,8 @@ import OpenQuestionsPanel from '@/components/canvas/OpenQuestionsPanel'
 import { InlineProjectName } from '@/components/dashboard/InlineProjectName'
 import PrdPreviewPanel from '@/components/dashboard/PrdPreviewPanel'
 import { SavedIndicator } from '@/components/dashboard/SavedIndicator'
+import { applyScopeToolEvent } from '@/components/dashboard/tool-event-applier'
+import { getProjectModeConfig } from '@/lib/project-modes'
 import { updateProject } from '@/lib/services/project-service'
 import { createStreamParser } from '@/lib/stream-parser'
 import { useGraphStore } from '@/store/graph-store'
@@ -40,6 +42,26 @@ const TOOL_LABELS: Record<string, string> = {
   promote_project: 'Switching to Full Design',
 }
 
+type SendOptions = {
+  resolvingOpenQuestion?: Pick<OpenQuestion, 'id' | 'section' | 'question'>
+}
+
+function normalizeResolvePromptText(value: string): string {
+  return value.toLowerCase().replace(/[“”]/g, '"').replace(/[’]/g, "'").replace(/\s+/g, ' ').trim()
+}
+
+function isOpenQuestionSelectionPrompt(
+  message: string,
+  question: Pick<OpenQuestion, 'section' | 'question'>,
+): boolean {
+  return (
+    normalizeResolvePromptText(message) ===
+    normalizeResolvePromptText(
+      `Resolve this open question from ${question.section}: "${question.question}"`,
+    )
+  )
+}
+
 function formatToolName(tool: string): string {
   return TOOL_LABELS[tool] ?? tool.replace(/_/g, ' ')
 }
@@ -63,6 +85,7 @@ export function ScopeWorkspace({
   initialMessages,
   initialOpenQuestions,
 }: ScopeWorkspaceProps) {
+  const modeConfig = getProjectModeConfig(project.mode)
   const router = useRouter()
   const [isPromoting, startPromote] = useTransition()
   const [confirmingPromote, setConfirmingPromote] = useState(false)
@@ -73,13 +96,11 @@ export function ScopeWorkspace({
   const [error, setError] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     if (initialMessages.length > 0) return initialMessages
-    // Inject a welcome message on fresh scope projects
     return [
       {
         id: 'welcome',
         role: 'assistant' as const,
-        content:
-          'Welcome to Quick Capture! Describe what your client needs and I\'ll build a flowchart on the canvas in real-time.\n\nAs I work, hold **⌥ Option** to peek at your flowchart behind this chat.\n\nTry something like: *"The client needs a checkout flow with guest checkout and payment options."*',
+        content: modeConfig.welcomeMessage ?? '',
         operations: [],
         createdAt: new Date().toISOString(),
       },
@@ -90,6 +111,10 @@ export function ScopeWorkspace({
   const [prdOpen, setPrdOpen] = useState(false)
   const [pendingRefresh, setPendingRefresh] = useState(false)
   const [saveCounter, setSaveCounter] = useState(0)
+  const [activeResolutionQuestion, setActiveResolutionQuestion] = useState<Pick<
+    OpenQuestion,
+    'id' | 'section' | 'question'
+  > | null>(null)
 
   const modules = useGraphStore((state) => state.modules)
   const openQuestions = useGraphStore((state) => state.openQuestions)
@@ -129,9 +154,10 @@ export function ScopeWorkspace({
   ])
 
   useEffect(() => {
-    if (initialMessages.length > 0) {
-      setMessages(initialMessages)
-    }
+    if (initialMessages.length === 0) return
+
+    const timeout = window.setTimeout(() => setMessages(initialMessages), 0)
+    return () => window.clearTimeout(timeout)
   }, [initialMessages])
 
   // Hold Option/Alt to temporarily peek at the canvas behind the chat
@@ -159,112 +185,20 @@ export function ScopeWorkspace({
   }
 
   function handleToolEvent(tool: string, data: Record<string, unknown>) {
-    switch (tool) {
-      case 'create_node': {
-        const node = data.node as FlowNode | undefined
-        if (node) {
-          useGraphStore.getState().addNode(node)
-          addToolCall(`Created node`)
-        }
-        break
-      }
-      case 'update_node': {
-        const node = data.node as FlowNode | undefined
-        if (node) {
-          useGraphStore.getState().updateNode(node.id, node)
-          addToolCall(`Updated node`)
-        }
-        break
-      }
-      case 'delete_node': {
-        const deletedNodeId = data.deletedNodeId as string | undefined
-        if (deletedNodeId) {
-          useGraphStore.getState().removeNode(deletedNodeId)
-          addToolCall(`Deleted node`)
-        }
-        break
-      }
-      case 'create_edge': {
-        const edge = data.edge as FlowEdge | undefined
-        if (edge) {
-          useGraphStore.getState().addEdge(edge)
-          addToolCall(`Created edge`)
-        }
-        break
-      }
-      case 'delete_edge': {
-        const deletedEdgeId = data.deletedEdgeId as string | undefined
-        if (deletedEdgeId) {
-          useGraphStore.getState().removeEdge(deletedEdgeId)
-          addToolCall(`Deleted edge`)
-        }
-        break
-      }
-      case 'add_open_questions': {
-        const nodes = data.nodes as FlowNode[] | undefined
-        const questions = data.questions as OpenQuestion[] | undefined
-        const edges = data.edges as FlowEdge[] | undefined
-        if (nodes) {
-          for (const node of nodes) useGraphStore.getState().addNode(node)
-        }
-        if (questions) {
-          for (const q of questions) useGraphStore.getState().addOpenQuestion(q)
-        }
-        if (edges) {
-          for (const edge of edges) useGraphStore.getState().addEdge(edge)
-        }
-        const count = questions?.length ?? 0
-        addToolCall(count === 1 ? 'Flagged 1 question' : `Flagged ${count} questions`)
-        break
-      }
-      case 'resolve_open_question': {
-        const question = data.question as OpenQuestion | undefined
-        if (question) {
-          useGraphStore.getState().removeNode(question.node_id)
-          useGraphStore.getState().resolveOpenQuestion(question.id, question.resolution ?? '')
-        }
-        addToolCall('Resolved question')
-        break
-      }
-      case 'write_prd': {
-        const mod = data.module as Module | undefined
-        if (mod) {
-          useGraphStore.getState().updateModule(mod.id, { prd_content: mod.prd_content })
-          addToolCall('Updated PRD')
-        }
-        break
-      }
-      case 'promote_project': {
-        setPendingRefresh(true)
-        addToolCall('Switched to Full Design')
-        break
-      }
-      case 'create_module': {
-        const mod = data.module as Module | undefined
-        if (mod) {
-          useGraphStore.getState().addModule(mod)
-          addToolCall(`Created ${mod.name}`)
-        }
-        break
-      }
-      case 'update_module': {
-        const mod = data.module as Module | undefined
-        if (mod) {
-          useGraphStore.getState().updateModule(mod.id, mod)
-          addToolCall(`Updated ${mod.name}`)
-        }
-        break
-      }
-      case 'connect_modules': {
-        const conn = data.connection as ModuleConnection | undefined
-        if (conn) useGraphStore.getState().addConnection(conn)
-        addToolCall('Connected modules')
-        break
-      }
-    }
+    applyScopeToolEvent(tool, data, {
+      activeResolutionQuestionId: activeResolutionQuestion?.id,
+      clearActiveResolutionQuestion: () => setActiveResolutionQuestion(null),
+      markPendingRefresh: () => setPendingRefresh(true),
+      recordToolCall: addToolCall,
+    })
   }
 
-  async function handleSend(message: string): Promise<boolean> {
+  async function handleSend(message: string, options: SendOptions = {}): Promise<boolean> {
+    const resolvingOpenQuestion =
+      options.resolvingOpenQuestion ?? activeResolutionQuestion ?? undefined
+    const isOnlySelectingQuestion =
+      resolvingOpenQuestion && isOpenQuestionSelectionPrompt(message, resolvingOpenQuestion)
+
     const optimisticUserMessage: ChatMessage = {
       id: `local-user-${crypto.randomUUID()}`,
       role: 'user',
@@ -285,19 +219,22 @@ export function ScopeWorkspace({
     try {
       const activeModuleId = modules[0]?.id ?? null
 
+      const chatMode = modeConfig.chatMode ?? 'scope_build'
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           projectId: project.id,
           message,
-          mode: 'scope_build',
+          mode: chatMode,
           context: {
             projectId: project.id,
             projectName: project.name,
             activeModuleId,
-            mode: 'scope_build',
+            mode: chatMode,
             modules: modules.map((m) => ({ id: m.id, name: m.name })),
+            ...(resolvingOpenQuestion ? { resolvingOpenQuestion } : {}),
           },
           history: messages
             .filter((entry) => entry.id !== 'welcome')
@@ -360,6 +297,9 @@ export function ScopeWorkspace({
         ])
       }
       setSaveCounter((n) => n + 1)
+      if (resolvingOpenQuestion && !isOnlySelectingQuestion) {
+        setActiveResolutionQuestion(null)
+      }
       return true
     } catch (err) {
       if (!streamStarted) {
@@ -462,8 +402,10 @@ export function ScopeWorkspace({
               initialName={project.name}
               className="text-sm font-semibold text-slate-900"
             />
-            <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
-              Quick Capture
+            <span
+              className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${modeConfig.badgeClassName}`}
+            >
+              {modeConfig.workspaceLabel}
             </span>
             <SavedIndicator trigger={saveCounter} />
           </div>
@@ -494,7 +436,8 @@ export function ScopeWorkspace({
             <div className="flex items-center gap-3">
               <div className="space-y-0.5 text-xs">
                 <p className="text-slate-500">
-                  This is permanent &mdash; you can&apos;t switch back to Quick Capture.
+                  This is permanent &mdash; you can&apos;t switch back to{' '}
+                  {modeConfig.workspaceLabel}.
                 </p>
                 <p className="text-slate-500">
                   Your flowchart,{' '}
@@ -537,13 +480,24 @@ export function ScopeWorkspace({
       <div className="flex min-h-0 flex-1">
         <div className="flex flex-1 flex-col" data-testid="canvas-panel">
           <div className="flex-1">
-            <CanvasContainer />
+            <CanvasContainer showFunnelLanes={Boolean(modeConfig.showFunnelLanes)} />
           </div>
           <OpenQuestionsPanel
             questions={openQuestions}
             onResolve={(question) => {
+              const selectedQuestion = {
+                id: question.id,
+                section: question.section,
+                question: question.question,
+              }
+              setActiveResolutionQuestion(selectedQuestion)
               setAssistantOpen(true)
-              void handleSend(`Let's resolve this open question: "${question}"`)
+              void handleSend(
+                `Resolve this open question from ${question.section}: "${question.question}"`,
+                {
+                  resolvingOpenQuestion: selectedQuestion,
+                },
+              )
             }}
           />
         </div>
@@ -565,13 +519,9 @@ export function ScopeWorkspace({
         onAttachFile={handleAttachFile}
         isOpen={assistantOpen}
         onToggle={() => setAssistantOpen((prev) => !prev)}
-        subtitle="Describe what the client needs — I'll build the flowchart."
+        subtitle={modeConfig.chatSubtitle}
         isPeeking={isPeeking}
-        examplePrompts={[
-          'Client needs an invoicing system with approvals',
-          'Map out a returns and refunds process',
-          'Capture requirements for an event booking flow',
-        ]}
+        examplePrompts={modeConfig.examplePrompts}
       />
 
       <PrdPreviewPanel

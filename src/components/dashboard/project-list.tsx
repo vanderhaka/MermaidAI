@@ -2,8 +2,9 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { getProjectModeConfig } from '@/lib/project-modes'
 import { createProject, deleteProject } from '@/lib/services/project-service'
-import type { Project } from '@/types/graph'
+import type { Project, ProjectMode } from '@/types/graph'
 
 type ProjectSummary = Pick<
   Project,
@@ -35,6 +36,7 @@ function ProjectCard({ project, onDeleted }: { project: ProjectSummary; onDelete
   const router = useRouter()
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const modeConfig = getProjectModeConfig(project.mode)
 
   async function handleDelete(e: React.MouseEvent) {
     e.stopPropagation()
@@ -73,13 +75,9 @@ function ProjectCard({ project, onDeleted }: { project: ProjectSummary; onDelete
             <div className="flex items-center gap-2">
               <p className="text-lg font-semibold tracking-tight text-slate-950">{project.name}</p>
               <span
-                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                  project.mode === 'scope'
-                    ? 'bg-amber-100 text-amber-800'
-                    : 'bg-blue-100 text-blue-800'
-                }`}
+                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${modeConfig.badgeClassName}`}
               >
-                {project.mode === 'scope' ? 'Scope' : 'Architecture'}
+                {modeConfig.label}
               </span>
             </div>
             <p className="text-sm leading-6 text-slate-600">
@@ -164,9 +162,9 @@ export function ProjectList({ projects }: ProjectListProps) {
   const [showModeSelector, setShowModeSelector] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-  const [modeFilter, setModeFilter] = useState<'all' | 'scope' | 'architecture'>('all')
+  const [modeFilter, setModeFilter] = useState<'all' | ProjectMode>('all')
 
-  async function handleCreateWithMode(mode: 'scope' | 'architecture') {
+  async function handleCreateWithMode(mode: ProjectMode) {
     setIsCreating(true)
     setShowModeSelector(false)
     setError(null)
@@ -237,26 +235,20 @@ export function ProjectList({ projects }: ProjectListProps) {
               </button>
             </div>
             <div className="grid gap-2">
-              <button
-                type="button"
-                onClick={() => handleCreateWithMode('scope')}
-                className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-left transition hover:border-amber-400 hover:bg-amber-100"
-              >
-                <p className="text-sm font-bold text-slate-900">Quick Capture</p>
-                <p className="mt-0.5 text-xs text-slate-600">
-                  Lightweight scoping for live client calls
-                </p>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleCreateWithMode('architecture')}
-                className="rounded-xl border border-blue-300 bg-blue-50 p-3 text-left transition hover:border-blue-400 hover:bg-blue-100"
-              >
-                <p className="text-sm font-bold text-slate-900">Full Design</p>
-                <p className="mt-0.5 text-xs text-slate-600">
-                  Detailed system mapping with modules and flows
-                </p>
-              </button>
+              {(['scope', 'flowchart', 'architecture'] as const).map((mode) => {
+                const config = getProjectModeConfig(mode)
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => handleCreateWithMode(mode)}
+                    className={config.selectorClassName}
+                  >
+                    <p className="text-sm font-bold text-slate-900">{config.selectorLabel}</p>
+                    <p className="mt-0.5 text-xs text-slate-600">{config.selectorDescription}</p>
+                  </button>
+                )
+              })}
             </div>
             <p className="mt-2 text-center text-xs text-slate-500">
               Not sure? Start with Quick Capture &mdash; you can switch to Full Design later.
@@ -302,8 +294,9 @@ export function ProjectList({ projects }: ProjectListProps) {
             {(
               [
                 ['all', 'All'],
-                ['scope', 'Quick Capture'],
-                ['architecture', 'Full Design'],
+                ['scope', getProjectModeConfig('scope').selectorLabel],
+                ['flowchart', getProjectModeConfig('flowchart').selectorLabel],
+                ['architecture', getProjectModeConfig('architecture').selectorLabel],
               ] as const
             ).map(([value, label]) => (
               <button

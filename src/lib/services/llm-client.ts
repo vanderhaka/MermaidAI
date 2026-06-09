@@ -58,6 +58,8 @@ export async function callLLMWithTools(
 
       try {
         while (true) {
+          let streamedTextThisRound = ''
+
           const stream = client.messages.stream({
             model,
             max_tokens: MAX_TOKENS,
@@ -69,6 +71,7 @@ export async function callLLMWithTools(
 
           // Stream text deltas to the client in real-time
           stream.on('text', (text: string) => {
+            streamedTextThisRound += text
             controller.enqueue(text)
           })
 
@@ -122,6 +125,10 @@ export async function callLLMWithTools(
             { role: 'assistant', content: response.content },
             { role: 'user', content: toolResults },
           ]
+
+          if (streamedTextThisRound.trim()) {
+            controller.enqueue('\n\n')
+          }
         }
 
         controller.close()

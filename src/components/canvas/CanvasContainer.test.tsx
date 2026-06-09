@@ -43,17 +43,20 @@ vi.mock('@/components/canvas/views/ModuleDetailView', () => ({
     moduleName,
     nodes,
     edges,
+    showFunnelLanes,
     onBack,
   }: {
     moduleName: string
     nodes: FlowNode[]
     edges: FlowEdge[]
+    showFunnelLanes?: boolean
     onBack?: () => void
   }) => (
     <div data-testid="module-detail-view">
       <span data-testid="module-name">{moduleName}</span>
       <span data-testid="node-count">{nodes.length}</span>
       <span data-testid="edge-count">{edges.length}</span>
+      <span data-testid="show-funnel-lanes">{String(Boolean(showFunnelLanes))}</span>
       <button data-testid="back-button" onClick={onBack}>
         Back
       </button>
@@ -186,6 +189,14 @@ describe('CanvasContainer', () => {
       mockStore.activeModuleId = 'mod-1'
       render(<CanvasContainer />)
       expect(screen.getByTestId('edge-count')).toHaveTextContent('1')
+    })
+
+    it('passes funnel lanes flag to ModuleDetailView when enabled', () => {
+      mockStore.modules = [makeModule({ id: 'mod-1', name: 'Marketing Flowchart' })]
+      mockStore.nodes = [makeNode({ id: 'n1', module_id: 'mod-1' })]
+      mockStore.activeModuleId = 'mod-1'
+      render(<CanvasContainer showFunnelLanes />)
+      expect(screen.getByTestId('show-funnel-lanes')).toHaveTextContent('true')
     })
   })
 

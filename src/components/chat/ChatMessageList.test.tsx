@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { render, screen, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it, vi } from 'vitest'
 import type { ChatMessage } from '@/types/chat'
 import ChatMessageList from '@/components/chat/ChatMessageList'
 
@@ -59,6 +60,73 @@ describe('ChatMessageList', () => {
         .getByText('Here is a login flow with email and password.')
         .closest('[data-role="assistant"]')
       expect(msgEl).toBeInTheDocument()
+    })
+
+    it('renders recommended assistant answers as an accept action', async () => {
+      const user = userEvent.setup()
+      const onSend = vi.fn()
+      const msg = makeMessage({
+        id: 'msg-rec',
+        role: 'assistant',
+        content:
+          'Should checkout changes stay editable after payment starts?\n\nRecommended answer: Lock the cart after payment begins, but let users return to the cart to edit before retrying.',
+      })
+
+      render(<ChatMessageList messages={[msg]} isLoading={false} onSend={onSend} />)
+
+      expect(screen.getByTestId('assistant-question')).toHaveTextContent(
+        'Should checkout changes stay editable after payment starts?',
+      )
+      expect(screen.getByTestId('assistant-recommendation')).toHaveTextContent(
+        'Lock the cart after payment begins',
+      )
+      expect(screen.queryByText(/recommended answer:/i)).not.toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: /accept suggestion/i }))
+
+      expect(onSend).toHaveBeenCalledWith(
+        'Accept suggestion: Lock the cart after payment begins, but let users return to the cart to edit before retrying.',
+      )
+    })
+
+    it('renders follow-up questions as a prominent callout before recommendations', () => {
+      const msg = makeMessage({
+        id: 'msg-question-callout',
+        role: 'assistant',
+        content:
+          'Perfect. I added the coupon step.\n\n**Should an invalid coupon code show an error and let them retry, or silently skip it?**\n\nRecommended answer: Show an error, allow retry, and let them skip if needed.',
+      })
+
+      render(<ChatMessageList messages={[msg]} isLoading={false} />)
+
+      const question = screen.getByTestId('assistant-question')
+      expect(within(question).getByText('Question')).toBeInTheDocument()
+      expect(question).toHaveTextContent(
+        'Should an invalid coupon code show an error and let them retry, or silently skip it?',
+      )
+      expect(screen.getByText('Perfect. I added the coupon step.')).toBeInTheDocument()
+      expect(screen.getByTestId('assistant-recommendation')).toHaveTextContent(
+        'Show an error, allow retry',
+      )
+    })
+
+    it('normalizes old tool-loop assistant messages into readable paragraphs', () => {
+      const msg = makeMessage({
+        id: 'msg-run-on',
+        role: 'assistant',
+        content:
+          "I'll start by creating a simple flow for a checkout/cart system.Now I'll add the steps:Now I'll connect everything:Done! The flow is ready.",
+      })
+
+      render(<ChatMessageList messages={[msg]} isLoading={false} />)
+
+      expect(screen.queryByText(/system\.Now/)).not.toBeInTheDocument()
+      expect(
+        screen.getByText("I'll start by creating a simple flow for a checkout/cart system."),
+      ).toBeInTheDocument()
+      expect(screen.getByText("Now I'll add the steps:")).toBeInTheDocument()
+      expect(screen.getByText("Now I'll connect everything:")).toBeInTheDocument()
+      expect(screen.getByText('Done! The flow is ready.')).toBeInTheDocument()
     })
   })
 

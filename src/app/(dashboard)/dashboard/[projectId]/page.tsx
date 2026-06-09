@@ -8,6 +8,7 @@ import { listConnectionsByProject } from '@/lib/services/module-connection-servi
 import { listModulesByProject } from '@/lib/services/module-service'
 import { listOpenQuestions } from '@/lib/services/open-question-service'
 import { getProjectById } from '@/lib/services/project-service'
+import { isSingleCanvasMode } from '@/lib/project-modes'
 import type { ChatMessage } from '@/types/chat'
 import type { FlowEdge, FlowNode, ModuleConnection, OpenQuestion } from '@/types/graph'
 
@@ -63,12 +64,16 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     initialEdges.push(...graphResult.data.edges)
   }
 
-  const isScope = projectResult.data.mode === 'scope'
+  const usesSingleCanvasWorkspace = isSingleCanvasMode(projectResult.data.mode)
+
+  if (usesSingleCanvasWorkspace && modules.length === 0) {
+    notFound()
+  }
 
   const oqResult = await listOpenQuestions(projectId)
   const initialOpenQuestions: OpenQuestion[] = oqResult.success ? oqResult.data : []
 
-  if (isScope) {
+  if (usesSingleCanvasWorkspace) {
     return (
       <ScopeWorkspace
         project={projectResult.data}

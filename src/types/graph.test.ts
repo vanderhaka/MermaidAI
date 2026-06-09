@@ -46,7 +46,7 @@ describe('Project type', () => {
     const input: CreateProjectInput = {
       name: 'New Project',
       description: 'Optional description',
-      mode: 'scope',
+      mode: 'flowchart',
     }
     expect(input).toHaveProperty('name')
     expect(input).not.toHaveProperty('id')

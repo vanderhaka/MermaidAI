@@ -74,10 +74,20 @@ export function inferDecisionSourceHandle(
   if (fromLabel) return fromLabel
 
   const c = condition?.toLowerCase() ?? ''
+  const combined = `${label ?? ''} ${condition ?? ''}`.toLowerCase()
+  if (/^\s*(retry|skip)\s*$/.test(combined)) return undefined
   if (/\b(guest|anonymous)\b/.test(c)) return 'no'
   if (/\b(logged in|authenticated|signed in)\b/.test(c)) return 'yes'
-  if (/\b(insufficient|oos|out of stock|low stock)\b/.test(c)) return 'no'
-  if (/\b(sufficient|stock ok)\b/.test(c)) return 'yes'
+  if (
+    /\b(invalid|fail|failed|failure|error|rejected|denied|insufficient|oos|out of stock|low stock)\b/.test(
+      combined,
+    )
+  ) {
+    return 'no'
+  }
+  if (/\b(valid|success|successful|approved|accepted|sufficient|stock ok)\b/.test(combined)) {
+    return 'yes'
+  }
 
   return fromShortLabel(condition)
 }

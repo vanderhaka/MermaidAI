@@ -45,4 +45,13 @@ describe('inferDecisionSourceHandle', () => {
     expect(inferDecisionSourceHandle(null, 'Guest')).toBe('no')
     expect(inferDecisionSourceHandle(null, 'Logged in')).toBe('yes')
   })
+
+  it('infers valid/invalid and success/failure outcomes without treating recovery actions as decision branches', () => {
+    expect(inferDecisionSourceHandle(null, 'Valid')).toBe('yes')
+    expect(inferDecisionSourceHandle(null, 'Invalid')).toBe('no')
+    expect(inferDecisionSourceHandle(null, 'Payment successful')).toBe('yes')
+    expect(inferDecisionSourceHandle(null, 'Payment failed')).toBe('no')
+    expect(inferDecisionSourceHandle('Retry')).toBeUndefined()
+    expect(inferDecisionSourceHandle('Skip')).toBeUndefined()
+  })
 })

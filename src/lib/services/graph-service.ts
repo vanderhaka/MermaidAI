@@ -7,7 +7,7 @@ import { createFlowNodeSchema } from '@/lib/schemas/flow-node'
 import { buildCartFlowRows, isCartModuleName } from '@/lib/module-templates'
 import { createClient } from '@/lib/supabase/server'
 import type { FlowEdge, FlowNode, FlowNodeType, Module } from '@/types/graph'
-import type { Tables } from '@/types/database'
+import type { Tables, TablesUpdate } from '@/types/database'
 
 type FlowNodeRow = Tables<'flow_nodes'>
 type FlowEdgeRow = Tables<'flow_edges'>
@@ -147,7 +147,7 @@ export async function updateNode(
 ): Promise<ServiceResult<FlowNode>> {
   const { position, ...rest } = data
 
-  const dbFields: Record<string, unknown> = { ...rest }
+  const dbFields: TablesUpdate<'flow_nodes'> = { ...rest }
   if (position) {
     dbFields.position_x = position.x
     dbFields.position_y = position.y

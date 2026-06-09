@@ -270,6 +270,12 @@ describe('buildSystemPrompt', () => {
       expect(prompt.toLowerCase()).toContain('tool')
     })
 
+    it('asks for opinionated recommended answers on follow-up questions', () => {
+      const prompt = buildSystemPrompt(mode, detailContext)
+      expect(prompt).toContain('Recommended answer:')
+      expect(prompt.toLowerCase()).toContain('one recommended default answer')
+    })
+
     it('includes file path instruction for pseudocode', () => {
       const prompt = buildSystemPrompt(mode, detailContext)
       expect(prompt).toContain('// file:')
@@ -332,6 +338,20 @@ describe('buildSystemPrompt', () => {
       expect(prompt.toLowerCase()).toContain('domain')
     })
 
+    it('asks for opinionated recommended answers on follow-up questions', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toContain('Recommended answer:')
+      expect(prompt.toLowerCase()).toContain('one recommended default answer')
+    })
+
+    it('requires repairing graph check issues before replying', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toContain('Graph check:')
+      expect(prompt).toContain('repair those issues')
+      expect(prompt).toContain('delete the stale direct edge')
+      expect(prompt).toContain('contradictory failure branches')
+    })
+
     it('references add_open_questions tool', () => {
       const prompt = buildSystemPrompt(mode, baseContext)
       expect(prompt).toContain('add_open_questions')
@@ -357,6 +377,35 @@ describe('buildSystemPrompt', () => {
       })
       expect(prompt).toContain('OAuth or password?')
       expect(prompt).toContain('Auth')
+    })
+
+    it('treats a selected open question as a question to ask, not an answer to resolve', () => {
+      const prompt = buildSystemPrompt(mode, {
+        ...baseContext,
+        resolvingOpenQuestion: {
+          id: 'oq-cart-editing',
+          section: 'Cart Management',
+          question: 'Can users edit cart items?',
+        },
+        openQuestions: [
+          {
+            id: 'oq-cart-editing',
+            section: 'Cart Management',
+            question: 'Can users edit cart items?',
+            status: 'open',
+            resolution: null,
+          },
+        ],
+      })
+
+      expect(prompt).toContain('Selected Open Question')
+      expect(prompt).toContain('oq-cart-editing')
+      expect(prompt).toContain('Can users edit cart items?')
+      expect(prompt).toContain('do not call `resolve_open_question`')
+      expect(prompt).toContain('Recommended answer:')
+      expect(prompt).toContain('Current Open Questions" list is the source of truth')
+      expect(prompt).toContain('do not write that it is "already resolved"')
+      expect(prompt).toContain("until the user's latest message after this selection")
     })
 
     it('groups open questions by section', () => {
@@ -442,6 +491,118 @@ describe('buildSystemPrompt', () => {
     it('instructs AI to never ask for module ID', () => {
       const prompt = buildSystemPrompt(mode, baseContext)
       expect(prompt.toLowerCase()).toContain('never ask the user for a module id')
+    })
+  })
+
+  describe('flowchart_build mode', () => {
+    const mode: PromptMode = 'flowchart_build'
+
+    it('returns a non-empty string', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toBeTruthy()
+      expect(typeof prompt).toBe('string')
+    })
+
+    it('includes the project name', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toContain('TaskFlow')
+    })
+
+    it('frames the mode as a conversational funnel workspace', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt.toLowerCase()).toContain('funnel-based')
+      expect(prompt.toLowerCase()).toContain('conversational funnel-mapping')
+      expect(prompt.toLowerCase()).toContain('lead journeys')
+    })
+
+    it('guides the AI around funnel stages and conversion paths', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt.toLowerCase()).toContain('awareness')
+      expect(prompt.toLowerCase()).toContain('nurture')
+      expect(prompt.toLowerCase()).toContain('convert')
+      expect(prompt.toLowerCase()).toContain('drop-off')
+    })
+
+    it('instructs the AI to avoid pseudocode and architecture jargon', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt.toLowerCase()).toContain('do not include pseudocode')
+      expect(prompt.toLowerCase()).toContain('avoid implementation jargon')
+    })
+
+    it('asks for opinionated recommended answers on follow-up questions', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toContain('Recommended answer:')
+      expect(prompt.toLowerCase()).toContain('one recommended default answer')
+    })
+
+    it('does not instruct the AI to create open-question nodes', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt.toLowerCase()).toContain('do not create open-question nodes')
+      expect(prompt).not.toContain('add_open_questions')
+    })
+
+    it('does not reference tools that are unavailable in flowchart mode', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).not.toContain('add_open_questions')
+      expect(prompt).not.toContain('resolve_open_question')
+      expect(prompt).not.toContain('promote_project')
+      expect(prompt).not.toContain('create_module')
+      expect(prompt).not.toContain('connect_modules')
+      expect(prompt).not.toContain('lookup_docs')
+    })
+
+    it('includes current canvas nodes and edges', () => {
+      const prompt = buildSystemPrompt(mode, {
+        ...baseContext,
+        nodes: [
+          {
+            id: 'node-1',
+            module_id: 'mod-1',
+            node_type: 'process',
+            label: 'Ad Click',
+            pseudocode: '',
+            position: { x: 0, y: 0 },
+            color: '#14b8a6',
+            created_at: '',
+            updated_at: '',
+          },
+        ],
+        edges: [
+          {
+            id: 'edge-1',
+            module_id: 'mod-1',
+            source_node_id: 'node-1',
+            target_node_id: 'node-2',
+            label: 'Interested',
+            condition: null,
+            created_at: '',
+          },
+        ],
+      })
+      expect(prompt).toContain('Ad Click')
+      expect(prompt).toContain('Interested')
+    })
+
+    it('includes module ID when currentModule is provided', () => {
+      const prompt = buildSystemPrompt(mode, {
+        ...baseContext,
+        currentModule: {
+          id: 'mod-flowchart-123',
+          name: 'Marketing Flowchart',
+          description: 'Flowchart module',
+          prd_content: '',
+          domain: null,
+          project_id: 'proj-1',
+          position: { x: 0, y: 0 },
+          color: '#14b8a6',
+          entry_points: [],
+          exit_points: [],
+          created_at: '',
+          updated_at: '',
+        },
+      })
+      expect(prompt).toContain('mod-flowchart-123')
+      expect(prompt).toContain('Never ask the user for a module ID')
     })
   })
 })

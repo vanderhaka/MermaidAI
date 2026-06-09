@@ -3,7 +3,7 @@
 import { createModuleSchema, updateModuleSchema } from '@/lib/schemas/module'
 import { createClient } from '@/lib/supabase/server'
 import type { Module } from '@/types/graph'
-import type { Tables } from '@/types/database'
+import type { Tables, TablesUpdate } from '@/types/database'
 
 type ModuleRow = Tables<'modules'>
 type ServiceResult<T> = { success: true; data: T } | { success: false; error: string }
@@ -62,7 +62,7 @@ export async function updateModule(
 
   const { position, ...rest } = parsed.data
 
-  const dbFields: Record<string, unknown> = { ...rest }
+  const dbFields: TablesUpdate<'modules'> = { ...rest }
   if (position) {
     dbFields.position_x = position.x
     dbFields.position_y = position.y

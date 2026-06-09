@@ -9,6 +9,7 @@ import FloatingChat from '@/components/chat/FloatingChat'
 import { InlineProjectName } from '@/components/dashboard/InlineProjectName'
 import PrdPreviewPanel from '@/components/dashboard/PrdPreviewPanel'
 import { SavedIndicator } from '@/components/dashboard/SavedIndicator'
+import { applyProjectToolEvent } from '@/components/dashboard/tool-event-applier'
 import { signOut } from '@/lib/services/auth-service'
 import { createModule } from '@/lib/services/module-service'
 import { updateProject, deleteProject } from '@/lib/services/project-service'
@@ -113,8 +114,6 @@ export function ProjectWorkspace({
   const setEdges = useGraphStore((state) => state.setEdges)
   const setConnections = useGraphStore((state) => state.setConnections)
   const addModuleToStore = useGraphStore((state) => state.addModule)
-  const addConnectionToStore = useGraphStore((state) => state.addConnection)
-  const updateModuleInStore = useGraphStore((state) => state.updateModule)
   const setActiveModuleId = useGraphStore((state) => state.setActiveModuleId)
 
   const setOpenQuestions = useGraphStore((state) => state.setOpenQuestions)
@@ -139,7 +138,8 @@ export function ProjectWorkspace({
   ])
 
   useEffect(() => {
-    setMessages(initialMessages)
+    const timeout = window.setTimeout(() => setMessages(initialMessages), 0)
+    return () => window.clearTimeout(timeout)
   }, [initialMessages])
 
   async function handleSaveSettings() {
@@ -203,81 +203,7 @@ export function ProjectWorkspace({
   }
 
   function handleToolEvent(tool: string, data: Record<string, unknown>) {
-    switch (tool) {
-      case 'create_module': {
-        const mod = data.module as Module
-        if (mod) {
-          addToolCall(`Created ${mod.name} module`)
-          addModuleToStore(mod)
-        }
-        break
-      }
-      case 'update_module': {
-        const mod = data.module as Module
-        if (mod) {
-          addToolCall(`Updated ${mod.name}`)
-          updateModuleInStore(mod.id, mod)
-        }
-        break
-      }
-      case 'delete_module': {
-        addToolCall('Removed module')
-        break
-      }
-      case 'connect_modules': {
-        const conn = data.connection as ModuleConnection
-        if (conn) addConnectionToStore(conn)
-        const srcMod = data.sourceModule as Module | undefined
-        if (srcMod) updateModuleInStore(srcMod.id, srcMod)
-        const tgtMod = data.targetModule as Module | undefined
-        if (tgtMod) updateModuleInStore(tgtMod.id, tgtMod)
-        addToolCall(
-          srcMod && tgtMod ? `Connected ${srcMod.name} → ${tgtMod.name}` : 'Connected modules',
-        )
-        break
-      }
-      case 'lookup_docs': {
-        const lookup = data.lookup as { library: string; topic: string } | undefined
-        if (lookup) {
-          addToolCall(`Looked up ${lookup.library} docs`)
-        }
-        break
-      }
-      case 'add_open_questions': {
-        const nodes = data.nodes as FlowNode[] | undefined
-        const questions = data.questions as OpenQuestion[] | undefined
-        const edges = data.edges as FlowEdge[] | undefined
-        if (nodes) {
-          for (const node of nodes) useGraphStore.getState().addNode(node)
-        }
-        if (questions) {
-          for (const q of questions) useGraphStore.getState().addOpenQuestion(q)
-        }
-        if (edges) {
-          for (const edge of edges) useGraphStore.getState().addEdge(edge)
-        }
-        const count = questions?.length ?? 0
-        addToolCall(count === 1 ? 'Flagged 1 question' : `Flagged ${count} questions`)
-        break
-      }
-      case 'resolve_open_question': {
-        const question = data.question as OpenQuestion | undefined
-        if (question) {
-          useGraphStore.getState().removeNode(question.node_id)
-          useGraphStore.getState().resolveOpenQuestion(question.id, question.resolution ?? '')
-        }
-        addToolCall('Resolved question')
-        break
-      }
-      case 'write_prd': {
-        const mod = data.module as Module | undefined
-        if (mod) {
-          updateModuleInStore(mod.id, { prd_content: mod.prd_content })
-          addToolCall('Updated PRD')
-        }
-        break
-      }
-    }
+    applyProjectToolEvent(tool, data, { recordToolCall: addToolCall })
   }
 
   async function handleSend(message: string) {

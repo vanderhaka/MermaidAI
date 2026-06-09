@@ -8,12 +8,21 @@ import {
 } from '@/lib/services/module-service'
 import { connectModules } from '@/lib/services/module-connection-service'
 import { lookupDocumentation } from '@/lib/services/doc-lookup-service'
-import { addNode, updateNode, removeNode, addEdge, removeEdge } from '@/lib/services/graph-service'
+import {
+  addNode,
+  updateNode,
+  removeNode,
+  addEdge,
+  removeEdge,
+  getGraphForModule,
+} from '@/lib/services/graph-service'
 import { updateProject } from '@/lib/services/project-service'
 import { createOpenQuestion, resolveOpenQuestion } from '@/lib/services/open-question-service'
 import type { ToolResult } from '@/lib/services/llm-client'
 import type { FlowNode } from '@/types/graph'
 import type { PromptMode } from '@/lib/services/prompt-builder'
+import { validateFlowGraph, type FlowGraphIssue } from '@/lib/canvas/graph-invariants'
+import { isClickOnlySelectedQuestionPrompt } from '@/lib/services/selected-open-question'
 
 const DEFAULT_MODULE_COLOR = '#111827'
 const DEFAULT_NODE_COLOR = '#2563eb'
@@ -358,6 +367,14 @@ const SCOPE_TOOLS = [
   updateModuleTool,
   connectModulesTool,
 ]
+const FLOWCHART_TOOLS = [
+  createNodeTool,
+  updateNodeTool,
+  deleteNodeTool,
+  createEdgeTool,
+  deleteEdgeTool,
+  writePrdTool,
+]
 
 export function getToolsForMode(mode: PromptMode): Anthropic.Tool[] {
   switch (mode) {
@@ -369,6 +386,8 @@ export function getToolsForMode(mode: PromptMode): Anthropic.Tool[] {
       return NODE_EDGE_TOOLS
     case 'scope_build':
       return SCOPE_TOOLS
+    case 'flowchart_build':
+      return FLOWCHART_TOOLS
   }
 }
 
@@ -378,6 +397,15 @@ export function getToolsForMode(mode: PromptMode): Anthropic.Tool[] {
 
 type ToolInput = Record<string, unknown>
 
+export type ToolExecutorOptions = {
+  latestUserMessage?: string
+  resolvingOpenQuestion?: {
+    id: string
+    section: string
+    question: string
+  }
+}
+
 function ok(content: string, data?: Record<string, unknown>): ToolResult {
   return { content, isError: false, data }
 }
@@ -386,7 +414,61 @@ function fail(message: string): ToolResult {
   return { content: message, isError: true }
 }
 
-export function createToolExecutor(projectId: string) {
+function formatGraphIssue(issue: FlowGraphIssue): string {
+  return `${issue.code} at ${issue.nodeId}: ${issue.message}`
+}
+
+async function buildGraphCheck(moduleId: string): Promise<{
+  content: string
+  issues: FlowGraphIssue[]
+} | null> {
+  const graph = await getGraphForModule(moduleId)
+  if (!graph.success) {
+    return {
+      content: `Graph check unavailable: ${graph.error}`,
+      issues: [],
+    }
+  }
+
+  const issues = validateFlowGraph(graph.data)
+  if (issues.length === 0) return null
+
+  const topIssues = issues.slice(0, 5).map(formatGraphIssue)
+  const extra =
+    issues.length > topIssues.length ? `; +${issues.length - topIssues.length} more` : ''
+
+  return {
+    content: `Graph check: ${issues.length} issue(s) remain. Repair before replying: ${topIssues.join('; ')}${extra}`,
+    issues,
+  }
+}
+
+async function okWithGraphCheck(
+  content: string,
+  moduleId: string,
+  data?: Record<string, unknown>,
+): Promise<ToolResult> {
+  const graphCheck = await buildGraphCheck(moduleId)
+  if (!graphCheck) return ok(content, data)
+
+  return ok(`${content}\n\n${graphCheck.content}`, {
+    ...data,
+    graphIssues: graphCheck.issues,
+  })
+}
+
+function isSelectedQuestionPromptWithoutAnswer(
+  questionId: string,
+  options: ToolExecutorOptions,
+): boolean {
+  const selected = options.resolvingOpenQuestion
+  const latest = options.latestUserMessage
+  if (!selected || !latest || selected.id !== questionId) return false
+
+  return isClickOnlySelectedQuestionPrompt(latest, selected)
+}
+
+export function createToolExecutor(projectId: string, options: ToolExecutorOptions = {}) {
   return async function executeTool(name: string, input: ToolInput): Promise<ToolResult> {
     try {
       switch (name) {
@@ -499,8 +581,9 @@ export function createToolExecutor(projectId: string) {
             color: DEFAULT_NODE_COLOR,
           })
           if (!result.success) return fail(result.error)
-          return ok(
+          return okWithGraphCheck(
             `Created node "${result.data.label}" (id: ${result.data.id}, type: ${result.data.node_type})`,
+            input.moduleId as string,
             { node: result.data },
           )
         }
@@ -517,9 +600,13 @@ export function createToolExecutor(projectId: string) {
             ...(nodeType ? { node_type: nodeType as FlowNode['node_type'] } : {}),
           })
           if (!result.success) return fail(result.error)
-          return ok(`Updated node "${result.data.label}" (id: ${result.data.id})`, {
-            node: result.data,
-          })
+          return okWithGraphCheck(
+            `Updated node "${result.data.label}" (id: ${result.data.id})`,
+            result.data.module_id,
+            {
+              node: result.data,
+            },
+          )
         }
 
         case 'delete_node': {
@@ -537,8 +624,9 @@ export function createToolExecutor(projectId: string) {
             condition: input.condition as string | undefined,
           })
           if (!result.success) return fail(result.error)
-          return ok(
+          return okWithGraphCheck(
             `Created edge ${input.sourceNodeId} → ${input.targetNodeId} (id: ${result.data.id})`,
+            input.moduleId as string,
             { edge: result.data },
           )
         }
@@ -653,6 +741,12 @@ export function createToolExecutor(projectId: string) {
         case 'resolve_open_question': {
           const questionId = input.questionId as string
           const resolution = input.resolution as string
+
+          if (isSelectedQuestionPromptWithoutAnswer(questionId, options)) {
+            return fail(
+              'Cannot resolve the selected open question yet. The latest user message only selected the question; ask it with a recommended answer and wait for the user answer or explicit acceptance.',
+            )
+          }
 
           const result = await resolveOpenQuestion(questionId, resolution)
           if (!result.success) return fail(result.error)

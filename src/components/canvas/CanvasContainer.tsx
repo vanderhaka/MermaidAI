@@ -5,7 +5,11 @@ import { useGraphStore } from '@/store/graph-store'
 import ModuleMapView from '@/components/canvas/views/ModuleMapView'
 import ModuleDetailView from '@/components/canvas/views/ModuleDetailView'
 
-export default function CanvasContainer() {
+type CanvasContainerProps = {
+  showFunnelLanes?: boolean
+}
+
+export default function CanvasContainer({ showFunnelLanes = false }: CanvasContainerProps) {
   const modules = useGraphStore((s) => s.modules)
   const nodes = useGraphStore((s) => s.nodes)
   const edges = useGraphStore((s) => s.edges)
@@ -25,6 +29,7 @@ export default function CanvasContainer() {
         domainLabel={displayDomain(activeModule.domain)}
         nodes={moduleNodes}
         edges={moduleEdges}
+        showFunnelLanes={showFunnelLanes}
         onBack={() => setActiveModuleId(null)}
       />
     )

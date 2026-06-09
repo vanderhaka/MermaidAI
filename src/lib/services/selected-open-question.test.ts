@@ -1,0 +1,47 @@
+import { describe, expect, it } from 'vitest'
+
+import {
+  buildSelectedOpenQuestionHelpResponse,
+  isClickOnlySelectedQuestionPrompt,
+} from '@/lib/services/selected-open-question'
+
+const cartQuestion = {
+  id: 'oq-cart',
+  section: 'Cart Management',
+  question: 'Can users edit cart items?',
+}
+
+describe('selected open question helpers', () => {
+  it('detects a drawer selection prompt without treating it as an answer', () => {
+    expect(
+      isClickOnlySelectedQuestionPrompt(
+        'Resolve this open question from Cart Management: "Can users edit cart items?"',
+        cartQuestion,
+      ),
+    ).toBe(true)
+  })
+
+  it('normalizes legacy prompt copy and smart quotes', () => {
+    expect(
+      isClickOnlySelectedQuestionPrompt(
+        'Let’s resolve this open question: “Can users edit cart items?”',
+        cartQuestion,
+      ),
+    ).toBe(true)
+  })
+
+  it('does not classify an answered prompt as click-only', () => {
+    expect(
+      isClickOnlySelectedQuestionPrompt(
+        'Yes, users can edit quantities and remove items before checkout.',
+        cartQuestion,
+      ),
+    ).toBe(false)
+  })
+
+  it('builds the deterministic helper response with the recommended default', () => {
+    expect(buildSelectedOpenQuestionHelpResponse(cartQuestion)).toContain(
+      'Let users edit quantities and remove items until payment is submitted',
+    )
+  })
+})

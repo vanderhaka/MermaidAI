@@ -14,6 +14,71 @@ interface ChatMessageListProps {
   examplePrompts?: string[]
 }
 
+const RECOMMENDATION_PREFIX_RE =
+  /^\s*(?:\*\*)?(?:recommended answer|recommendation|my recommendation)(?:\*\*)?\s*:\s*(.+)$/i
+
+function normalizeAssistantSpacing(content: string): string {
+  return content
+    .replace(/([.!?])(?=(?:Now|Next|Then|Done|I'll)\b)/g, '$1\n\n')
+    .replace(/:(?=(?:Now|Next|Then|Done)\b)/g, ':\n\n')
+}
+
+function stripQuestionEmphasis(content: string): string {
+  return content.replace(/^\*\*(.+)\*\*$/s, '$1').trim()
+}
+
+function extractFollowUpQuestion(content: string): {
+  body: string
+  question: string | null
+} {
+  const blocks = content
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+  const questionIndex = blocks.findLastIndex((block) => /\?\s*(?:\*\*)?\s*$/.test(block))
+
+  if (questionIndex === -1) {
+    return { body: content, question: null }
+  }
+
+  const [questionBlock] = blocks.splice(questionIndex, 1)
+
+  return {
+    body: blocks.join('\n\n'),
+    question: stripQuestionEmphasis(questionBlock),
+  }
+}
+
+function parseAssistantContent(content: string): {
+  body: string
+  question: string | null
+  recommendation: string | null
+} {
+  const lines = content.split('\n')
+  const recommendationIndex = lines.findIndex((line) => RECOMMENDATION_PREFIX_RE.test(line))
+
+  if (recommendationIndex === -1) {
+    const { body, question } = extractFollowUpQuestion(normalizeAssistantSpacing(content))
+    return { body, question, recommendation: null }
+  }
+
+  const match = lines[recommendationIndex].match(RECOMMENDATION_PREFIX_RE)
+  const recommendation = match?.[1]?.trim() ?? ''
+  const rawBody = lines
+    .filter((_, index) => index !== recommendationIndex)
+    .join('\n')
+    .trim()
+  const { body, question } = extractFollowUpQuestion(
+    rawBody ? normalizeAssistantSpacing(rawBody) : '',
+  )
+
+  return {
+    body,
+    question,
+    recommendation: recommendation || null,
+  }
+}
+
 function ThinkingIndicator() {
   return (
     <div data-role="assistant" className="flex justify-start">
@@ -119,7 +184,15 @@ function parseUploadedDoc(content: string): { filename: string; note: string } |
   return { filename, note: between }
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({
+  message,
+  onSend,
+  isLoading,
+}: {
+  message: ChatMessage
+  onSend?: (message: string) => void
+  isLoading: boolean
+}) {
   const isUser = message.role === 'user'
 
   if (isUser) {
@@ -168,11 +241,45 @@ function MessageBubble({ message }: { message: ChatMessage }) {
     )
   }
 
+  const { body, question, recommendation } = parseAssistantContent(message.content)
+
   return (
     <article aria-label="assistant message" data-role="assistant" className="w-full">
-      <div className="prose prose-sm max-w-none text-gray-900">
-        <Markdown>{message.content}</Markdown>
-      </div>
+      {body && (
+        <div className="prose prose-sm max-w-none text-gray-900 prose-p:my-2">
+          <Markdown>{body}</Markdown>
+        </div>
+      )}
+      {question && (
+        <div
+          data-testid="assistant-question"
+          className="mt-3 rounded-xl bg-slate-950 px-4 py-3 text-white shadow-sm"
+        >
+          <p className="text-xs font-semibold uppercase tracking-wide text-blue-200">Question</p>
+          <p className="mt-1 text-base font-semibold leading-relaxed text-white">{question}</p>
+        </div>
+      )}
+      {recommendation && (
+        <div
+          data-testid="assistant-recommendation"
+          className="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-3"
+        >
+          <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+            Recommended answer
+          </p>
+          <p className="mt-1 text-sm leading-relaxed text-blue-950">{recommendation}</p>
+          {onSend && (
+            <button
+              type="button"
+              disabled={isLoading}
+              onClick={() => onSend(`Accept suggestion: ${recommendation}`)}
+              className="mt-3 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+            >
+              Accept suggestion
+            </button>
+          )}
+        </div>
+      )}
     </article>
   )
 }
@@ -245,11 +352,13 @@ export default function ChatMessageList({
   return (
     <div role="log" aria-live="polite" className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
       {messages.map((msg) => (
-        <MessageBubble key={msg.id} message={msg} />
+        <MessageBubble key={msg.id} message={msg} onSend={onSend} isLoading={isLoading} />
       ))}
       {isLoading && !streamingContent && !toolActivity && <ThinkingIndicator />}
       {showCompletedTools && !isLoading && <ToolCallsSummary calls={toolCalls} />}
-      {streamingMessage && <MessageBubble message={streamingMessage} />}
+      {streamingMessage && (
+        <MessageBubble message={streamingMessage} onSend={onSend} isLoading={isLoading} />
+      )}
       {showLiveActivity && <ToolActivityIndicator activity={toolActivity} />}
       <div ref={scrollRef} data-testid="scroll-anchor" />
     </div>

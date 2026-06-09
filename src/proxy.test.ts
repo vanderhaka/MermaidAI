@@ -2,15 +2,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { NextRequest } from 'next/server'
 
-const { mockGetUser, mockRedirect, mockNext } = vi.hoisted(() => ({
+const { mockGetUser, mockSignInWithPassword, mockRedirect, mockNext } = vi.hoisted(() => ({
   mockGetUser: vi.fn(),
+  mockSignInWithPassword: vi.fn(),
   mockRedirect: vi.fn(),
   mockNext: vi.fn(() => ({ status: 200, headers: new Headers() })),
 }))
 
 vi.mock('@/lib/supabase/middleware', () => ({
   createSupabaseMiddlewareClient: vi.fn(() => ({
-    supabase: { auth: { getUser: mockGetUser } },
+    supabase: { auth: { getUser: mockGetUser, signInWithPassword: mockSignInWithPassword } },
     response: { status: 200, headers: new Headers() },
   })),
 }))
@@ -34,6 +35,7 @@ function createMockRequest(pathname: string): NextRequest {
 
 describe('Auth proxy', () => {
   beforeEach(() => {
+    vi.unstubAllEnvs()
     vi.clearAllMocks()
     mockRedirect.mockReturnValue({ status: 302, headers: new Headers() })
     mockNext.mockReturnValue({ status: 200, headers: new Headers() })
@@ -125,6 +127,61 @@ describe('Auth proxy', () => {
       await proxy(request)
 
       expect(mockRedirect).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('dev auth skip', () => {
+    beforeEach(() => {
+      mockGetUser.mockResolvedValue({
+        data: { user: null },
+        error: { message: 'not authenticated' },
+      })
+      mockSignInWithPassword.mockResolvedValue({
+        data: { user: { id: 'dev-user', email: 'dev@example.com' } },
+        error: null,
+      })
+    })
+
+    it('allows a protected route after signing in with local dev credentials', async () => {
+      vi.stubEnv('DEV_AUTH_SKIP', 'true')
+      vi.stubEnv('TEST_USER_EMAIL', 'dev@example.com')
+      vi.stubEnv('TEST_USER_PASSWORD', 'password123')
+
+      const request = createMockRequest('/dashboard')
+      await proxy(request)
+
+      expect(mockSignInWithPassword).toHaveBeenCalledWith({
+        email: 'dev@example.com',
+        password: 'password123',
+      })
+      expect(mockRedirect).not.toHaveBeenCalled()
+    })
+
+    it('does not dev sign-in in production', async () => {
+      vi.stubEnv('NODE_ENV', 'production')
+      vi.stubEnv('DEV_AUTH_SKIP', 'true')
+      vi.stubEnv('TEST_USER_EMAIL', 'dev@example.com')
+      vi.stubEnv('TEST_USER_PASSWORD', 'password123')
+
+      const request = createMockRequest('/dashboard')
+      await proxy(request)
+
+      expect(mockSignInWithPassword).not.toHaveBeenCalled()
+      expect(mockRedirect).toHaveBeenCalledTimes(1)
+      const redirectUrl = mockRedirect.mock.calls[0][0] as URL
+      expect(redirectUrl.pathname).toBe('/login')
+    })
+
+    it('falls back to normal redirects when credentials are missing', async () => {
+      vi.stubEnv('DEV_AUTH_SKIP', 'true')
+
+      const request = createMockRequest('/dashboard')
+      await proxy(request)
+
+      expect(mockSignInWithPassword).not.toHaveBeenCalled()
+      expect(mockRedirect).toHaveBeenCalledTimes(1)
+      const redirectUrl = mockRedirect.mock.calls[0][0] as URL
+      expect(redirectUrl.pathname).toBe('/login')
     })
   })
 

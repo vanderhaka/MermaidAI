@@ -2,7 +2,7 @@ import type { ModuleConnectionSection } from '@/lib/canvas/layout'
 
 type Point = { x: number; y: number }
 
-export function dedupePoints(points: Point[]): Point[] {
+function dedupePoints(points: Point[]): Point[] {
   return points.filter((point, index) => {
     if (index === 0) return true
     const prev = points[index - 1]
@@ -20,7 +20,7 @@ function getRouteAxisForPosition(position: string) {
   return position === 'left' || position === 'right' ? 'horizontal' : 'vertical'
 }
 
-export function collapseLinearPoints(points: Point[]): Point[] {
+function collapseLinearPoints(points: Point[]): Point[] {
   const collapsed: Point[] = []
 
   for (const point of points) {
@@ -45,7 +45,7 @@ export function collapseLinearPoints(points: Point[]): Point[] {
   return collapsed
 }
 
-export function orthogonalizePoints(
+function orthogonalizePoints(
   points: Point[],
   sourcePosition: string,
   targetPosition: string,
@@ -140,7 +140,7 @@ export function buildRoundedOrthogonalPath(points: Point[], borderRadius: number
   return path
 }
 
-export function getSectionPathPoints(sections: ModuleConnectionSection[]): Point[] {
+function getSectionPathPoints(sections: ModuleConnectionSection[]): Point[] {
   if (sections.length === 0) return []
 
   const points: Point[] = []
@@ -154,7 +154,7 @@ export function getSectionPathPoints(sections: ModuleConnectionSection[]): Point
   return dedupePoints(points)
 }
 
-export function getPathMidpoint(points: Point[]): Point {
+function getPathMidpoint(points: Point[]): Point {
   if (points.length === 0) return { x: 0, y: 0 }
   if (points.length === 1) return points[0]
 

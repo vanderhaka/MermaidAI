@@ -45,7 +45,7 @@ function walkFlow(nodes: FlowNode[], edges: FlowEdge[]): FlowNode[] {
   return ordered
 }
 
-export function renderFlowSection(nodes: FlowNode[], edges: FlowEdge[]): string {
+function renderFlowSection(nodes: FlowNode[], edges: FlowEdge[]): string {
   const ordered = walkFlow(nodes, edges)
   if (ordered.length === 0) return ''
 
@@ -91,7 +91,7 @@ export function renderFlowSection(nodes: FlowNode[], edges: FlowEdge[]): string 
   return lines.join('\n')
 }
 
-export function renderQuestionsSection(questions: OpenQuestion[]): string {
+function renderQuestionsSection(questions: OpenQuestion[]): string {
   const open = questions.filter((q) => q.status === 'open')
   const resolved = questions.filter((q) => q.status === 'resolved')
 

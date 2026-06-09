@@ -95,6 +95,12 @@ describe('createProjectSchema', () => {
     expect(result.data?.mode).toBe('architecture')
   })
 
+  it('accepts mode: flowchart', () => {
+    const result = createProjectSchema.safeParse({ name: 'Lead Journey', mode: 'flowchart' })
+    expect(result.success).toBe(true)
+    expect(result.data?.mode).toBe('flowchart')
+  })
+
   it('rejects invalid mode value', () => {
     const result = createProjectSchema.safeParse({ name: 'Bad', mode: 'draft' })
     expect(result.success).toBe(false)
@@ -104,6 +110,11 @@ describe('createProjectSchema', () => {
 describe('updateProjectSchema — mode field', () => {
   it('accepts mode update alone', () => {
     const result = updateProjectSchema.safeParse({ mode: 'scope' })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts flowchart mode update alone', () => {
+    const result = updateProjectSchema.safeParse({ mode: 'flowchart' })
     expect(result.success).toBe(true)
   })
 

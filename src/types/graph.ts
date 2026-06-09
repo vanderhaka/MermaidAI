@@ -3,7 +3,7 @@ export type Position = {
   y: number
 }
 
-export type ProjectMode = 'scope' | 'architecture'
+export type ProjectMode = 'scope' | 'architecture' | 'flowchart'
 
 export type Project = {
   id: string

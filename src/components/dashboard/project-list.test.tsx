@@ -35,6 +35,14 @@ const sampleProjects = [
     created_at: '2026-02-20T14:30:00Z',
     updated_at: '2026-02-20T14:30:00Z',
   },
+  {
+    id: 'p3',
+    name: 'Lead Journey',
+    description: 'Marketing flow',
+    mode: 'flowchart' as const,
+    created_at: '2026-03-10T09:00:00Z',
+    updated_at: '2026-03-10T09:00:00Z',
+  },
 ]
 
 describe('ProjectList', () => {
@@ -57,9 +65,10 @@ describe('ProjectList', () => {
     const { container } = render(<ProjectList projects={sampleProjects} />)
 
     const timeElements = container.querySelectorAll('time')
-    expect(timeElements).toHaveLength(2)
+    expect(timeElements).toHaveLength(3)
     expect(timeElements[0]).toHaveAttribute('datetime', '2026-01-15T10:00:00Z')
     expect(timeElements[1]).toHaveAttribute('datetime', '2026-02-20T14:30:00Z')
+    expect(timeElements[2]).toHaveAttribute('datetime', '2026-03-10T09:00:00Z')
   })
 
   it('renders project cards as clickable links to /dashboard/[projectId]', async () => {
@@ -94,7 +103,9 @@ describe('ProjectList', () => {
 
     const modeSelector = screen.getByTestId('mode-selector')
     expect(within(modeSelector).getByRole('button', { name: /quick capture/i })).toBeInTheDocument()
+    expect(within(modeSelector).getByRole('button', { name: /flowchart/i })).toBeInTheDocument()
     expect(within(modeSelector).getByRole('button', { name: /full design/i })).toBeInTheDocument()
+    expect(within(modeSelector).getByText(/chatty funnel maps/i)).toBeInTheDocument()
   })
 
   it('creates project with scope mode', async () => {
@@ -149,6 +160,33 @@ describe('ProjectList', () => {
       mode: 'architecture',
     })
     expect(mockPush).toHaveBeenCalledWith('/dashboard/p4')
+  })
+
+  it('creates project with flowchart mode', async () => {
+    const user = userEvent.setup()
+    mockCreateProject.mockResolvedValueOnce({
+      success: true,
+      data: {
+        id: 'p5',
+        name: 'Untitled Project',
+        description: null,
+        mode: 'flowchart',
+        created_at: '',
+        updated_at: '',
+      },
+    })
+
+    render(<ProjectList projects={sampleProjects} />)
+
+    await user.click(screen.getByRole('button', { name: /new project/i }))
+    const modeSelector = screen.getByTestId('mode-selector')
+    await user.click(within(modeSelector).getByRole('button', { name: /flowchart/i }))
+
+    expect(mockCreateProject).toHaveBeenCalledWith({
+      name: 'Untitled Project',
+      mode: 'flowchart',
+    })
+    expect(mockPush).toHaveBeenCalledWith('/dashboard/p5')
   })
 
   it('can dismiss the mode selector', async () => {

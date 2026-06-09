@@ -1,6 +1,14 @@
 export type ChatRole = 'user' | 'assistant' | 'system'
 
-export type ChatMode = 'discovery' | 'module_map' | 'module_detail' | 'scope_build'
+export const CHAT_MODES = [
+  'discovery',
+  'module_map',
+  'module_detail',
+  'scope_build',
+  'flowchart_build',
+] as const
+
+export type ChatMode = (typeof CHAT_MODES)[number]
 
 export type GraphOperationType =
   | 'create_module'
@@ -133,6 +141,11 @@ export type ChatContext = {
   activeModuleId: string | null
   mode: ChatMode
   modules: ModuleSummary[]
+  resolvingOpenQuestion?: {
+    id: string
+    section: string
+    question: string
+  }
 }
 
 export type CreateChatMessageInput = {
