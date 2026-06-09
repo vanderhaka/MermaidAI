@@ -11,6 +11,8 @@ type SegmentRef = {
   axis: number
   rangeStart: number
   rangeEnd: number
+  /** First and last segments are anchored to node handles and must not move. */
+  movable: boolean
 }
 
 const SEPARATION = 12
@@ -27,18 +29,14 @@ function flattenSectionPoints(sections: ModuleConnectionSection[]): Position[] {
   })
 }
 
-/**
- * Interior segments only — the first and last segments are anchored to node
- * handles and must not move.
- */
-function collectInteriorSegments(
+function collectSegments(
   pointLists: Position[][],
   orientation: 'vertical' | 'horizontal',
 ): SegmentRef[] {
   const segments: SegmentRef[] = []
 
   pointLists.forEach((points, edgeIndex) => {
-    for (let pointIndex = 2; pointIndex < points.length - 1; pointIndex++) {
+    for (let pointIndex = 1; pointIndex < points.length; pointIndex++) {
       const a = points[pointIndex - 1]
       const b = points[pointIndex]
       const isVertical = a.x === b.x && a.y !== b.y
@@ -52,6 +50,7 @@ function collectInteriorSegments(
         axis: orientation === 'vertical' ? a.x : a.y,
         rangeStart: Math.min(range[0], range[1]),
         rangeEnd: Math.max(range[0], range[1]),
+        movable: pointIndex >= 2 && pointIndex <= points.length - 2,
       })
     }
   })
@@ -63,25 +62,46 @@ function rangesOverlap(a: SegmentRef, b: SegmentRef): boolean {
   return a.rangeStart < b.rangeEnd && b.rangeStart < a.rangeEnd
 }
 
+/** Offset sequence 0, -1, +1, -2, +2, … used to pick lanes nearest the centroid. */
+function laneOffset(step: number): number {
+  if (step === 0) return 0
+  const magnitude = Math.ceil(step / 2)
+  return step % 2 === 1 ? -magnitude : magnitude
+}
+
 function spreadCluster(
   cluster: SegmentRef[],
   pointLists: Position[][],
   orientation: 'vertical' | 'horizontal',
 ): void {
-  if (cluster.length < 2) return
+  const movables = cluster.filter((segment) => segment.movable)
+  if (movables.length === 0) return
 
   const needsSeparation = cluster.some((a) =>
-    cluster.some((b) => a !== b && a.edgeIndex !== b.edgeIndex && rangesOverlap(a, b)),
+    cluster.some(
+      (b) =>
+        a !== b && a.edgeIndex !== b.edgeIndex && (a.movable || b.movable) && rangesOverlap(a, b),
+    ),
   )
   if (!needsSeparation) return
 
-  const members = [...cluster].sort(
+  const base = cluster.reduce((sum, seg) => sum + seg.axis, 0) / cluster.length
+  const fixedValues = cluster.filter((seg) => !seg.movable).map((seg) => seg.axis)
+
+  const positions: number[] = []
+  for (let step = 0; positions.length < movables.length; step++) {
+    const candidate = base + laneOffset(step) * SEPARATION
+    if (fixedValues.every((value) => Math.abs(value - candidate) >= SEPARATION)) {
+      positions.push(candidate)
+    }
+  }
+  positions.sort((a, b) => a - b)
+
+  const ordered = [...movables].sort(
     (a, b) => a.edgeIndex - b.edgeIndex || a.pointIndex - b.pointIndex,
   )
-  const centroid = members.reduce((sum, seg) => sum + seg.axis, 0) / members.length
-
-  members.forEach((seg, index) => {
-    const value = centroid + (index - (members.length - 1) / 2) * SEPARATION
+  ordered.forEach((seg, index) => {
+    const value = positions[index]
     const points = pointLists[seg.edgeIndex]
     const a = points[seg.pointIndex - 1]
     const b = points[seg.pointIndex]
@@ -99,9 +119,7 @@ function separateOrientation(
   pointLists: Position[][],
   orientation: 'vertical' | 'horizontal',
 ): void {
-  const segments = collectInteriorSegments(pointLists, orientation).sort(
-    (a, b) => a.axis - b.axis,
-  )
+  const segments = collectSegments(pointLists, orientation).sort((a, b) => a.axis - b.axis)
 
   let cluster: SegmentRef[] = []
   for (const segment of segments) {
@@ -118,8 +136,11 @@ function separateOrientation(
 /**
  * The flow-detail router picks each edge's route independently, so edges that
  * head to the same column or row land on identical corridors and overdraw each
- * other. This pass clusters parallel interior segments that run within one
- * lane-width of each other with overlapping spans, and spreads them apart.
+ * other. This pass clusters parallel segments running within one lane-width of
+ * each other with overlapping spans and spreads the movable (interior) ones
+ * apart — including away from handle-anchored segments, which act as occupied
+ * tracks and never move. Edges converging on the same handle keep their shared
+ * final stub: paths may merge only where they end at the same place.
  */
 export function separateOverlappingSegments(edges: RoutedEdge[]): RoutedEdge[] {
   const pointLists = edges.map((edge) =>

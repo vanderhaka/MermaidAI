@@ -7,6 +7,7 @@ import {
   EdgeLabelRenderer,
   getSmoothStepPath,
   Position,
+  useEdges,
   useInternalNode,
   useNodes,
 } from '@xyflow/react'
@@ -26,6 +27,9 @@ function getNodeBounds(node: InternalNode | undefined): NodeBounds | null {
   if (width <= 0 || height <= 0) return null
   return { x: node.internals.positionAbsolute.x, y: node.internals.positionAbsolute.y, width, height }
 }
+
+/** Node shapes with a straight bottom edge — safe to spread output stubs along. */
+const SPREADABLE_SOURCE_TYPES = new Set(['process', 'question', 'entry', 'exit'])
 
 function toObstacles(nodes: Node[]): NodeBounds[] {
   return nodes
@@ -65,6 +69,29 @@ export default function ConditionEdge({
   const sourceNode = useInternalNode(source)
   const targetNode = useInternalNode(target)
   const allNodes = useNodes()
+  const allEdges = useEdges()
+
+  // Sibling outputs from the same source port leave from different spots on the
+  // node's bottom edge instead of one stacked stub.
+  const spreadSourceX = (() => {
+    if (
+      sourcePosition !== Position.Bottom ||
+      !sourceNode ||
+      !SPREADABLE_SOURCE_TYPES.has(sourceNode.type ?? '')
+    ) {
+      return sourceX
+    }
+    const siblings = allEdges.filter(
+      (edge) => edge.source === source && (edge.sourceHandle ?? null) === (sourceHandleId ?? null),
+    )
+    if (siblings.length < 2) return sourceX
+    const order = siblings.findIndex((edge) => edge.id === id)
+    const bounds = getNodeBounds(sourceNode)
+    if (order === -1 || !bounds) return sourceX
+    const offset = (order - (siblings.length - 1) / 2) * 24
+    const limit = bounds.width / 2 - 20
+    return sourceX + Math.max(Math.min(offset, limit), -limit)
+  })()
   const edgeData = (data as ConditionEdgeData) ?? {}
   const { label, condition } = edgeData
   const labelColor = edgeData.labelColor ?? '#16a34a'
@@ -91,7 +118,7 @@ export default function ConditionEdge({
       targetBounds
     ) {
       return buildBackEdgePath({
-        sourceX,
+        sourceX: spreadSourceX,
         sourceY,
         targetX,
         targetY,
@@ -120,7 +147,7 @@ export default function ConditionEdge({
     }
 
     const [p, lx, ly] = getSmoothStepPath({
-      sourceX,
+      sourceX: spreadSourceX,
       sourceY,
       sourcePosition,
       targetX,

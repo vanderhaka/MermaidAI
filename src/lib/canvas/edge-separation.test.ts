@@ -94,6 +94,32 @@ describe('separateOverlappingSegments', () => {
     expect(pointsOf(result[1])).toEqual(pointsOf(apart[1]))
   })
 
+  it('moves interior corridors off handle-anchored straight edges', () => {
+    const edges = [
+      // A straight edge whose single segment is fully handle-anchored at x=554.
+      makeEdge('straight', [
+        { x: 554, y: 1460 },
+        { x: 554, y: 1556 },
+      ]),
+      // An interior corridor landing on the same x=554 track with overlapping span.
+      makeEdge('looper', [
+        { x: 400, y: 1400 },
+        { x: 554, y: 1400 },
+        { x: 554, y: 1600 },
+        { x: 700, y: 1600 },
+        { x: 700, y: 1650 },
+      ]),
+    ]
+
+    const result = separateOverlappingSegments(edges)
+
+    // Anchored straight edge never moves.
+    expect(pointsOf(result[0])).toEqual(pointsOf(edges[0]))
+    // The interior corridor settles a full lane away from the occupied track.
+    const corridorX = pointsOf(result[1])[1].x
+    expect(Math.abs(corridorX - 554)).toBeGreaterThanOrEqual(12)
+  })
+
   it('separates near-coincident horizontal approaches into the same target', () => {
     const converging = [
       makeEdge('from-left', [

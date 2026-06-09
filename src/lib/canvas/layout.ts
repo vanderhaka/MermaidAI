@@ -718,6 +718,22 @@ function routeFlowDetailEdges(
     maxX: Math.max(...boxes.map((box) => box.right)),
   }
 
+  // Outgoing edges that share a source port get distinct start offsets so they
+  // leave the node from visibly different spots instead of one stacked stub.
+  const sourcePortCounts = new Map<string, number>()
+  const sourcePortOrder = new Map<string, number>()
+  for (const edge of edges) {
+    const sourceNode = nodeById.get(edge.source_node_id)
+    const handle =
+      sourceNode?.node_type === 'decision'
+        ? inferDecisionSourceHandle(edge.label, edge.condition)
+        : 'out'
+    const key = `${edge.source_node_id}::${handle}`
+    const order = sourcePortCounts.get(key) ?? 0
+    sourcePortOrder.set(edge.id, order)
+    sourcePortCounts.set(key, order + 1)
+  }
+
   return edges.map((edge, index) => {
     const sourceBox = boxById.get(edge.source_node_id)
     const targetBox = boxById.get(edge.target_node_id)
@@ -728,7 +744,17 @@ function routeFlowDetailEdges(
       sourceNode?.node_type === 'decision'
         ? inferDecisionSourceHandle(edge.label, edge.condition)
         : undefined
-    const candidates = buildFlowRouteCandidates(sourceBox, targetBox, sourceHandle, bounds, index)
+    const handleKey = `${edge.source_node_id}::${sourceHandle ?? 'out'}`
+    const siblingCount = sourcePortCounts.get(handleKey) ?? 1
+    const spreadIndex = (sourcePortOrder.get(edge.id) ?? 0) - (siblingCount - 1) / 2
+    const candidates = buildFlowRouteCandidates(
+      sourceBox,
+      targetBox,
+      sourceHandle,
+      bounds,
+      index,
+      spreadIndex,
+    )
     const collisionRects = boxes
       .filter((box) => box.id !== sourceBox.id && box.id !== targetBox.id)
       .map(padFlowBox)
@@ -753,8 +779,9 @@ function buildFlowRouteCandidates(
   sourceHandle: string | undefined,
   bounds: { minX: number; maxX: number },
   edgeIndex: number,
+  spreadIndex = 0,
 ): Position[][] {
-  const sourcePoint = getFlowRouteSourcePoint(sourceBox, sourceHandle)
+  const sourcePoint = getFlowRouteSourcePoint(sourceBox, sourceHandle, spreadIndex)
   const targetPoint = getFlowRouteTargetPoint(targetBox)
   const candidates: Position[][] = []
   const sourceExitsRight = sourceHandle === 'no'
@@ -827,11 +854,30 @@ function buildFlowRouteCandidates(
   return candidates
 }
 
-function getFlowRouteSourcePoint(box: FlowDetailBox, sourceHandle: string | undefined): Position {
+/** Node shapes whose bottom edge is a straight line — safe to spread starts along. */
+const SPREADABLE_SOURCE_TYPES = new Set<FlowNodeType>(['process', 'question', 'entry', 'exit'])
+
+const SOURCE_SPREAD_STEP = 24
+
+function getFlowRouteSourcePoint(
+  box: FlowDetailBox,
+  sourceHandle: string | undefined,
+  spreadIndex = 0,
+): Position {
   if (sourceHandle === 'no') {
     return { x: box.right, y: box.y + box.height / 2 }
   }
-  return { x: box.x + box.width / 2, y: box.bottom }
+
+  // Spread sibling outputs along the bottom edge; diamonds and circles exit at
+  // a single vertex point, where offset starts would float beside the shape.
+  const spread = SPREADABLE_SOURCE_TYPES.has(box.type)
+    ? Math.max(
+        Math.min(spreadIndex * SOURCE_SPREAD_STEP, box.width / 2 - 20),
+        -(box.width / 2 - 20),
+      )
+    : 0
+
+  return { x: box.x + box.width / 2 + spread, y: box.bottom }
 }
 
 function getFlowRouteTargetPoint(box: FlowDetailBox): Position {
