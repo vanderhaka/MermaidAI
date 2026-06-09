@@ -117,6 +117,10 @@ export default function FloatingChat({
         onToggle()
       }
       if (e.key === 'Escape' && isOpen) {
+        // Closing unmounts the panel (and any draft in the input) — don't do it
+        // while the user is focused in a form field.
+        const tag = (e.target as HTMLElement)?.tagName
+        if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return
         e.preventDefault()
         onToggle()
       }

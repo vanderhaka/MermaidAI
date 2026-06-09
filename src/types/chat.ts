@@ -10,6 +10,7 @@ export const CHAT_MODES = [
   'module_detail',
   'scope_build',
   'flowchart_build',
+  'brainstorm_build',
 ] as const
 
 export type ChatMode = (typeof CHAT_MODES)[number]

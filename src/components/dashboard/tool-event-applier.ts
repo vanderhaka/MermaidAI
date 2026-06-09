@@ -82,6 +82,16 @@ export function applyScopeToolEvent(
       }
       break
     }
+    case 'insert_node_between': {
+      const removedEdgeIds = data.removedEdgeIds as string[] | undefined
+      const node = data.node as FlowNode | undefined
+      const edges = data.edges as FlowEdge[] | undefined
+      for (const edgeId of removedEdgeIds ?? []) store.removeEdge(edgeId)
+      if (node) store.addNode(node)
+      for (const edge of edges ?? []) store.addEdge(edge)
+      if (node) options.recordToolCall(`Inserted ${node.label}`)
+      break
+    }
     case 'add_open_questions': {
       options.recordToolCall(formatQuestionCount(applyOpenQuestionPayload(data)))
       break
@@ -108,7 +118,7 @@ export function applyScopeToolEvent(
     }
     case 'promote_project': {
       options.markPendingRefresh?.()
-      options.recordToolCall('Switched to Full Design')
+      options.recordToolCall(data.mode === 'scope' ? 'Switched to Quick Capture' : 'Switched to Full Design')
       break
     }
     case 'create_module': {

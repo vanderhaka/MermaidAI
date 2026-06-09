@@ -15,8 +15,8 @@ describe('project mode config', () => {
     expect(Object.keys(PROJECT_MODE_CONFIG).sort()).toEqual([...PROJECT_MODES].sort())
   })
 
-  it('marks scope and flowchart as single-canvas modes with chat and module defaults', () => {
-    for (const mode of ['scope', 'flowchart'] satisfies ProjectMode[]) {
+  it('marks scope, flowchart, and brainstorm as single-canvas modes with chat and module defaults', () => {
+    for (const mode of ['scope', 'flowchart', 'brainstorm'] satisfies ProjectMode[]) {
       const config = getProjectModeConfig(mode)
 
       expect(isSingleCanvasMode(mode)).toBe(true)

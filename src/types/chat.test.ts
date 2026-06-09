@@ -255,9 +255,14 @@ describe('ChatContext type', () => {
     expect(ctxWithId.activeModuleId).toBe('mod_1')
   })
 
-  it('mode is a union of discovery, module_map, module_detail, scope_build, and flowchart_build', () => {
+  it('mode is a union of discovery, module_map, module_detail, scope_build, flowchart_build, and brainstorm_build', () => {
     expectTypeOf<ChatMode>().toEqualTypeOf<
-      'discovery' | 'module_map' | 'module_detail' | 'scope_build' | 'flowchart_build'
+      | 'discovery'
+      | 'module_map'
+      | 'module_detail'
+      | 'scope_build'
+      | 'flowchart_build'
+      | 'brainstorm_build'
     >()
   })
 
@@ -268,6 +273,7 @@ describe('ChatContext type', () => {
       'module_detail',
       'scope_build',
       'flowchart_build',
+      'brainstorm_build',
     ])
   })
 

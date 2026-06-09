@@ -158,6 +158,48 @@ describe('tool event appliers', () => {
     expect(recordToolCall).toHaveBeenCalledWith('Switched to Full Design')
   })
 
+  it('labels promote events targeting scope as Quick Capture', () => {
+    const recordToolCall = vi.fn()
+    const markPendingRefresh = vi.fn()
+
+    applyScopeToolEvent(
+      'promote_project',
+      { promoted: true, mode: 'scope' },
+      { markPendingRefresh, recordToolCall },
+    )
+
+    expect(markPendingRefresh).toHaveBeenCalled()
+    expect(recordToolCall).toHaveBeenCalledWith('Switched to Quick Capture')
+  })
+
+  it('applies insert_node_between payloads atomically: removes stale edge, adds node and edges', () => {
+    const recordToolCall = vi.fn()
+    const nodeA = makeNode({ id: 'node-a', label: 'Send Quote' })
+    const nodeB = makeNode({ id: 'node-b', label: 'Send Invoice' })
+    const staleEdge = makeEdge({ id: 'edge-ab', source_node_id: 'node-a', target_node_id: 'node-b' })
+    useGraphStore.getState().setNodes([nodeA, nodeB])
+    useGraphStore.getState().setEdges([staleEdge])
+
+    const insertedNode = makeNode({ id: 'node-new', label: 'Review Quote' })
+    const edgeIn = makeEdge({ id: 'edge-in', source_node_id: 'node-a', target_node_id: 'node-new' })
+    const edgeOut = makeEdge({
+      id: 'edge-out',
+      source_node_id: 'node-new',
+      target_node_id: 'node-b',
+    })
+
+    applyScopeToolEvent(
+      'insert_node_between',
+      { node: insertedNode, edges: [edgeIn, edgeOut], removedEdgeIds: ['edge-ab'] },
+      { recordToolCall },
+    )
+
+    const state = useGraphStore.getState()
+    expect(state.nodes).toEqual([nodeA, nodeB, insertedNode])
+    expect(state.edges).toEqual([edgeIn, edgeOut])
+    expect(recordToolCall).toHaveBeenCalledWith('Inserted Review Quote')
+  })
+
   it('applies Full Design connection payloads and refreshed endpoint modules', () => {
     const recordToolCall = vi.fn()
     const sourceModule = makeModule({

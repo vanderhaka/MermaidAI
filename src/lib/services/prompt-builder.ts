@@ -1,6 +1,12 @@
 import type { Module, FlowNode, FlowEdge, ModuleConnection, OpenQuestion } from '@/types/graph'
 import type { ChatMode } from '@/types/chat'
 import { moduleNotesFileSlug } from '@/lib/module-notes-slug'
+import { buildBrainstormPrompt } from '@/lib/services/prompt-builder-brainstorm'
+import {
+  buildCurrentEdgesSection,
+  buildCurrentNodesSection,
+  OPINIONATED_RECOMMENDATION_INSTRUCTIONS,
+} from '@/lib/services/prompt-sections'
 
 export type PromptMode = ChatMode
 
@@ -26,34 +32,6 @@ export type PromptContext = {
   scopeEdges?: FlowEdge[]
 }
 
-const MAX_PSEUDOCODE_PER_NODE = 450
-
-const OPINIONATED_RECOMMENDATION_INSTRUCTIONS = `
-## Opinionated Follow-ups
-
-When you ask a follow-up question, include exactly one recommended default answer immediately after it on its own line:
-\`Recommended answer: <one concise default the user can safely accept>\`
-
-Make the recommendation practical, opinionated, and specific to the current flow. Do not list multiple options; the user can override in chat if they disagree.`
-
-function buildCurrentNodesSection(nodes?: FlowNode[]): string {
-  if (!nodes || nodes.length === 0) {
-    return 'No nodes exist yet in this module.'
-  }
-
-  const lines = nodes.map((n) => {
-    const head = `- **${n.label}** (id: ${n.id}, type: ${n.node_type})`
-    const pc = n.pseudocode?.trim()
-    if (!pc) return head
-    const raw =
-      pc.length > MAX_PSEUDOCODE_PER_NODE ? `${pc.slice(0, MAX_PSEUDOCODE_PER_NODE)}…` : pc
-    const snippet = raw.replace(/`/g, "'")
-    return `${head}\n  Pseudocode:\n  \`\`\`\n  ${snippet}\n  \`\`\``
-  })
-
-  return `Current nodes:\n${lines.join('\n\n')}`
-}
-
 function buildModuleNotesPromptSection(
   moduleName: string,
   notes: PromptContext['moduleNotes'],
@@ -69,19 +47,6 @@ function buildModuleNotesPromptSection(
       : 'Source file: public/module-notes/default.md (fallback when no module-specific file exists)'
 
   return `${fileHint}\n\n${notes.markdown.trim()}`
-}
-
-function buildCurrentEdgesSection(edges?: FlowEdge[]): string {
-  if (!edges || edges.length === 0) {
-    return 'No edges exist yet in this module.'
-  }
-
-  const lines = edges.map((e) => {
-    const label = e.label ? ` [${e.label}]` : ''
-    return `- ${e.source_node_id} → ${e.target_node_id}${label} (id: ${e.id})`
-  })
-
-  return `Current edges:\n${lines.join('\n')}`
 }
 
 function buildModuleConnectionsSection(
@@ -442,7 +407,7 @@ ${OPINIONATED_RECOMMENDATION_INSTRUCTIONS}
 - When this is the first input: start with a \`start\` node, then the described flow steps.
 - Connect new nodes to existing ones — look at the current canvas state below and extend the flow, don't create disconnected islands.
 - If a node/edge tool result includes \`Graph check:\`, repair those issues with follow-up edge/node edits before writing the final chat response. Do not leave unreachable process nodes, one-sided decisions, or contradictory failure branches unresolved.
-- When inserting a step between existing steps, rewire the old edge: delete the stale direct edge, then connect previous → inserted → next. Never create a disconnected island for the inserted step.
+- When inserting a step between existing steps, use \`insert_node_between\` — it removes the stale direct edge and wires previous → inserted → next in one call. Never create a disconnected island for the inserted step.
 - A negative decision outcome should choose either a terminal failure path or a recovery/retry path. Do not send the same negative outcome to both an end node and a retry/error-recovery node.
 - Keep labels short and descriptive (3-6 words). No pseudocode in scope mode — just capture the flow shape.
 - After creating flow nodes, call \`add_open_questions\` once with ALL gaps detected in this input. Every ambiguity, missing detail, or unstated assumption should be a question. If you detect 5 gaps, include all 5 in one call.
@@ -539,6 +504,7 @@ Every response where the user describes a funnel, journey, process, offer, custo
 - Use decision nodes for meaningful conversion or qualification branches such as "Qualified?", "Booked?", "Purchased?", "Ready now?", or "Needs nurture?".
 - Label branch edges in audience-friendly funnel language such as "Yes", "No", "Not ready", "Needs follow-up", "Qualified", or "Dropped off".
 - Prefer one readable main conversion path plus the most important nurture/drop-off paths. Do not overcomplicate the diagram.
+- When inserting a step between existing steps, use \`insert_node_between\` — it removes the stale direct edge and wires previous → inserted → next in one call.
 - Connect new nodes to the existing canvas state below. Do not leave disconnected islands unless the user asks for separate flows.
 - Do not create open-question nodes in this mode. If a gap matters, ask one follow-up in the chat instead.
 - Do not include pseudocode in flowchart mode.
@@ -583,5 +549,7 @@ export function buildSystemPrompt(mode: PromptMode, context: PromptContext): str
       return buildScopeBuildPrompt(context)
     case 'flowchart_build':
       return buildFlowchartBuildPrompt(context)
+    case 'brainstorm_build':
+      return buildBrainstormPrompt(context)
   }
 }
