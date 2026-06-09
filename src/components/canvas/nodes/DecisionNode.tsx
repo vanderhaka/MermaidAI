@@ -22,10 +22,13 @@ export default function DecisionNode({ data }: NodeProps) {
         type="Decision Node"
         description="Branches the flow based on a yes/no question."
       />
-      {/* Rotated face only — handles stay on the unrotated box so React Flow measures yes/no separately. */}
+      {/* Rotated face inscribed in the 176px box (side = 176/√2) so the diamond's
+          vertices land exactly on the handles at the box-edge midpoints — a full-size
+          rotated face would overflow the node bounds by ~36px per side and paint
+          over incoming arrowheads. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 rotate-45 border-2 border-amber-400 bg-amber-50 shadow-sm transition-shadow group-hover:shadow-md group-hover:border-amber-500"
+        className="pointer-events-none absolute left-1/2 top-1/2 h-[124.45px] w-[124.45px] -translate-x-1/2 -translate-y-1/2 rotate-45 border-2 border-amber-400 bg-amber-50 shadow-sm transition-shadow group-hover:shadow-md group-hover:border-amber-500"
       />
 
       <Handle
@@ -36,7 +39,7 @@ export default function DecisionNode({ data }: NodeProps) {
       />
 
       <div className="relative z-[1] flex h-full min-h-0 w-full min-w-0 items-center justify-center overflow-hidden px-3 py-2">
-        <span className="line-clamp-5 max-w-[8.25rem] whitespace-normal break-words text-center text-[10.5px] font-medium leading-tight text-amber-900 [overflow-wrap:anywhere]">
+        <span className="line-clamp-4 max-w-[6.5rem] whitespace-normal break-words text-center text-[10.5px] font-medium leading-tight text-amber-900 [overflow-wrap:anywhere]">
           {label}
         </span>
       </div>

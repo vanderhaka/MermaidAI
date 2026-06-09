@@ -15,9 +15,9 @@ describe('buildBackEdgePath', () => {
       borderRadius: 0,
     })
 
-    // Climbs right after clearing the source (143 + 24 = 167), then traverses
-    // at approach height (24px above the target).
-    expect(edgePath).toBe('M95 228 L95 252 L167 252 L167 108 L381 108 L381 132')
+    // Climbs right after clearing the source (143 + 32 = 175), then traverses
+    // at approach height (32px above the target).
+    expect(edgePath).toBe('M95 228 L95 260 L175 260 L175 100 L381 100 L381 132')
   })
 
   it('detours around the side with clearance when nodes overlap horizontally', () => {
@@ -31,9 +31,9 @@ describe('buildBackEdgePath', () => {
       borderRadius: 0,
     })
 
-    // Left corridor sits a full clearance (24px) outside the leftmost node edge —
+    // Left corridor sits a full clearance (32px) outside the leftmost node edge —
     // never hugging or crossing either node.
-    expect(edgePath).toBe('M150 260 L150 284 L-24 284 L-24 -24 L170 -24 L170 0')
+    expect(edgePath).toBe('M150 260 L150 292 L-32 292 L-32 -32 L170 -32 L170 0')
   })
 
   it('places the label on the corridor segment', () => {
@@ -47,8 +47,8 @@ describe('buildBackEdgePath', () => {
       borderRadius: 0,
     })
 
-    expect(labelX).toBe(167)
-    expect(labelY).toBe(109)
+    expect(labelX).toBe(175)
+    expect(labelY).toBe(117)
   })
 
   it('slides the corridor past third-party nodes in its way', () => {
@@ -67,10 +67,10 @@ describe('buildBackEdgePath', () => {
       borderRadius: 0,
     })
 
-    // Near-source corridor (167) collides with the parked node and slides toward
-    // the target: past the parked node (210 + 24 = 234), then past the target
-    // node itself (531 + 24 = 555), approaching it from above on the far side.
-    expect(edgePath).toBe('M95 228 L95 252 L555 252 L555 108 L381 108 L381 132')
+    // Near-source corridor (175) collides with the parked node and slides toward
+    // the target: past the parked node (210 + 32 = 242), then past the target
+    // node itself (531 + 32 = 563), approaching it from above on the far side.
+    expect(edgePath).toBe('M95 228 L95 260 L563 260 L563 100 L381 100 L381 132')
   })
 })
 
@@ -92,13 +92,13 @@ describe('buildSideExitPath', () => {
   it('drops the corridor straight down when nothing is in the way', () => {
     const { edgePath } = buildSideExitPath(args)
 
-    expect(edgePath).toBe('M1329.5 220 L1353.5 220 L1353.5 614 L1239 614 L1239 638')
+    expect(edgePath).toBe('M1329.5 220 L1361.5 220 L1361.5 606 L1239 606 L1239 638')
   })
 
   it('escapes outward past a node sitting under the naive corridor', () => {
     const { edgePath } = buildSideExitPath({ ...args, obstacles: [pushToCrm] })
 
-    // Corridor pushed from 1353.5 to 1389 + 24 = 1413, clear of Push to CRM.
-    expect(edgePath).toBe('M1329.5 220 L1413 220 L1413 614 L1239 614 L1239 638')
+    // Corridor pushed from 1361.5 to 1389 + 32 = 1421, clear of Push to CRM.
+    expect(edgePath).toBe('M1329.5 220 L1421 220 L1421 606 L1239 606 L1239 638')
   })
 })

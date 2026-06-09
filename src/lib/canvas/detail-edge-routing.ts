@@ -11,7 +11,7 @@ type Point = { x: number; y: number }
 
 type RoutedPath = { edgePath: string; labelX: number; labelY: number }
 
-const DEFAULT_CLEARANCE = 24
+const DEFAULT_CLEARANCE = 32
 const DEFAULT_BORDER_RADIUS = 14
 
 /**

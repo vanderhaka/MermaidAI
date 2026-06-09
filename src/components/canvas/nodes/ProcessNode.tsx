@@ -20,7 +20,7 @@ export default function ProcessNode({ data }: NodeProps) {
   const [expanded, setExpanded] = useState(false)
 
   return (
-    <div className="group relative box-border w-[300px] rounded-lg border border-blue-300 bg-white px-4 py-3 shadow-sm transition-shadow hover:shadow-md hover:border-blue-400">
+    <div className="group relative box-border flex min-h-[60px] w-[300px] flex-col justify-center rounded-lg border border-blue-300 bg-white px-4 py-3 shadow-sm transition-shadow hover:shadow-md hover:border-blue-400">
       <NodeTooltip type="Process Node" description="A step or action in the workflow." />
       <Handle
         type="target"
