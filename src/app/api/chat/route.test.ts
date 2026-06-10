@@ -547,7 +547,7 @@ describe('POST /api/chat', () => {
       expect.any(Array),
       tools,
       mockExecutor,
-      { provider: 'cerebras' },
+      { provider: 'anthropic' },
     )
   })
 
@@ -618,7 +618,7 @@ describe('POST /api/chat', () => {
       ]),
       expect.any(Array),
       expect.any(Function),
-      { provider: 'cerebras' },
+      { provider: 'anthropic' },
     )
   })
 

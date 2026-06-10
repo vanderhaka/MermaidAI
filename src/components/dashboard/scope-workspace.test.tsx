@@ -223,7 +223,6 @@ describe('ScopeWorkspace chat mode routing', () => {
         projectId: 'proj-1',
         message: 'Map the lead journey',
         mode: 'flowchart_build',
-        provider: 'cerebras',
         context: expect.objectContaining({
           activeModuleId: 'mod-flowchart',
           mode: 'flowchart_build',
@@ -250,7 +249,7 @@ describe('ScopeWorkspace chat mode routing', () => {
     const body = JSON.parse(String(init?.body))
 
     expect(body.mode).toBe('scope_build')
-    expect(body.provider).toBe('cerebras')
+    expect(body.provider).toBeUndefined()
     expect(body.context).toEqual(
       expect.objectContaining({
         activeModuleId: 'mod-scope',
