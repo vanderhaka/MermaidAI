@@ -4,9 +4,21 @@ import type { AIProvider } from '@/types/chat'
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001'
 const MAX_TOKENS = 4096
 const DEFAULT_CEREBRAS_MODEL = 'gpt-oss-120b'
-const DEFAULT_CEREBRAS_MAX_COMPLETION_TOKENS = 1200
+// 1200 routinely truncated multi-field tool-call JSON mid-string, leaving
+// unparseable arguments in history (and breaking the Anthropic fallback).
+const DEFAULT_CEREBRAS_MAX_COMPLETION_TOKENS = 2048
 const CEREBRAS_CHAT_COMPLETIONS_URL = 'https://api.cerebras.ai/v1/chat/completions'
-const MAX_CEREBRAS_TOOL_ROUNDS = 8
+const MAX_CEREBRAS_TOOL_ROUNDS = 16
+
+/**
+ * Injected as a user turn when a tool-use loop ends without ever streaming
+ * visible text — without it the chat goes silent and the conversation stalls.
+ */
+const FORCED_TEXT_NUDGE =
+  'Your reply contained no text for the user. Respond now in plain text: briefly state what you just did on the canvas, then ask exactly ONE follow-up question with a `Recommended answer:` line. Do not call any more tools.'
+
+const TOOL_BUDGET_NUDGE =
+  'You have reached the tool budget for this turn. Stop calling tools. Reply in plain text: summarize what was captured on the canvas, mention anything still left to build, then ask exactly ONE follow-up question with a `Recommended answer:` line.'
 
 const CEREBRAS_UNSUPPORTED_SCHEMA_KEYS = new Set([
   'maxItems',
@@ -134,6 +146,129 @@ function collectCerebrasDiagnostics(headers: Headers): Record<string, string> {
       return value ? [[name, value]] : []
     }),
   )
+}
+
+// ---------------------------------------------------------------------------
+// Cerebras quota tracking
+//
+// The free tier allows only 5 requests/minute and 30K tokens/minute, while a
+// single tool-loop turn fires several requests — so a turn that starts with
+// the bucket nearly empty is guaranteed to 429 partway through. We snapshot
+// the x-ratelimit-remaining-* headers from every response and route whole
+// turns to the Anthropic fallback when the bucket can't cover one.
+// ---------------------------------------------------------------------------
+
+type CerebrasQuotaSnapshot = {
+  remainingRequestsMinute: number | null
+  remainingTokensMinute: number | null
+  remainingTokensDay: number | null
+  updatedAtMs: number
+}
+
+let cerebrasQuotaSnapshot: CerebrasQuotaSnapshot | null = null
+
+/** Minute buckets replenish continuously — a snapshot older than one window says nothing. */
+const QUOTA_MINUTE_STALE_MS = 70_000
+/** The day bucket refills at ~700 tokens/min on the free tier, so exhaustion persists. */
+const QUOTA_DAY_STALE_MS = 10 * 60_000
+/** A tool-loop turn realistically needs at least this many requests. */
+const MIN_REQUESTS_FOR_TURN = 3
+/** Rough floor for one turn: a few rounds of (prompt + history + completion budget). */
+const MIN_TOKENS_FOR_TURN = 12_000
+
+function parseHeaderInt(headers: Headers, name: string): number | null {
+  const raw = headers.get(name)
+  if (!raw) return null
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+export function updateCerebrasQuotaFromHeaders(headers: Headers, nowMs = Date.now()): void {
+  const snapshot: CerebrasQuotaSnapshot = {
+    remainingRequestsMinute: parseHeaderInt(headers, 'x-ratelimit-remaining-requests-minute'),
+    remainingTokensMinute: parseHeaderInt(headers, 'x-ratelimit-remaining-tokens-minute'),
+    remainingTokensDay: parseHeaderInt(headers, 'x-ratelimit-remaining-tokens-day'),
+    updatedAtMs: nowMs,
+  }
+
+  if (
+    snapshot.remainingRequestsMinute === null &&
+    snapshot.remainingTokensMinute === null &&
+    snapshot.remainingTokensDay === null
+  ) {
+    return
+  }
+
+  cerebrasQuotaSnapshot = snapshot
+}
+
+/**
+ * True when the latest quota snapshot says a tool-loop turn cannot complete on
+ * Cerebras. Errs toward attempting Cerebras: stale or missing data never blocks.
+ */
+export function isCerebrasQuotaExhausted(nowMs = Date.now()): boolean {
+  if (nowMs < cerebrasBlockedUntilMs) return true
+
+  const snapshot = cerebrasQuotaSnapshot
+  if (!snapshot) return false
+
+  const age = nowMs - snapshot.updatedAtMs
+
+  if (age <= QUOTA_MINUTE_STALE_MS) {
+    if (
+      snapshot.remainingRequestsMinute !== null &&
+      snapshot.remainingRequestsMinute < MIN_REQUESTS_FOR_TURN
+    ) {
+      return true
+    }
+    if (
+      snapshot.remainingTokensMinute !== null &&
+      snapshot.remainingTokensMinute < MIN_TOKENS_FOR_TURN
+    ) {
+      return true
+    }
+  }
+
+  if (age <= QUOTA_DAY_STALE_MS) {
+    if (snapshot.remainingTokensDay !== null && snapshot.remainingTokensDay < MIN_TOKENS_FOR_TURN) {
+      return true
+    }
+  }
+
+  return false
+}
+
+let cerebrasBlockedUntilMs = 0
+
+/**
+ * Cap how long a retry-after blocks Cerebras. Daily-budget 429s advertise
+ * 86400s, but limits lift immediately if the account is upgraded mid-day —
+ * re-probing every 15 minutes costs one request and keeps that path open.
+ */
+const MAX_RETRY_AFTER_BLOCK_MS = 15 * 60_000
+
+/**
+ * A 429 proves the bucket is empty even though Cerebras omits the
+ * remaining-* headers on 429 responses — record that directly so the next
+ * turns skip Cerebras instead of failing the same way. Honors retry-after
+ * (capped) so a drained daily budget doesn't get re-probed every minute.
+ */
+export function markCerebrasRateLimited(nowMs = Date.now(), retryAfterSeconds?: number): void {
+  cerebrasQuotaSnapshot = {
+    remainingRequestsMinute: 0,
+    remainingTokensMinute: cerebrasQuotaSnapshot?.remainingTokensMinute ?? null,
+    remainingTokensDay: cerebrasQuotaSnapshot?.remainingTokensDay ?? null,
+    updatedAtMs: nowMs,
+  }
+
+  if (retryAfterSeconds && retryAfterSeconds > 0) {
+    cerebrasBlockedUntilMs = nowMs + Math.min(retryAfterSeconds * 1000, MAX_RETRY_AFTER_BLOCK_MS)
+  }
+}
+
+export function resetCerebrasQuotaForTests(): void {
+  cerebrasQuotaSnapshot = null
+  cerebrasBlockedUntilMs = 0
 }
 
 function stringifyMessageContent(content: Anthropic.MessageParam['content']): string {
@@ -321,11 +456,20 @@ function toAnthropicMessagesFromCerebrasMessages(
       }
 
       for (const toolCall of message.tool_calls) {
+        // Truncated Cerebras tool calls leave invalid JSON in history — the
+        // executor already tolerated them, so the fallback conversion must
+        // not throw on the same arguments.
+        let input: Record<string, unknown>
+        try {
+          input = parseCerebrasToolInput(toolCall)
+        } catch {
+          input = {}
+        }
         content.push({
           type: 'tool_use',
           id: toolCall.id,
           name: toolCall.function.name,
-          input: parseCerebrasToolInput(toolCall),
+          input,
         })
       }
 
@@ -377,6 +521,18 @@ export async function callLLMWithTools(
   options: CallLLMWithToolsOptions = {},
 ): Promise<ReadableStream<string>> {
   if ((options.provider ?? 'cerebras') === 'cerebras') {
+    if (isCerebrasQuotaExhausted()) {
+      // Starting the turn would burn requests guaranteed to 429 partway
+      // through — go straight to the fallback provider instead.
+      console.warn('Cerebras quota exhausted (from rate-limit headers); routing turn to Anthropic')
+      return callAnthropicWithTools(
+        systemPrompt,
+        messages,
+        tools,
+        executeTool,
+        options.onToolResult,
+      )
+    }
     return callCerebrasWithTools(systemPrompt, messages, tools, executeTool, options)
   }
 
@@ -396,6 +552,7 @@ async function callAnthropicWithTools(
   return new ReadableStream<string>({
     async start(controller) {
       let currentMessages: Anthropic.MessageParam[] = [...messages]
+      let totalStreamedText = ''
 
       try {
         while (true) {
@@ -410,17 +567,22 @@ async function callAnthropicWithTools(
             messages: currentMessages,
           })
 
-          // Stream text deltas to the client in real-time
+          // Buffer text per round — text written alongside tool calls is
+          // model narration ("let me rewire this"), not a user-facing reply,
+          // so only rounds WITHOUT tool calls get shown.
           stream.on('text', (text: string) => {
             streamedTextThisRound += text
-            controller.enqueue(text)
           })
 
           // Wait for the full message to determine if tools were called
           const response = await stream.finalMessage()
 
-          // If the model didn't call any tools, we're done
+          // If the model didn't call any tools, this round's text is the reply
           if (response.stop_reason !== 'tool_use') {
+            if (streamedTextThisRound.trim()) {
+              totalStreamedText += streamedTextThisRound
+              controller.enqueue(streamedTextThisRound)
+            }
             break
           }
 
@@ -460,16 +622,34 @@ async function callAnthropicWithTools(
             })
           }
 
-          // Append assistant turn + tool results and loop
+          // Append assistant turn + tool results and loop. The buffered
+          // round text stays in `response.content` for model context but is
+          // never shown to the user.
           currentMessages = [
             ...currentMessages,
             { role: 'assistant', content: response.content },
             { role: 'user', content: toolResults },
           ]
+        }
 
-          if (streamedTextThisRound.trim()) {
-            controller.enqueue('\n\n')
-          }
+        // The loop can end on a tool-only turn with no visible text at all,
+        // which renders as a silent assistant in the chat. Force one final
+        // text-only round so the conversation always keeps moving.
+        if (!totalStreamedText.trim()) {
+          const finalStream = client.messages.stream({
+            model,
+            max_tokens: MAX_TOKENS,
+            system: systemPrompt,
+            tools,
+            tool_choice: { type: 'none' },
+            messages: [...currentMessages, { role: 'user', content: FORCED_TEXT_NUDGE }],
+          })
+
+          finalStream.on('text', (text: string) => {
+            controller.enqueue(text)
+          })
+
+          await finalStream.finalMessage()
         }
 
         controller.close()
@@ -499,9 +679,19 @@ async function callCerebrasWithTools(
   return new ReadableStream<string>({
     async start(controller) {
       const currentMessages = toCerebrasMessages(systemPrompt, messages)
+      let streamedAnyText = false
 
       try {
-        for (let round = 0; round < MAX_CEREBRAS_TOOL_ROUNDS; round++) {
+        let forcedTextRound = false
+
+        for (let round = 0; round <= MAX_CEREBRAS_TOOL_ROUNDS; round++) {
+          if (round === MAX_CEREBRAS_TOOL_ROUNDS && !forcedTextRound) {
+            // Tool budget exhausted — wrap up with a text-only round instead
+            // of erroring out mid-build.
+            currentMessages.push({ role: 'user', content: TOOL_BUDGET_NUDGE })
+            forcedTextRound = true
+          }
+
           const response = await fetch(CEREBRAS_CHAT_COMPLETIONS_URL, {
             method: 'POST',
             headers: {
@@ -512,7 +702,7 @@ async function callCerebrasWithTools(
               model,
               messages: currentMessages,
               tools: cerebrasTools,
-              tool_choice: 'auto',
+              tool_choice: forcedTextRound ? 'none' : 'auto',
               // Disabled so dependent operations stay sequential (e.g. create_module
               // then create_node in that module) — mirrors the Anthropic path's
               // disable_parallel_tool_use and the architecture note above.
@@ -521,6 +711,8 @@ async function callCerebrasWithTools(
               max_completion_tokens: maxCompletionTokens,
             }),
           })
+
+          updateCerebrasQuotaFromHeaders(response.headers)
 
           const payload = (await response.json().catch(() => null)) as {
             error?: { message?: string }
@@ -553,15 +745,24 @@ async function callCerebrasWithTools(
             .filter((call): call is NonNullable<typeof call> => call !== null)
 
           if (toolCalls.length === 0) {
-            if (text) controller.enqueue(text)
+            if (text) {
+              controller.enqueue(text)
+              streamedAnyText = true
+            }
+            if (!streamedAnyText && !forcedTextRound) {
+              // Tool-only turn ended silently — force one text-only round so
+              // the user always gets a visible reply.
+              currentMessages.push({ role: 'assistant', content: text || null })
+              currentMessages.push({ role: 'user', content: FORCED_TEXT_NUDGE })
+              forcedTextRound = true
+              continue
+            }
             controller.close()
             return
           }
 
-          if (text.trim()) {
-            controller.enqueue(text)
-          }
-
+          // Text accompanying tool calls is model narration ("let me fix
+          // this") — keep it in context for the model but never show it.
           currentMessages.push({
             role: 'assistant',
             content: text || null,
@@ -606,18 +807,34 @@ async function callCerebrasWithTools(
               content: result.isError ? `Error: ${result.content}` : result.content,
             })
           }
-
-          if (text.trim()) {
-            controller.enqueue('\n\n')
-          }
         }
 
-        throw new Error('Cerebras tool loop exceeded the maximum number of rounds')
+        // Even the forced text round produced nothing — close cleanly rather
+        // than surface an error mid-conversation.
+        controller.close()
+        return
       } catch (err) {
         if (isCerebrasRateLimitError(err)) {
+          const retryAfterRaw =
+            err instanceof CerebrasAPIError ? err.diagnostics['retry-after'] : undefined
+          const retryAfterSeconds = retryAfterRaw ? Number.parseInt(retryAfterRaw, 10) : undefined
+          markCerebrasRateLimited(
+            Date.now(),
+            Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : undefined,
+          )
           logCerebrasFallback(err)
 
           try {
+            if (streamedAnyText) {
+              // Part of this reply already streamed to the user before the rate
+              // limit hit. Without this note the fallback model re-answers from
+              // scratch and the user sees the same content twice in one bubble.
+              currentMessages.push({
+                role: 'user',
+                content:
+                  'The assistant text above was already shown to the user before the connection dropped. Continue that SAME reply from where it stopped — do not repeat or rephrase anything already written.',
+              })
+            }
             const fallbackMessages = toAnthropicMessagesFromCerebrasMessages(currentMessages)
             const fallbackStream = await callAnthropicWithTools(
               systemPrompt,

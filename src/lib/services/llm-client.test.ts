@@ -299,7 +299,7 @@ describe('llm-client', () => {
           tool_choice: 'auto',
           parallel_tool_calls: false,
           reasoning_effort: 'medium',
-          max_completion_tokens: 1200,
+          max_completion_tokens: 2048,
         }),
       )
       expect(body.messages).toEqual([
@@ -645,5 +645,122 @@ describe('llm-client', () => {
         additionalProperties: false,
       })
     })
+  })
+})
+
+describe('cerebras quota tracking', () => {
+  const NOW = 1_000_000_000
+
+  async function loadQuotaApi() {
+    vi.resetModules()
+    const mod = await import('@/lib/services/llm-client')
+    mod.resetCerebrasQuotaForTests()
+    return mod
+  }
+
+  it('blocks a turn when remaining requests-minute cannot cover a tool loop', async () => {
+    const { updateCerebrasQuotaFromHeaders, isCerebrasQuotaExhausted } = await loadQuotaApi()
+    updateCerebrasQuotaFromHeaders(
+      new Headers({
+        'x-ratelimit-remaining-requests-minute': '2',
+        'x-ratelimit-remaining-tokens-minute': '30000',
+        'x-ratelimit-remaining-tokens-day': '500000',
+      }),
+      NOW,
+    )
+    expect(isCerebrasQuotaExhausted(NOW + 1_000)).toBe(true)
+  })
+
+  it('blocks a turn when remaining tokens-minute is below the turn floor', async () => {
+    const { updateCerebrasQuotaFromHeaders, isCerebrasQuotaExhausted } = await loadQuotaApi()
+    updateCerebrasQuotaFromHeaders(
+      new Headers({
+        'x-ratelimit-remaining-requests-minute': '5',
+        'x-ratelimit-remaining-tokens-minute': '4000',
+        'x-ratelimit-remaining-tokens-day': '500000',
+      }),
+      NOW,
+    )
+    expect(isCerebrasQuotaExhausted(NOW + 1_000)).toBe(true)
+  })
+
+  it('allows turns when all buckets have headroom', async () => {
+    const { updateCerebrasQuotaFromHeaders, isCerebrasQuotaExhausted } = await loadQuotaApi()
+    updateCerebrasQuotaFromHeaders(
+      new Headers({
+        'x-ratelimit-remaining-requests-minute': '5',
+        'x-ratelimit-remaining-tokens-minute': '30000',
+        'x-ratelimit-remaining-tokens-day': '500000',
+      }),
+      NOW,
+    )
+    expect(isCerebrasQuotaExhausted(NOW + 1_000)).toBe(false)
+  })
+
+  it('ignores stale minute snapshots once the window has replenished', async () => {
+    const { updateCerebrasQuotaFromHeaders, isCerebrasQuotaExhausted } = await loadQuotaApi()
+    updateCerebrasQuotaFromHeaders(
+      new Headers({
+        'x-ratelimit-remaining-requests-minute': '0',
+        'x-ratelimit-remaining-tokens-minute': '0',
+        'x-ratelimit-remaining-tokens-day': '500000',
+      }),
+      NOW,
+    )
+    expect(isCerebrasQuotaExhausted(NOW + 80_000)).toBe(false)
+  })
+
+  it('treats day-bucket exhaustion as lasting beyond the minute window', async () => {
+    const { updateCerebrasQuotaFromHeaders, isCerebrasQuotaExhausted } = await loadQuotaApi()
+    updateCerebrasQuotaFromHeaders(
+      new Headers({
+        'x-ratelimit-remaining-requests-minute': '5',
+        'x-ratelimit-remaining-tokens-minute': '30000',
+        'x-ratelimit-remaining-tokens-day': '1000',
+      }),
+      NOW,
+    )
+    expect(isCerebrasQuotaExhausted(NOW + 5 * 60_000)).toBe(true)
+    expect(isCerebrasQuotaExhausted(NOW + 11 * 60_000)).toBe(false)
+  })
+
+  it('markCerebrasRateLimited blocks turns even without headers', async () => {
+    const { markCerebrasRateLimited, isCerebrasQuotaExhausted } = await loadQuotaApi()
+    markCerebrasRateLimited(NOW)
+    expect(isCerebrasQuotaExhausted(NOW + 1_000)).toBe(true)
+    expect(isCerebrasQuotaExhausted(NOW + 80_000)).toBe(false)
+  })
+
+  it('never blocks without any quota information', async () => {
+    const { isCerebrasQuotaExhausted } = await loadQuotaApi()
+    expect(isCerebrasQuotaExhausted(NOW)).toBe(false)
+  })
+})
+
+describe('cerebras retry-after blocking', () => {
+  const NOW = 2_000_000_000
+
+  async function loadQuotaApi() {
+    vi.resetModules()
+    const mod = await import('@/lib/services/llm-client')
+    mod.resetCerebrasQuotaForTests()
+    return mod
+  }
+
+  it('honors retry-after beyond the minute window, capped at 15 minutes', async () => {
+    const { markCerebrasRateLimited, isCerebrasQuotaExhausted } = await loadQuotaApi()
+    markCerebrasRateLimited(NOW, 86_400)
+    expect(isCerebrasQuotaExhausted(NOW + 5 * 60_000)).toBe(true)
+    expect(isCerebrasQuotaExhausted(NOW + 14 * 60_000)).toBe(true)
+    expect(isCerebrasQuotaExhausted(NOW + 16 * 60_000)).toBe(false)
+  })
+
+  it('uses short retry-after values directly', async () => {
+    const { markCerebrasRateLimited, isCerebrasQuotaExhausted } = await loadQuotaApi()
+    markCerebrasRateLimited(NOW, 30)
+    expect(isCerebrasQuotaExhausted(NOW + 20_000)).toBe(true)
+    // after retry-after lapses but within the minute window the request-bucket
+    // mark still applies; past the minute window everything clears
+    expect(isCerebrasQuotaExhausted(NOW + 80_000)).toBe(false)
   })
 })

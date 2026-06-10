@@ -17,7 +17,11 @@ import {
   getGraphForModule,
 } from '@/lib/services/graph-service'
 import { updateProject } from '@/lib/services/project-service'
-import { createOpenQuestion, resolveOpenQuestion } from '@/lib/services/open-question-service'
+import {
+  createOpenQuestion,
+  resolveOpenQuestion,
+  listOpenQuestions,
+} from '@/lib/services/open-question-service'
 import type { ToolResult } from '@/lib/services/llm-client'
 import type { FlowEdge, FlowNode } from '@/types/graph'
 import type { PromptMode } from '@/lib/services/prompt-builder'
@@ -26,6 +30,15 @@ import { isClickOnlySelectedQuestionPrompt } from '@/lib/services/selected-open-
 
 const DEFAULT_MODULE_COLOR = '#111827'
 const DEFAULT_NODE_COLOR = '#2563eb'
+
+/** Normalized comparison key so reworded whitespace/punctuation variants of the same question match. */
+function normalizeQuestionKey(question: string): string {
+  return question
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
 
 // ---------------------------------------------------------------------------
 // Tool definitions
@@ -740,7 +753,8 @@ export function createToolExecutor(projectId: string, options: ToolExecutorOptio
             module_id: moduleId,
             source_node_id: sourceNodeId,
             target_node_id: nodeResult.data.id,
-            label: (input.incomingEdgeLabel as string | undefined) ?? staleEdges[0]?.label ?? undefined,
+            label:
+              (input.incomingEdgeLabel as string | undefined) ?? staleEdges[0]?.label ?? undefined,
             condition: staleEdges[0]?.condition ?? undefined,
           })
           if (incomingEdge.success) edges.push(incomingEdge.data)
@@ -815,12 +829,28 @@ export function createToolExecutor(projectId: string, options: ToolExecutorOptio
             return ok('No questions to add.')
           }
 
+          // Server-side dedup — provider-fallback turns re-add questions the
+          // prompt-level rule misses, polluting the client's gap list.
+          const existingQuestions = await listOpenQuestions(projectId)
+          const seenKeys = new Set(
+            (existingQuestions.success ? existingQuestions.data : []).map((q) =>
+              normalizeQuestionKey(q.question),
+            ),
+          )
+
           const nodes: FlowNode[] = []
           const questions: Array<Record<string, unknown>> = []
           const edges: Array<Record<string, unknown>> = []
           const errors: string[] = []
+          let skippedDuplicates = 0
 
           for (const item of items) {
+            const key = normalizeQuestionKey(item.question)
+            if (seenKeys.has(key)) {
+              skippedDuplicates += 1
+              continue
+            }
+            seenKeys.add(key)
             const label =
               item.question.length > 60 ? `${item.question.slice(0, 57)}...` : item.question
 
@@ -863,11 +893,21 @@ export function createToolExecutor(projectId: string, options: ToolExecutorOptio
             }
           }
 
+          if (nodes.length === 0 && skippedDuplicates === items.length) {
+            return ok(
+              `All ${items.length} question(s) already exist as open questions — nothing added. Do not re-add them.`,
+            )
+          }
+
           if (nodes.length === 0) {
             return fail(`All ${items.length} questions failed: ${errors.join('; ')}`)
           }
 
-          const summary = `Added ${nodes.length} open question(s).${errors.length > 0 ? ` ${errors.length} failed.` : ''}`
+          const skippedNote =
+            skippedDuplicates > 0
+              ? ` Skipped ${skippedDuplicates} duplicate(s) that already exist.`
+              : ''
+          const summary = `Added ${nodes.length} open question(s).${errors.length > 0 ? ` ${errors.length} failed.` : ''}${skippedNote}`
           return ok(summary, { nodes, questions, edges })
         }
 

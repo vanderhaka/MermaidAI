@@ -6,6 +6,8 @@ vi.mock('server-only', () => ({}))
 vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }))
 
 const mockResolveOpenQuestion = vi.fn()
+const mockCreateOpenQuestion = vi.fn()
+const mockListOpenQuestions = vi.fn()
 const mockRemoveNode = vi.fn()
 const mockAddNode = vi.fn()
 const mockUpdateNode = vi.fn()
@@ -15,8 +17,9 @@ const mockGetGraphForModule = vi.fn()
 const mockUpdateProject = vi.fn()
 
 vi.mock('@/lib/services/open-question-service', () => ({
-  createOpenQuestion: vi.fn(),
+  createOpenQuestion: (...args: unknown[]) => mockCreateOpenQuestion(...args),
   resolveOpenQuestion: (...args: unknown[]) => mockResolveOpenQuestion(...args),
+  listOpenQuestions: (...args: unknown[]) => mockListOpenQuestions(...args),
 }))
 
 vi.mock('@/lib/services/graph-service', () => ({
@@ -234,6 +237,83 @@ describe('createToolExecutor selected open question guard', () => {
       'oq-cart-editing',
       'Users can edit items before checkout.',
     )
+  })
+})
+
+describe('createToolExecutor add_open_questions dedup', () => {
+  const questionNode = {
+    id: 'qnode-1',
+    module_id: 'mod-1',
+    node_type: 'question',
+    label: 'q',
+    pseudocode: '',
+    position: { x: 0, y: 0 },
+    color: '#F59E0B',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  }
+
+  beforeEach(() => {
+    mockAddNode.mockResolvedValue({ success: true, data: questionNode })
+    mockCreateOpenQuestion.mockResolvedValue({ success: true, data: { id: 'oq-new' } })
+  })
+
+  it('skips questions that already exist, matching on normalized text', async () => {
+    mockListOpenQuestions.mockResolvedValue({
+      success: true,
+      data: [
+        { id: 'oq-1', question: 'What happens if the driver overstays past the booked time?' },
+      ],
+    })
+    const executeTool = createToolExecutor('proj-1')
+
+    const result = await executeTool('add_open_questions', {
+      moduleId: 'mod-1',
+      questions: [
+        {
+          section: 'Failure modes',
+          question: 'What happens if the driver OVERSTAYS past the booked time??',
+        },
+        { section: 'Reviews', question: 'Do drivers and homeowners rate each other?' },
+      ],
+    })
+
+    expect(result.isError).toBe(false)
+    expect(mockAddNode).toHaveBeenCalledTimes(1)
+    expect(result.content).toContain('Skipped 1 duplicate')
+  })
+
+  it('returns ok without adding anything when every question is a duplicate', async () => {
+    mockListOpenQuestions.mockResolvedValue({
+      success: true,
+      data: [{ id: 'oq-1', question: 'Is there insurance coverage included?' }],
+    })
+    const executeTool = createToolExecutor('proj-1')
+
+    const result = await executeTool('add_open_questions', {
+      moduleId: 'mod-1',
+      questions: [{ section: 'Liability', question: 'Is there insurance coverage included?' }],
+    })
+
+    expect(result.isError).toBe(false)
+    expect(result.content).toContain('already exist')
+    expect(mockAddNode).not.toHaveBeenCalled()
+  })
+
+  it('dedups identical questions within a single batch', async () => {
+    mockListOpenQuestions.mockResolvedValue({ success: true, data: [] })
+    const executeTool = createToolExecutor('proj-1')
+
+    const result = await executeTool('add_open_questions', {
+      moduleId: 'mod-1',
+      questions: [
+        { section: 'Payments', question: 'When is the card charged?' },
+        { section: 'Payments', question: 'When is the card charged?' },
+      ],
+    })
+
+    expect(result.isError).toBe(false)
+    expect(mockAddNode).toHaveBeenCalledTimes(1)
   })
 })
 
