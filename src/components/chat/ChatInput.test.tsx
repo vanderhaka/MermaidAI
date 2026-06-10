@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import ChatInput from '@/components/chat/ChatInput'
 
@@ -205,14 +205,83 @@ describe('ChatInput', () => {
   })
 
   describe('loading state', () => {
-    it('disables input when isLoading is true', () => {
+    it('keeps the textarea enabled while loading so typing is never lost', () => {
       render(<ChatInput onSend={onSend} isLoading={true} />)
-      expect(screen.getByRole('textbox')).toBeDisabled()
+      expect(screen.getByRole('textbox')).not.toBeDisabled()
     })
 
-    it('disables send button when isLoading is true', () => {
+    it('disables the send button while loading when there is no text', () => {
       render(<ChatInput onSend={onSend} isLoading={true} />)
-      expect(screen.getByRole('button', { name: /send/i })).toBeDisabled()
+      expect(screen.getByRole('button', { name: /sending/i })).toBeDisabled()
+    })
+
+    it('queues a message submitted while loading instead of dropping it', async () => {
+      const user = userEvent.setup()
+      render(<ChatInput onSend={onSend} isLoading={true} />)
+
+      await user.type(screen.getByRole('textbox'), 'Note typed mid-stream')
+      await user.click(screen.getByRole('button', { name: /queue/i }))
+
+      expect(onSend).not.toHaveBeenCalled()
+      expect(screen.getByTestId('queued-messages-pill')).toBeInTheDocument()
+      expect(screen.getByRole('textbox')).toHaveValue('')
+    })
+
+    it('queues on Enter while loading', async () => {
+      const user = userEvent.setup()
+      render(<ChatInput onSend={onSend} isLoading={true} />)
+
+      await user.type(screen.getByRole('textbox'), 'Enter mid-stream')
+      await user.keyboard('{Enter}')
+
+      expect(onSend).not.toHaveBeenCalled()
+      expect(screen.getByTestId('queued-messages-pill')).toBeInTheDocument()
+    })
+
+    it('auto-sends queued messages when loading finishes', async () => {
+      const user = userEvent.setup()
+      const { rerender } = render(<ChatInput onSend={onSend} isLoading={true} />)
+
+      await user.type(screen.getByRole('textbox'), 'First note')
+      await user.keyboard('{Enter}')
+      await user.type(screen.getByRole('textbox'), 'Second note')
+      await user.keyboard('{Enter}')
+
+      rerender(<ChatInput onSend={onSend} isLoading={false} />)
+
+      await waitFor(() => {
+        expect(onSend).toHaveBeenCalledWith('First note\n\nSecond note')
+      })
+      expect(onSend).toHaveBeenCalledTimes(1)
+      expect(screen.queryByTestId('queued-messages-pill')).not.toBeInTheDocument()
+    })
+
+    it('restores queued text to the input when the flush send fails', async () => {
+      const user = userEvent.setup()
+      const failingSend = vi.fn<(message: string) => Promise<boolean>>().mockResolvedValue(false)
+      const { rerender } = render(<ChatInput onSend={failingSend} isLoading={true} />)
+
+      await user.type(screen.getByRole('textbox'), 'Do not lose me')
+      await user.keyboard('{Enter}')
+
+      rerender(<ChatInput onSend={failingSend} isLoading={false} />)
+
+      await waitFor(() => {
+        expect(screen.getByRole('textbox')).toHaveValue('Do not lose me')
+      })
+    })
+
+    it('cancelling the queue restores the text to the input', async () => {
+      const user = userEvent.setup()
+      render(<ChatInput onSend={onSend} isLoading={true} />)
+
+      await user.type(screen.getByRole('textbox'), 'Changed my mind')
+      await user.keyboard('{Enter}')
+      await user.click(screen.getByRole('button', { name: /cancel queued messages/i }))
+
+      expect(screen.queryByTestId('queued-messages-pill')).not.toBeInTheDocument()
+      expect(screen.getByRole('textbox')).toHaveValue('Changed my mind')
+      expect(onSend).not.toHaveBeenCalled()
     })
   })
 

@@ -1,6 +1,13 @@
 'use client'
 
-import { useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react'
 
 interface ChatInputProps {
   onSend: (message: string) => void | Promise<boolean | void>
@@ -36,12 +43,33 @@ export default function ChatInput({
   acceptedFileTypes = DEFAULT_ACCEPT,
 }: ChatInputProps) {
   const [message, setMessage] = useState('')
+  const [queued, setQueued] = useState<string[]>([])
   const [attachedFile, setAttachedFile] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Flush queued messages once the in-flight response finishes. Messages typed
+  // during a stream must never be dropped — scope mode is used live on calls.
+  // Deferred via setTimeout so the flush runs as a callback (with cleanup
+  // preventing double-sends), not as a cascading render inside the effect.
+  useEffect(() => {
+    if (isLoading || queued.length === 0) return
+    const combined = queued.join('\n\n')
+    const timer = setTimeout(() => {
+      setQueued([])
+      void (async () => {
+        const didSend = await onSend(combined)
+        if (didSend === false) {
+          setMessage((current) => (current ? `${combined}\n\n${current}` : combined))
+        }
+      })()
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [isLoading, queued, onSend])
 
   async function send() {
     const trimmed = message.trim()
     if (attachedFile && onAttachFile) {
+      if (isLoading) return
       const didAttach = await onAttachFile(attachedFile, trimmed)
       if (didAttach === false) return
       setMessage('')
@@ -50,9 +78,20 @@ export default function ChatInput({
       return
     }
     if (!trimmed) return
+    if (isLoading) {
+      setQueued((current) => [...current, trimmed])
+      setMessage('')
+      return
+    }
     const didSend = await onSend(trimmed)
     if (didSend === false) return
     setMessage('')
+  }
+
+  function cancelQueued() {
+    const combined = queued.join('\n\n')
+    setQueued([])
+    setMessage((current) => (current ? `${combined}\n\n${current}` : combined))
   }
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
@@ -77,13 +116,46 @@ export default function ChatInput({
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  const canSend = attachedFile ? !isLoading : !isLoading && message.trim().length > 0
+  const hasText = message.trim().length > 0
+  const canSend = attachedFile ? !isLoading : hasText
 
   return (
     <form onSubmit={handleSubmit} aria-label="Chat input">
       <label htmlFor="chat-message" className="sr-only">
         Message
       </label>
+
+      {queued.length > 0 && (
+        <div
+          data-testid="queued-messages-pill"
+          className="mb-2 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800"
+        >
+          <span className="flex-1 truncate font-medium">
+            {queued.length === 1 ? '1 message queued' : `${queued.length} messages queued`} — sends
+            when the assistant finishes
+          </span>
+          <button
+            type="button"
+            onClick={cancelQueued}
+            aria-label="Cancel queued messages"
+            className="shrink-0 rounded p-0.5 text-amber-500 hover:bg-amber-100 hover:text-amber-800"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className="h-3.5 w-3.5"
+              aria-hidden
+            >
+              <path
+                fillRule="evenodd"
+                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </button>
+        </div>
+      )}
 
       {attachedFile && (
         <div
@@ -171,12 +243,11 @@ export default function ChatInput({
           onKeyDown={handleKeyDown}
           placeholder={
             isLoading
-              ? 'Responding...'
+              ? 'Keep typing — sends when the assistant finishes'
               : attachedFile
                 ? 'Add a note (optional) and press Send'
                 : 'Describe what you want to build...'
           }
-          disabled={isLoading}
           autoFocus={autoFocus}
           rows={1}
           className="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400 disabled:placeholder:text-gray-400"
@@ -204,7 +275,7 @@ export default function ChatInput({
               />
             </svg>
           )}
-          {isLoading ? 'Sending' : 'Send'}
+          {isLoading ? (hasText ? 'Queue' : 'Sending') : 'Send'}
         </button>
       </div>
     </form>
