@@ -8,8 +8,9 @@ import type { PromptContext } from '@/lib/services/prompt-builder'
 import type { FlowEdge, FlowNode } from '@/types/graph'
 
 /**
- * Deterministic gap scan serialized into the prompt so the model doesn't have to
- * spot structural holes itself — it only has to pick the best one to ask about.
+ * Deterministic gap scan serialized into the prompt as a REPAIR worklist.
+ * Structural holes are the model's job to fix silently with tool calls —
+ * they must never become questions for the user.
  */
 function buildDetectedGapsSection(nodes?: FlowNode[], edges?: FlowEdge[]): string {
   if (!nodes || nodes.length === 0) {
@@ -18,11 +19,11 @@ function buildDetectedGapsSection(nodes?: FlowNode[], edges?: FlowEdge[]): strin
 
   const issues = validateFlowGraph({ nodes, edges: edges ?? [] })
   if (issues.length === 0) {
-    return 'No structural gaps detected right now. Ask about substance instead: unhandled failure cases, vague steps, missing actors, timing, or what happens after the flow ends.'
+    return 'No structural gaps detected right now — nothing to repair. Put your whole question budget into the idea itself.'
   }
 
   const lines = issues.map((issue) => `- [${issue.code}] ${issue.message}`)
-  return `Structural gaps detected on the canvas (most recent scan):\n${lines.join('\n')}`
+  return `Structural gaps detected on the canvas (most recent scan):\n${lines.join('\n')}\n\nRepair these yourself with tool calls before writing your reply — label branches, wire orphans, pick the sensible default. They are not questions for the user.`
 }
 
 export function buildBrainstormPrompt(context: PromptContext): string {
@@ -43,9 +44,23 @@ Use this module ID for ALL tool calls. Never ask the user for a module ID.
 - Build first, talk second. Every user idea lands on the canvas before you reply.
 - Acknowledge in one short sentence what you built or changed.
 - **Then ask exactly ONE follow-up question** — the single most valuable one. Never two, never a list.
-- Pick that question from the "Detected Gaps" section below when a structural gap exists. If the canvas is structurally clean, ask about substance: unhandled failures, vague steps, missing actors, edge cases, or what happens next.
 - **Never declare the brainstorm finished.** Only the user decides when it's done. Do not suggest wrapping up, do not say the flow "looks complete" — there is always one more question worth asking until the user says stop.
 ${OPINIONATED_RECOMMENDATION_INSTRUCTIONS}
+
+## How You Drive the Interview — grill the idea, not the diagram
+
+You are interviewing the user about their IDEA the way a sharp consultant grills a plan: walk down the idea's decision tree, resolving the most material unresolved branch one question at a time.
+
+- **Material questions only**: product, users, business, data, money, permissions, state, integrations, or user experience. Example — for "track marketing channels into my CRM" the material branches are: which channels first? which CRM? how does each channel's data arrive (UTM links, ad platform APIs, webhooks, manual import)? what should the data drive (attribution, reporting, alerts)? Those questions come before ANY flow-shape refinement.
+- **Resolve dependencies in order**: what the thing is → who uses it → what data/inputs flow through it → which external systems it touches → what decisions or outputs it produces → only then flow-shape details.
+- **Routine plumbing is never a question.** Authentication, error handling, retries, logging, and validation have best-practice defaults everywhere — asking about them wastes the user's attention. Do not add them to the canvas unless the user raises them. If the user raises one, apply a sensible default in one sentence and return to the idea.
+- **Reversible canvas mechanics are never a question.** Connecting nodes, choosing which branch is Yes/No, where a path ends — decide, do it, and fold it into your one-sentence acknowledgment. Never ask "should I connect these?".
+- **Never mention node IDs or edge IDs in chat.** If something is ambiguous internally, resolve it yourself with the canvas state below.
+- If a question is already answered by the canvas or earlier conversation, don't ask it — ask the next unresolved branch.
+
+## Canvas Is the Source of Truth
+
+The "Current Canvas" section below is live app state. Trust it over your memory of earlier chat turns: if you remember creating a node that isn't listed, it does not exist — recreate it without comment. Never tell the user something exists or is missing without checking the list below.
 
 ## Reworking Freely
 
