@@ -520,7 +520,7 @@ export async function callLLMWithTools(
   executeTool: ToolExecutor,
   options: CallLLMWithToolsOptions = {},
 ): Promise<ReadableStream<string>> {
-  if ((options.provider ?? 'cerebras') === 'cerebras') {
+  if ((options.provider ?? 'anthropic') === 'cerebras') {
     if (isCerebrasQuotaExhausted()) {
       // Starting the turn would burn requests guaranteed to 429 partway
       // through — go straight to the fallback provider instead.

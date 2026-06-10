@@ -278,6 +278,7 @@ describe('llm-client', () => {
         [{ role: 'user', content: 'Create a checkout flow' }],
         [],
         vi.fn(),
+        { provider: 'cerebras' },
       )
 
       await expect(readStreamToString(stream)).resolves.toBe('Built the flow.')
@@ -327,6 +328,7 @@ describe('llm-client', () => {
         [{ role: 'user', content: 'Create a checkout flow' }],
         [],
         vi.fn(),
+        { provider: 'cerebras' },
       )
 
       await readStreamToString(stream)
@@ -427,6 +429,7 @@ describe('llm-client', () => {
           },
         ],
         executeTool,
+        { provider: 'cerebras' },
       )
 
       const text = await readStreamToString(stream)
@@ -531,6 +534,7 @@ describe('llm-client', () => {
           },
         ],
         executeTool,
+        { provider: 'cerebras' },
       )
 
       const text = await readStreamToString(stream)

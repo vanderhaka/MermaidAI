@@ -15,7 +15,7 @@ import { getProjectModeConfig } from '@/lib/project-modes'
 import { updateProject } from '@/lib/services/project-service'
 import { createStreamParser } from '@/lib/stream-parser'
 import { useGraphStore } from '@/store/graph-store'
-import type { AIProvider, ChatMessage } from '@/types/chat'
+import type { ChatMessage } from '@/types/chat'
 import type {
   FlowEdge,
   FlowNode,
@@ -127,7 +127,6 @@ export function ScopeWorkspace({
   const [prdOpen, setPrdOpen] = useState(false)
   const [pendingRefresh, setPendingRefresh] = useState(false)
   const [saveCounter, setSaveCounter] = useState(0)
-  const [modelProvider, setModelProvider] = useState<AIProvider>('cerebras')
   const [activeResolutionQuestion, setActiveResolutionQuestion] = useState<Pick<
     OpenQuestion,
     'id' | 'section' | 'question'
@@ -248,7 +247,6 @@ export function ScopeWorkspace({
           projectId: project.id,
           message,
           mode: chatMode,
-          provider: modelProvider,
           context: {
             projectId: project.id,
             projectName: project.name,
@@ -554,8 +552,6 @@ export function ScopeWorkspace({
         subtitle={modeConfig.chatSubtitle}
         isPeeking={isPeeking}
         examplePrompts={modeConfig.examplePrompts}
-        modelProvider={modelProvider}
-        onModelProviderChange={setModelProvider}
       />
 
       <PrdPreviewPanel

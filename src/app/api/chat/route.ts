@@ -28,7 +28,7 @@ const chatRequestSchema = z.object({
   projectId: z.string().min(1),
   message: z.string().trim().min(1),
   mode: z.enum(CHAT_MODES),
-  provider: z.enum(AI_PROVIDERS).optional().default('cerebras'),
+  provider: z.enum(AI_PROVIDERS).optional().default('anthropic'),
   context: z.object({
     projectId: z.string(),
     projectName: z.string(),

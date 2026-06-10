@@ -81,18 +81,9 @@ describe('FloatingChat', () => {
     })
   })
 
-  it('defaults the model selector to OSS', () => {
+  it('renders no model selector — Claude is the only model', () => {
     render(<FloatingChat {...baseProps} />)
 
-    expect(screen.getByLabelText('AI model')).toHaveValue('cerebras')
-  })
-
-  it('notifies when the model selector changes', () => {
-    const onModelProviderChange = vi.fn()
-    render(<FloatingChat {...baseProps} onModelProviderChange={onModelProviderChange} />)
-
-    fireEvent.change(screen.getByLabelText('AI model'), { target: { value: 'anthropic' } })
-
-    expect(onModelProviderChange).toHaveBeenCalledWith('anthropic')
+    expect(screen.queryByLabelText('AI model')).not.toBeInTheDocument()
   })
 })

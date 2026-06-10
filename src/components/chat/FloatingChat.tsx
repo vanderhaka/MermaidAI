@@ -3,7 +3,7 @@
 import { useEffect, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import ChatInput from '@/components/chat/ChatInput'
 import ChatMessageList from '@/components/chat/ChatMessageList'
-import type { AIProvider, ChatMessage } from '@/types/chat'
+import type { ChatMessage } from '@/types/chat'
 
 type FloatingChatProps = {
   messages: ChatMessage[]
@@ -18,14 +18,7 @@ type FloatingChatProps = {
   subtitle?: string
   isPeeking?: boolean
   examplePrompts?: string[]
-  modelProvider?: AIProvider
-  onModelProviderChange?: (provider: AIProvider) => void
 }
-
-const MODEL_PROVIDER_OPTIONS: Array<{ value: AIProvider; label: string }> = [
-  { value: 'cerebras', label: 'OSS' },
-  { value: 'anthropic', label: 'Claude' },
-]
 
 const DEFAULT_CHAT_SIZE = {
   width: 760,
@@ -105,8 +98,6 @@ export default function FloatingChat({
   subtitle = 'Ask MermaidAI to sketch modules or refine the active module flow.',
   isPeeking = false,
   examplePrompts,
-  modelProvider = 'cerebras',
-  onModelProviderChange,
 }: FloatingChatProps) {
   const [chatSize, setChatSize] = useState<ChatSize>(DEFAULT_CHAT_SIZE)
 
@@ -243,39 +234,6 @@ export default function FloatingChat({
               <p className="mt-1 text-pretty text-sm text-gray-500">{subtitle}</p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <div className="relative shrink-0">
-                <label htmlFor="assistant-model-provider" className="sr-only">
-                  AI model
-                </label>
-                <select
-                  id="assistant-model-provider"
-                  value={modelProvider}
-                  onChange={(event) => onModelProviderChange?.(event.target.value as AIProvider)}
-                  disabled={isLoading}
-                  title="AI model"
-                  className="h-9 cursor-pointer appearance-none rounded-lg border border-gray-200 bg-white pl-2.5 pr-8 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {MODEL_PROVIDER_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <svg
-                  aria-hidden
-                  viewBox="0 0 20 20"
-                  fill="none"
-                  stroke="currentColor"
-                  className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400"
-                >
-                  <path
-                    d="M6 8l4 4 4-4"
-                    strokeWidth="1.75"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </div>
               <button
                 type="button"
                 onClick={onToggle}
