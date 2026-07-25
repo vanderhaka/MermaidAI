@@ -1,4 +1,5 @@
 import type { Module, FlowNode, FlowEdge, ModuleConnection, OpenQuestion } from '@/types/graph'
+import { renderFlowMermaidBlock } from '@/lib/services/prd-mermaid'
 
 /**
  * Walk the graph from start nodes in order, producing a numbered flow sequence.
@@ -225,6 +226,12 @@ export function renderModulePrd(
 
   if (flowNodes.length > 0) {
     lines.push('## Flow', '')
+
+    // Diagram first, then the numbered walk. The diagram renders natively in Notion,
+    // Linear, GitHub and Confluence, so the visual survives leaving the app.
+    const diagram = renderFlowMermaidBlock(flowNodes, flowEdges)
+    if (diagram) lines.push(diagram, '')
+
     lines.push(renderFlowSection(flowNodes, flowEdges))
   }
 

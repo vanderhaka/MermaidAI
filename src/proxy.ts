@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { getUserWithDevAuth } from '@/lib/auth/dev-auth'
 import { createSupabaseMiddlewareClient } from '@/lib/supabase/middleware'
 
-const PROTECTED_ROUTES = ['/dashboard']
+const PROTECTED_ROUTES = ['/dashboard', '/share']
 const AUTH_ROUTES = ['/login', '/signup']
 
 /**

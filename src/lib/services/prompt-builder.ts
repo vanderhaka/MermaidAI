@@ -2,6 +2,7 @@ import type { Module, FlowNode, FlowEdge, ModuleConnection, OpenQuestion } from 
 import type { ChatMode } from '@/types/chat'
 import { moduleNotesFileSlug } from '@/lib/module-notes-slug'
 import { buildBrainstormPrompt } from '@/lib/services/prompt-builder-brainstorm'
+import { renderCoverageAreasForPrompt } from '@/lib/scope-coverage'
 import {
   buildCurrentEdgesSection,
   buildCurrentNodesSection,
@@ -411,17 +412,7 @@ Use this module ID for ALL tool calls (\`create_node\`, \`add_open_questions\`, 
 
 These are the standard areas every scope must sweep. Track which are still unexplored — your follow-up questions should systematically work through them. An area counts as covered once it has been discussed, captured as open questions, or explicitly ruled out by the user as not applicable.
 
-1. **Actors & roles** — every user/system type and what each can do
-2. **Onboarding & verification** — signup, identity checks, approvals
-3. **Discovery** — how users find things (search, browse, map, filters)
-4. **Core transaction** — the main exchange step by step; instant vs request-and-approve; confirmations
-5. **Money** — pricing model, platform fees, WHEN payment is captured, refunds, payouts, invoices/tax
-6. **Scheduling & availability** — calendars, recurring windows, conflicts, double-booking
-7. **Failure modes** — no-shows, cancellations from EACH side, enforcement, overstays, disputes
-8. **Post-transaction** — reviews/ratings, repeat usage, subscriptions
-9. **Communications** — notifications, reminders, messaging between parties
-10. **Operations** — admin tooling, moderation, support
-11. **Liability & compliance** — insurance, damage, legal, taxes
+${renderCoverageAreasForPrompt()}
 
 Not every area applies to every project — skip ones that clearly don't fit, but err on the side of asking. Unprompted, clients almost never mention failure modes, payment timing, or liability — probe those even when the client sounds finished.
 ${OPINIONATED_RECOMMENDATION_INSTRUCTIONS}

@@ -298,6 +298,11 @@ const addOpenQuestionsTool: Anthropic.Tool = {
               description:
                 'Logical section grouping for the question (e.g. "Authentication", "Payments", "Data Model")',
             },
+            coverageArea: {
+              type: 'string',
+              description:
+                'Which scope coverage area this belongs to. Use one of the exact area names from the Scope Coverage Map — this drives the coverage rail the client sees.',
+            },
             question: {
               type: 'string',
               description: 'The open question text describing the gap or ambiguity',
@@ -927,6 +932,7 @@ export function createToolExecutor(projectId: string, options: ToolExecutorOptio
           const items = input.questions as Array<{
             section: string
             question: string
+            coverageArea?: string
             relatedNodeId?: string
           }>
 
@@ -978,6 +984,7 @@ export function createToolExecutor(projectId: string, options: ToolExecutorOptio
               node_id: nodeResult.data.id,
               section: item.section,
               question: item.question,
+              coverage_area: item.coverageArea ?? item.section,
             })
             if (!questionResult.success) {
               errors.push(`Question "${label}": ${questionResult.error}`)

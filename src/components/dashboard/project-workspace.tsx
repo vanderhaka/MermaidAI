@@ -377,6 +377,14 @@ export function ProjectWorkspace({
           </div>
 
           <div className="flex items-center gap-3">
+            <Link
+              href={`/share/${project.id}`}
+              target="_blank"
+              title="Open the read-only client view (works on mobile)"
+              className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50 hover:text-gray-900"
+            >
+              Share view
+            </Link>
             <button
               type="button"
               onClick={() => setPrdOpen(true)}

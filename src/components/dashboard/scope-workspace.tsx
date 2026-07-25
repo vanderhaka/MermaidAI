@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import CanvasContainer from '@/components/canvas/CanvasContainer'
 import FloatingChat from '@/components/chat/FloatingChat'
 import OpenQuestionsPanel from '@/components/canvas/OpenQuestionsPanel'
+import CoverageRail from '@/components/canvas/CoverageRail'
 import { InlineProjectName } from '@/components/dashboard/InlineProjectName'
 import PrdPreviewPanel from '@/components/dashboard/PrdPreviewPanel'
 import { SavedIndicator } from '@/components/dashboard/SavedIndicator'
@@ -147,6 +148,7 @@ export function ScopeWorkspace({
 
   const modules = useGraphStore((state) => state.modules)
   const openQuestions = useGraphStore((state) => state.openQuestions)
+  const requirements = useGraphStore((state) => state.requirements)
   const unresolvedCount = useMemo(
     () => openQuestions.filter((q) => q.status === 'open').length,
     [openQuestions],
@@ -466,6 +468,14 @@ export function ScopeWorkspace({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Link
+            href={`/share/${project.id}`}
+            target="_blank"
+            title="Open the read-only client view (works on mobile)"
+            className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50 hover:text-gray-900"
+          >
+            Share view
+          </Link>
           <button
             type="button"
             onClick={() => setPrdOpen(true)}
@@ -532,7 +542,15 @@ export function ScopeWorkspace({
       </header>
 
       {/* Main content */}
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 gap-3">
+        <CoverageRail
+          openQuestions={openQuestions}
+          requirements={requirements}
+          onAreaClick={(areaName) => {
+            setAssistantOpen(true)
+            void handleSend(`Let's cover ${areaName}. What do we still need to know?`)
+          }}
+        />
         <div className="flex flex-1 flex-col" data-testid="canvas-panel">
           <div className="flex-1">
             <CanvasContainer showFunnelLanes={Boolean(modeConfig.showFunnelLanes)} />

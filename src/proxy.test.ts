@@ -85,6 +85,15 @@ describe('Auth proxy', () => {
       expect(redirectUrl.pathname).toBe('/login')
     })
 
+    it('redirects /share/<id> to /login — the read-only view still requires auth', async () => {
+      const request = createMockRequest('/share/550e8400-e29b-41d4-a716-446655440000')
+      await proxy(request)
+
+      expect(mockRedirect).toHaveBeenCalledTimes(1)
+      const redirectUrl = mockRedirect.mock.calls[0][0] as URL
+      expect(redirectUrl.pathname).toBe('/login')
+    })
+
     it('allows access to /', async () => {
       const request = createMockRequest('/')
       await proxy(request)
