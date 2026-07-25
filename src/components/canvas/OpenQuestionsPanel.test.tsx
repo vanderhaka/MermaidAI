@@ -9,7 +9,9 @@ function makeQ(overrides: Partial<OpenQuestion> = {}): OpenQuestion {
   return {
     id: 'oq-1',
     project_id: 'proj-1',
+    module_id: 'm-1',
     node_id: 'n-1',
+    coverage_area: null,
     section: 'Auth',
     question: 'What OAuth providers?',
     status: 'open',

@@ -13,18 +13,6 @@ type PrdPreviewPanelProps = {
   onClose: () => void
 }
 
-function buildAuthoredMarkdown(
-  projectName: string,
-  modules: { name: string; prd_content: string }[],
-): string {
-  const sections = modules.filter((m) => m.prd_content.trim())
-  if (sections.length === 0) return ''
-
-  if (sections.length === 1) return sections[0].prd_content
-
-  return sections.map((m) => `# ${m.name}\n\n${m.prd_content}`).join('\n\n---\n\n')
-}
-
 export default function PrdPreviewPanel({
   projectName,
   projectDescription,
@@ -37,17 +25,16 @@ export default function PrdPreviewPanel({
   const connections = useGraphStore((s) => s.connections)
   const openQuestions = useGraphStore((s) => s.openQuestions)
 
+  /** Drives the subtitle hint only — it must never gate which content is rendered. */
   const hasAuthored = modules.some((m) => m.prd_content?.trim())
+  const isEmpty = modules.length === 0 && nodes.length === 0
 
   const input = useMemo(
     () => ({ projectName, projectDescription, modules, nodes, edges, connections, openQuestions }),
     [projectName, projectDescription, modules, nodes, edges, connections, openQuestions],
   )
 
-  const markdown = useMemo(() => {
-    if (hasAuthored) return buildAuthoredMarkdown(projectName, modules)
-    return generateSinglePrd(input)
-  }, [hasAuthored, projectName, modules, input])
+  const markdown = useMemo(() => generateSinglePrd(input), [input])
 
   const handleDownload = useCallback(async () => {
     const slug = projectName
@@ -55,15 +42,13 @@ export default function PrdPreviewPanel({
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '')
 
-    if (hasAuthored) {
-      downloadMarkdown(markdown, `${slug}-prd.md`)
-    } else if (modules.length > 1) {
+    if (modules.length > 1) {
       const files = generatePrdFiles(input)
       await downloadPrdZip(files, projectName)
     } else {
       downloadMarkdown(markdown, `${slug}-prd.md`)
     }
-  }, [hasAuthored, input, markdown, modules.length, projectName])
+  }, [input, markdown, modules.length, projectName])
 
   if (!isOpen) return null
 
@@ -114,7 +99,7 @@ export default function PrdPreviewPanel({
         </div>
 
         <div className="flex-1 overflow-y-auto px-8 py-6">
-          {markdown.trim() ? (
+          {!isEmpty && markdown.trim() ? (
             <article className="prose prose-sm prose-gray max-w-none">
               <Markdown>{markdown}</Markdown>
             </article>

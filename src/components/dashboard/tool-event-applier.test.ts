@@ -58,11 +58,13 @@ function makeQuestion(overrides: Partial<OpenQuestion> = {}): OpenQuestion {
   return {
     id: 'oq-1',
     project_id: 'proj-1',
+    module_id: 'module-1',
     node_id: 'question-node-1',
     section: 'Checkout',
     question: 'What happens if payment fails?',
     status: 'open',
     resolution: null,
+    coverage_area: null,
     created_at: '2026-01-01T00:00:00Z',
     resolved_at: null,
     ...overrides,
@@ -176,7 +178,11 @@ describe('tool event appliers', () => {
     const recordToolCall = vi.fn()
     const nodeA = makeNode({ id: 'node-a', label: 'Send Quote' })
     const nodeB = makeNode({ id: 'node-b', label: 'Send Invoice' })
-    const staleEdge = makeEdge({ id: 'edge-ab', source_node_id: 'node-a', target_node_id: 'node-b' })
+    const staleEdge = makeEdge({
+      id: 'edge-ab',
+      source_node_id: 'node-a',
+      target_node_id: 'node-b',
+    })
     useGraphStore.getState().setNodes([nodeA, nodeB])
     useGraphStore.getState().setEdges([staleEdge])
 

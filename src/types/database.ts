@@ -252,9 +252,11 @@ export type Database = {
       }
       open_questions: {
         Row: {
+          coverage_area: string | null
           created_at: string
           id: string
-          node_id: string
+          module_id: string | null
+          node_id: string | null
           project_id: string
           question: string
           resolution: string | null
@@ -263,9 +265,11 @@ export type Database = {
           status: string
         }
         Insert: {
+          coverage_area?: string | null
           created_at?: string
           id?: string
-          node_id: string
+          module_id?: string | null
+          node_id?: string | null
           project_id: string
           question: string
           resolution?: string | null
@@ -274,9 +278,11 @@ export type Database = {
           status?: string
         }
         Update: {
+          coverage_area?: string | null
           created_at?: string
           id?: string
-          node_id?: string
+          module_id?: string | null
+          node_id?: string | null
           project_id?: string
           question?: string
           resolution?: string | null
@@ -293,10 +299,116 @@ export type Database = {
             referencedColumns: ['id']
           },
           {
+            foreignKeyName: 'open_questions_module_id_fkey'
+            columns: ['module_id']
+            isOneToOne: false
+            referencedRelation: 'modules'
+            referencedColumns: ['id']
+          },
+          {
             foreignKeyName: 'open_questions_project_id_fkey'
             columns: ['project_id']
             isOneToOne: false
             referencedRelation: 'projects'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      module_prd_sections: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          module_id: string
+          position: number
+          section: string
+          updated_at: string
+        }
+        Insert: {
+          content?: string
+          created_at?: string
+          id?: string
+          module_id: string
+          position?: number
+          section: string
+          updated_at?: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          module_id?: string
+          position?: number
+          section?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'module_prd_sections_module_id_fkey'
+            columns: ['module_id']
+            isOneToOne: false
+            referencedRelation: 'modules'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      requirements: {
+        Row: {
+          coverage_area: string | null
+          created_at: string
+          id: string
+          kind: string
+          module_id: string | null
+          project_id: string
+          source_question_id: string | null
+          statement: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          coverage_area?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          module_id?: string | null
+          project_id: string
+          source_question_id?: string | null
+          statement: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          coverage_area?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          module_id?: string | null
+          project_id?: string
+          source_question_id?: string | null
+          statement?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'requirements_project_id_fkey'
+            columns: ['project_id']
+            isOneToOne: false
+            referencedRelation: 'projects'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'requirements_module_id_fkey'
+            columns: ['module_id']
+            isOneToOne: false
+            referencedRelation: 'modules'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'requirements_source_question_id_fkey'
+            columns: ['source_question_id']
+            isOneToOne: false
+            referencedRelation: 'open_questions'
             referencedColumns: ['id']
           },
         ]

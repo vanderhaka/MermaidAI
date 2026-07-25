@@ -10,9 +10,11 @@ type ServiceResult<T> = { success: true; data: T } | { success: false; error: st
 
 export async function createOpenQuestion(input: {
   project_id: string
-  node_id: string
+  node_id?: string | null
+  module_id?: string | null
   section: string
   question: string
+  coverage_area?: string | null
 }): Promise<ServiceResult<OpenQuestion>> {
   const parsed = createOpenQuestionSchema.safeParse(input)
   if (!parsed.success) {

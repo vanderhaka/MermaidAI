@@ -95,7 +95,7 @@ Available node types: \`process\`, \`decision\`, \`start\`, \`end\`
 When the user signals they're happy ("looks good", "I'm done", "that's it"):
 
 1. Give a 2-3 sentence honest read of the flow — what's solid and any gaps still open. Do not invent praise.
-2. Call \`write_prd\` once with a concise summary of the flow (purpose, main path, branches, open ends). Do NOT write PRD content before this point.
+2. Call \`write_prd\` once with \`section: "Flow summary"\` and a concise summary of the flow (purpose, main path, branches, open ends). Re-writing that section replaces it. Do NOT write PRD content before this point.
 3. Offer next steps in one short sentence: keep it as-is, switch to Quick Capture (adds open-question tracking), or switch to Full Design (breaks it into architecture modules).
 4. Only call \`promote_project\` when the user explicitly chooses to switch — with \`to: "scope"\` for Quick Capture or \`to: "architecture"\` for Full Design.`.trim()
 }

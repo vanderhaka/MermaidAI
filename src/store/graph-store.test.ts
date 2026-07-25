@@ -366,11 +366,13 @@ function makeQuestion(overrides: Partial<OpenQuestion> = {}): OpenQuestion {
   return {
     id: 'oq-1',
     project_id: 'proj-1',
+    module_id: 'm1',
     node_id: 'n1',
     section: 'Authentication',
     question: 'What OAuth providers?',
     status: 'open',
     resolution: null,
+    coverage_area: null,
     created_at: '2026-04-08T00:00:00Z',
     resolved_at: null,
     ...overrides,

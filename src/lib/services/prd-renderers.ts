@@ -69,7 +69,7 @@ function renderFlowSection(nodes: FlowNode[], edges: FlowEdge[]): string {
         lines.push('')
         for (const edge of outgoing) {
           const target = nodes.find((n) => n.id === edge.target_node_id)
-          const condition = edge.condition || edge.label || 'Default'
+          const condition = edge.condition || edge.label || 'Otherwise'
           lines.push(`   - **${condition}** → ${target?.label ?? 'Unknown'}`)
         }
       }
@@ -128,10 +128,15 @@ export function renderModulePrd(
   allModules: Module[],
   options?: { skipHeader?: boolean },
 ): string {
+  const authored = module.prd_content?.trim() ?? ''
   const moduleNodes = nodes.filter((n) => n.module_id === module.id)
   const moduleEdges = edges.filter((e) => e.module_id === module.id)
   const moduleNodeIds = new Set(moduleNodes.map((n) => n.id))
-  const moduleQuestions = questions.filter((q) => moduleNodeIds.has(q.node_id))
+  // Attach by module, not by node: a resolved question's marker node is gone, but the
+  // question and its resolution must still reach the document.
+  const moduleQuestions = questions.filter((q) =>
+    q.module_id ? q.module_id === module.id : q.node_id !== null && moduleNodeIds.has(q.node_id),
+  )
 
   const lines: string[] = []
 
@@ -176,10 +181,22 @@ export function renderModulePrd(
     lines.push('')
   }
 
-  // Flow — as numbered sequence
-  if (moduleNodes.length > 0) {
+  // Requirements — AI-authored prose, composed with (never replacing) the graph render
+  if (authored) {
+    lines.push('## Requirements', '', authored, '')
+  }
+
+  // Flow — as numbered sequence. Question markers are gaps, not steps: rendering them
+  // here would state an unanswered question as specified behaviour.
+  const questionNodeIds = new Set(
+    moduleNodes.filter((n) => n.node_type === 'question').map((n) => n.id),
+  )
+  const flowNodes = moduleNodes.filter((n) => !questionNodeIds.has(n.id))
+  const flowEdges = moduleEdges.filter((e) => !questionNodeIds.has(e.target_node_id))
+
+  if (flowNodes.length > 0) {
     lines.push('## Flow', '')
-    lines.push(renderFlowSection(moduleNodes, moduleEdges))
+    lines.push(renderFlowSection(flowNodes, flowEdges))
   }
 
   // Questions

@@ -92,11 +92,53 @@ export type OpenQuestionStatus = 'open' | 'resolved'
 export type OpenQuestion = {
   id: string
   project_id: string
-  node_id: string
+  /** Module the question belongs to. Survives deletion of the canvas marker. */
+  module_id: string | null
+  /** Canvas marker node. Null once the marker is removed on resolve. */
+  node_id: string | null
   section: string
   question: string
   status: OpenQuestionStatus
   resolution: string | null
+  coverage_area: string | null
   created_at: string
   resolved_at: string | null
 }
+
+/** One addressable section of a module's PRD. Re-writing a section replaces it. */
+export type ModulePrdSection = {
+  id: string
+  module_id: string
+  section: string
+  content: string
+  position: number
+  created_at: string
+  updated_at: string
+}
+
+export type RequirementKind = 'functional' | 'rule' | 'constraint' | 'non_functional'
+
+export type RequirementStatus = 'proposed' | 'agreed' | 'disputed' | 'out_of_scope'
+
+/**
+ * A single statement of what the product must do. First-class so the canvas can draw
+ * requirements and their relationships, rather than burying them in module prose.
+ */
+export type Requirement = {
+  id: string
+  project_id: string
+  module_id: string | null
+  statement: string
+  kind: RequirementKind
+  status: RequirementStatus
+  coverage_area: string | null
+  /** Set when this requirement was promoted from a resolved open question. */
+  source_question_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type CreateRequirementInput = Pick<Requirement, 'project_id' | 'statement'> &
+  Partial<
+    Pick<Requirement, 'module_id' | 'kind' | 'status' | 'coverage_area' | 'source_question_id'>
+  >

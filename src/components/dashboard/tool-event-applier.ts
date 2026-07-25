@@ -99,7 +99,7 @@ export function applyScopeToolEvent(
     case 'resolve_open_question': {
       const question = data.question as OpenQuestion | undefined
       if (question) {
-        store.removeNode(question.node_id)
+        if (question.node_id) store.removeNode(question.node_id)
         store.resolveOpenQuestion(question.id, question.resolution ?? '')
         if (options.activeResolutionQuestionId === question.id) {
           options.clearActiveResolutionQuestion?.()
@@ -118,7 +118,9 @@ export function applyScopeToolEvent(
     }
     case 'promote_project': {
       options.markPendingRefresh?.()
-      options.recordToolCall(data.mode === 'scope' ? 'Switched to Quick Capture' : 'Switched to Full Design')
+      options.recordToolCall(
+        data.mode === 'scope' ? 'Switched to Quick Capture' : 'Switched to Full Design',
+      )
       break
     }
     case 'create_module': {
@@ -202,7 +204,7 @@ export function applyProjectToolEvent(
     case 'resolve_open_question': {
       const question = data.question as OpenQuestion | undefined
       if (question) {
-        store.removeNode(question.node_id)
+        if (question.node_id) store.removeNode(question.node_id)
         store.resolveOpenQuestion(question.id, question.resolution ?? '')
       }
       options.recordToolCall('Resolved question')

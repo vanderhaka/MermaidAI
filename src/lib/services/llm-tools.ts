@@ -22,6 +22,8 @@ import {
   resolveOpenQuestion,
   listOpenQuestions,
 } from '@/lib/services/open-question-service'
+import { createRequirement } from '@/lib/services/requirement-service'
+import { composePrdContent, writePrdSection } from '@/lib/services/prd-section-service'
 import type { ToolResult } from '@/lib/services/llm-client'
 import type { FlowEdge, FlowNode } from '@/types/graph'
 import type { PromptMode } from '@/lib/services/prompt-builder'
@@ -334,7 +336,7 @@ const resolveOpenQuestionTool: Anthropic.Tool = {
 const writePrdTool: Anthropic.Tool = {
   name: 'write_prd',
   description:
-    'Write or append to the PRD (Product Requirements Document) for a module. Call this alongside flow-building tools to progressively document requirements, business rules, and decisions as they emerge from the conversation. Each call appends to the existing content.',
+    'Write one named section of the PRD for a module. Sections are addressable: writing a section you have written before REPLACES it, so revise a section by re-writing it rather than restating the change. Call this alongside flow-building tools to document requirements as they emerge.',
   input_schema: {
     type: 'object' as const,
     properties: {
@@ -342,13 +344,24 @@ const writePrdTool: Anthropic.Tool = {
         type: 'string',
         description: 'ID of the module to write PRD content for',
       },
+      section: {
+        type: 'string',
+        description:
+          'Section name this content belongs under (e.g. "Requirements", "Business rules", "Decision logic", "Integrations"). Re-using a name replaces that section.',
+      },
       markdown: {
         type: 'string',
         description:
-          'Markdown content to append. Use headings, bullets, and tables. Cover: purpose, user stories, business rules, decision logic, integrations, and constraints.',
+          'Markdown body for this section, without the section heading. Use bullets and tables. When a decision changes, re-write the whole section with the current truth — do not describe the change.',
+      },
+      mode: {
+        type: 'string',
+        enum: ['replace', 'append'],
+        description:
+          'Defaults to replace. Use append only for genuinely cumulative lists where earlier entries stay true.',
       },
     },
-    required: ['moduleId', 'markdown'],
+    required: ['moduleId', 'section', 'markdown'],
   },
 }
 
@@ -802,17 +815,18 @@ export function createToolExecutor(projectId: string, options: ToolExecutorOptio
         case 'write_prd': {
           const moduleId = input.moduleId as string
           const markdown = input.markdown as string
+          const section = ((input.section as string) ?? 'Requirements').trim() || 'Requirements'
+          const mode = input.mode === 'append' ? 'append' : 'replace'
 
-          const modResult = await getModuleById(moduleId)
-          if (!modResult.success) return fail(modResult.error)
+          const sectionResult = await writePrdSection({ moduleId, section, markdown, mode })
+          if (!sectionResult.success) return fail(sectionResult.error)
 
-          const existing = modResult.data.prd_content ?? ''
-          const updated = existing ? `${existing}\n\n${markdown}` : markdown
-
-          const result = await updateModule(moduleId, { prd_content: updated })
+          // Keep prd_content as the derived flat view so every existing reader stays correct.
+          const composed = await composePrdContent(sectionResult.data)
+          const result = await updateModule(moduleId, { prd_content: composed })
           if (!result.success) return fail(result.error)
 
-          return ok(`Updated PRD for "${result.data.name}"`, {
+          return ok(`Updated PRD section "${section}" for "${result.data.name}"`, {
             module: result.data,
           })
         }
@@ -869,6 +883,7 @@ export function createToolExecutor(projectId: string, options: ToolExecutorOptio
 
             const questionResult = await createOpenQuestion({
               project_id: projectId,
+              module_id: moduleId,
               node_id: nodeResult.data.id,
               section: item.section,
               question: item.question,
@@ -924,11 +939,26 @@ export function createToolExecutor(projectId: string, options: ToolExecutorOptio
           const result = await resolveOpenQuestion(questionId, resolution)
           if (!result.success) return fail(result.error)
 
+          // Promote the answer into a first-class requirement BEFORE removing the marker.
+          // The resolution is the requirement — losing it here is what the old cascade did.
+          const requirement = await createRequirement({
+            project_id: projectId,
+            module_id: result.data.module_id,
+            statement: resolution,
+            kind: 'rule',
+            status: 'agreed',
+            coverage_area: result.data.coverage_area ?? result.data.section,
+            source_question_id: result.data.id,
+          })
+
+          // Removing the marker is correct — it should leave the canvas once answered.
+          // node_id is now ON DELETE SET NULL, so the question record itself survives.
           const nodeId = result.data.node_id
-          await removeNode(nodeId)
+          if (nodeId) await removeNode(nodeId)
 
           return ok(`Resolved question "${questionId}": ${resolution}`, {
             question: result.data,
+            ...(requirement.success ? { requirement: requirement.data } : {}),
           })
         }
 

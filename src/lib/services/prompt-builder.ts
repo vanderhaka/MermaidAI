@@ -151,7 +151,7 @@ You have tools to create modules, nodes, edges, and connections. Only use them a
 
 ## Writing the PRD
 
-After creating modules or connecting them, call \`write_prd\` to document the high-level purpose and requirements for each module. Write in clear, client-facing language.
+After creating modules or connecting them, call \`write_prd\` with a \`section\` name to document the high-level purpose and requirements for each module. Sections are addressable — re-writing a section replaces it, so revise by re-writing the whole section with the current truth. Write in clear, client-facing language.
 
 ## File Path Instructions
 
@@ -249,7 +249,7 @@ If the project involves a 3rd party service or library (e.g. Stripe, Supabase, T
 
 ## Writing the PRD
 
-After creating or updating modules, call \`write_prd\` to document the module's purpose, requirements, and business rules. Each call appends to the module's PRD. Write in clear, client-facing language.
+After creating or updating modules, call \`write_prd\` to document the module's purpose, requirements, and business rules. Each call writes one named \`section\`; re-using a section name replaces that section, so when a decision changes, re-write the section rather than describing the change. Write in clear, client-facing language.
 
 ## File Path Instructions
 
@@ -308,7 +308,7 @@ ${buildCurrentEdgesSection(context.edges)}
 - When this is the first input for the module: start with a \`start\` node, then the described flow steps.
 - Connect new nodes to existing ones — extend the flow, don't create disconnected islands.
 - Include pseudocode on process nodes with a \`// file: <path>\` comment at the top.
-- After building flow nodes, also call \`write_prd\` to document the requirements.
+- After building flow nodes, also call \`write_prd\` to document the requirements, naming the \`section\` you are writing.
 
 **Do NOT just write PRD without building nodes. Do NOT just ask questions without building. Build first, ask one follow-up question after.**
 
@@ -330,7 +330,7 @@ If the module involves a 3rd party service or library (e.g. Stripe, Supabase, Tw
 
 ## Writing the PRD
 
-After creating or modifying nodes and edges, call \`write_prd\` to document the module's detailed requirements, business rules, and decision logic. Each call appends to the PRD. Write in clear, client-facing language.`.trim()
+After creating or modifying nodes and edges, call \`write_prd\` to document the module's detailed requirements, business rules, and decision logic. Each call writes one named \`section\` and replaces any previous content for that section — never restate a change, just write the section as it now stands. Write in clear, client-facing language.`.trim()
 }
 
 function buildOpenQuestionsSection(questions?: PromptContext['openQuestions']): string {
@@ -474,7 +474,7 @@ When the user asks to "build modules", "break this into modules", or otherwise m
 1. Call \`promote_project\` first — this switches the project to architecture mode.
 2. Then call \`create_module\` for each module, with \`entry_points\` and \`exit_points\`.
 3. Then call \`connect_modules\` to link them together.
-4. Call \`write_prd\` for each module to document its purpose and requirements.
+4. Call \`write_prd\` for each module to document its purpose and requirements, one named \`section\` per call.
 
 Do NOT tell the user to go somewhere else or click a button. You have the tools — do it yourself in one response. Analyze the captured flow on the canvas and break it into logical modules.
 
@@ -482,7 +482,7 @@ Do NOT tell the user to go somewhere else or click a button. You have the tools 
 
 After EVERY response where you create or modify nodes, also call \`write_prd\` to document what was captured. The PRD is a live document that grows alongside the flowchart. Write it in clear, client-facing language — not technical jargon.
 
-Each \`write_prd\` call appends markdown. Structure content with headings matching the flow sections you're building:
+Each \`write_prd\` call writes ONE named \`section\` and replaces whatever that section held before. Use these section names:
 
 - **Requirements** — what the system must do (user stories or acceptance criteria)
 - **Business rules** — conditions, validations, thresholds
@@ -533,7 +533,7 @@ Every response where the user describes a funnel, journey, process, offer, custo
 - Connect new nodes to the existing canvas state below. Do not leave disconnected islands unless the user asks for separate flows.
 - Do not create open-question nodes in this mode. If a gap matters, ask one follow-up in the chat instead.
 - Do not include pseudocode in flowchart mode.
-- After creating or modifying the flow, call \`write_prd\` with a short funnel summary that explains the audience, entry point, conversion goal, nurture/drop-off paths, and handoff points.
+- After creating or modifying the flow, call \`write_prd\` with \`section: "Funnel summary"\` explaining the audience, entry point, conversion goal, nurture/drop-off paths, and handoff points. Re-writing that section replaces it, so always state the funnel as it now stands.
 
 ## Current Canvas
 
@@ -552,7 +552,7 @@ Available node types: \`process\`, \`decision\`, \`start\`, \`end\`
 
 ## Writing the PRD
 
-Keep \`write_prd\` content business-facing. Good sections include:
+Keep \`write_prd\` content business-facing. Write one \`section\` per call; good section names include:
 
 - **Funnel goal** — what conversion or behaviour the funnel is trying to achieve
 - **Audience journey** — what the person experiences from entry to outcome

@@ -69,11 +69,13 @@ function makeQuestion(overrides: Partial<OpenQuestion> = {}): OpenQuestion {
   return {
     id: 'question-1',
     project_id: 'project-1',
+    module_id: 'checkout-module',
     node_id: 'decision',
     section: 'Payment',
     question: 'What happens when payment fails?',
     status: 'open',
     resolution: null,
+    coverage_area: null,
     created_at: timestamp,
     resolved_at: null,
     ...overrides,
@@ -186,5 +188,136 @@ describe('renderModulePrd', () => {
     expect(markdown).not.toContain('# Checkout')
     expect(markdown).toContain('## Interface')
     expect(markdown).toContain('## Flow')
+  })
+})
+
+describe('resolved questions survive into the PRD', () => {
+  it('renders the Resolved section for a question whose marker node is gone', () => {
+    // After resolve, node_id is SET NULL and the marker is deleted. The record must
+    // still reach the document via module_id — this branch was unreachable before.
+    const markdown = renderModulePrd(
+      makeModule(),
+      [makeNode({ id: 'charge', label: 'Charge card' })],
+      [],
+      [],
+      [
+        makeQuestion({
+          id: 'question-resolved',
+          node_id: null,
+          module_id: 'checkout-module',
+          status: 'resolved',
+          question: 'Do we retry a declined card?',
+          resolution: 'Retry once, then show the decline message.',
+        }),
+      ],
+      [makeModule()],
+    )
+
+    expect(markdown).toContain('### Resolved')
+    expect(markdown).toContain('- [x] **Payment** — Do we retry a declined card?')
+    expect(markdown).toContain('  - Retry once, then show the decline message.')
+  })
+
+  it('excludes questions belonging to a different module', () => {
+    const markdown = renderModulePrd(
+      makeModule(),
+      [makeNode({ id: 'charge', label: 'Charge card' })],
+      [],
+      [],
+      [
+        makeQuestion({
+          id: 'question-other',
+          node_id: null,
+          module_id: 'fulfilment-module',
+          question: 'Which courier do we use?',
+        }),
+      ],
+      [makeModule()],
+    )
+
+    expect(markdown).not.toContain('Which courier do we use?')
+  })
+})
+
+describe('question markers never appear as flow steps', () => {
+  const nodes = [
+    makeNode({ id: 'start', node_type: 'start', label: 'Start' }),
+    makeNode({ id: 'decision', node_type: 'decision', label: 'Payment authorised?' }),
+    makeNode({ id: 'confirm', label: 'Show order confirmation' }),
+    makeNode({ id: 'decline', label: 'Show decline message' }),
+    makeNode({
+      id: 'q-node',
+      node_type: 'question',
+      label: 'Do we retry a declined card automatically?',
+    }),
+  ]
+  const edges = [
+    makeEdge({ id: 'e0', source_node_id: 'start', target_node_id: 'decision' }),
+    makeEdge({ id: 'e1', source_node_id: 'decision', target_node_id: 'confirm', condition: 'Yes' }),
+    makeEdge({ id: 'e2', source_node_id: 'decision', target_node_id: 'decline', condition: 'No' }),
+    // The edge add_open_questions creates: no condition, no label.
+    makeEdge({ id: 'e3', source_node_id: 'decision', target_node_id: 'q-node' }),
+  ]
+  const questions = [
+    makeQuestion({
+      id: 'q-1',
+      node_id: 'q-node',
+      question: 'Do we retry a declined card automatically?',
+    }),
+  ]
+
+  function render() {
+    return renderModulePrd(makeModule(), nodes, edges, [], questions, [makeModule()])
+  }
+
+  it('does not render the question as a numbered step', () => {
+    const markdown = render()
+    const flow = markdown.slice(markdown.indexOf('## Flow'), markdown.indexOf('## Questions'))
+
+    expect(flow).not.toMatch(/\d+\. \*\*Do we retry a declined card automatically\?\*\*/)
+    expect(flow).not.toContain('Do we retry a declined card automatically?')
+  })
+
+  it('does not render the question as a decision branch', () => {
+    const flow = render()
+    const flowSection = flow.slice(flow.indexOf('## Flow'), flow.indexOf('## Questions'))
+
+    expect(flowSection).not.toContain('Default')
+    expect(flowSection).not.toContain('Otherwise')
+  })
+
+  it('still lists the question under Questions', () => {
+    const markdown = render()
+    const questionsSection = markdown.slice(markdown.indexOf('## Questions'))
+
+    expect(questionsSection).toContain('Do we retry a declined card automatically?')
+  })
+
+  it('keeps the real decision branches intact', () => {
+    const markdown = render()
+
+    expect(markdown).toContain('- **Yes** → Show order confirmation')
+    expect(markdown).toContain('- **No** → Show decline message')
+  })
+
+  it('labels a genuinely unlabelled branch "Otherwise", not "Default"', () => {
+    const markdown = renderModulePrd(
+      makeModule(),
+      [
+        makeNode({ id: 'start', node_type: 'start', label: 'Start' }),
+        makeNode({ id: 'decision', node_type: 'decision', label: 'Retry?' }),
+        makeNode({ id: 'done', label: 'Done' }),
+      ],
+      [
+        makeEdge({ id: 'a', source_node_id: 'start', target_node_id: 'decision' }),
+        makeEdge({ id: 'b', source_node_id: 'decision', target_node_id: 'done' }),
+      ],
+      [],
+      [],
+      [makeModule()],
+    )
+
+    expect(markdown).toContain('- **Otherwise** → Done')
+    expect(markdown).not.toContain('**Default**')
   })
 })

@@ -110,7 +110,9 @@ function makeOpenQuestion(overrides: Partial<OpenQuestion> = {}): OpenQuestion {
   return {
     id: 'oq-1',
     project_id: 'proj-1',
+    module_id: 'module-1',
     node_id: 'node-question-1',
+    coverage_area: null,
     section: 'Cart',
     question: 'Can users edit cart items?',
     status: 'open',
