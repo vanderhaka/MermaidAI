@@ -8,6 +8,9 @@ export const FLOW_NODE_TYPES = [
   'start',
   'end',
   'question',
+  'screen',
+  'role',
+  'data',
 ] as const
 
 export const createFlowNodeSchema = z.object({

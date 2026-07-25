@@ -321,3 +321,55 @@ describe('question markers never appear as flow steps', () => {
     expect(markdown).not.toContain('**Default**')
   })
 })
+
+describe('screens, roles and data render as structure, not flow steps', () => {
+  const nodes = [
+    makeNode({ id: 'start', node_type: 'start', label: 'Start' }),
+    makeNode({ id: 'screen-1', node_type: 'screen', label: 'Checkout page' }),
+    makeNode({ id: 'role-1', node_type: 'role', label: 'Guest', pseudocode: 'Can browse and buy' }),
+    makeNode({ id: 'data-1', node_type: 'data', label: 'Order', pseudocode: 'id, total, status' }),
+    makeNode({ id: 'proc-1', label: 'Charge card' }),
+  ]
+  const edges = [
+    makeEdge({ id: 'e0', source_node_id: 'start', target_node_id: 'screen-1' }),
+    makeEdge({ id: 'e1', source_node_id: 'screen-1', target_node_id: 'proc-1' }),
+  ]
+
+  function render() {
+    return renderModulePrd(makeModule(), nodes, edges, [], [], [makeModule()])
+  }
+
+  it('emits a Screens section', () => {
+    expect(render()).toContain('## Screens')
+    expect(render()).toContain('- **Checkout page**')
+  })
+
+  it('emits Roles and Data sections with their detail', () => {
+    const markdown = render()
+
+    expect(markdown).toContain('## Roles')
+    expect(markdown).toContain('- **Guest**')
+    expect(markdown).toContain('  - Can browse and buy')
+    expect(markdown).toContain('## Data')
+    expect(markdown).toContain('- **Order**')
+    expect(markdown).toContain('  - id, total, status')
+  })
+
+  it('keeps screens, roles and data out of the numbered flow', () => {
+    const markdown = render()
+    const flow = markdown.slice(markdown.indexOf('## Flow'))
+
+    expect(flow).not.toContain('Checkout page')
+    expect(flow).not.toContain('Guest')
+    expect(flow).not.toContain('Order')
+    expect(flow).toContain('Charge card')
+  })
+
+  it('omits the sections entirely when no such nodes exist', () => {
+    const markdown = renderModulePrd(makeModule(), [makeNode()], [], [], [], [makeModule()])
+
+    expect(markdown).not.toContain('## Screens')
+    expect(markdown).not.toContain('## Roles')
+    expect(markdown).not.toContain('## Data')
+  })
+})

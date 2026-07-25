@@ -183,12 +183,16 @@ describe('existing mode tool scopes', () => {
       'lookup_docs',
       'write_prd',
     ])
+    // module_detail can flag and resolve gaps: it advertises the question node type,
+    // and it is the deepest mode, where gaps most often surface.
     expect(moduleDetailTools).toEqual([
       'create_node',
       'update_node',
       'delete_node',
       'create_edge',
       'delete_edge',
+      'add_open_questions',
+      'resolve_open_question',
       'lookup_docs',
       'write_prd',
     ])

@@ -314,15 +314,21 @@ ${buildCurrentEdgesSection(context.edges)}
 
 ## Node Types
 
-Available node types: \`process\`, \`decision\`, \`entry\`, \`exit\`, \`start\`, \`end\`, \`question\`
+Available node types: \`screen\`, \`role\`, \`data\`, \`process\`, \`decision\`, \`entry\`, \`exit\`, \`start\`, \`end\`
 
-- **process** — a step that performs work (can contain pseudocode)
+- **screen** — a page or view the user sees. **Prefer this over \`process\` whenever the user would see it.** "Show the decline message" is a screen state, not a background step.
+- **role** — a user or actor type (e.g. Admin, Guest, Verified seller)
+- **data** — an entity the system stores. Put the field list in \`pseudocode\`.
+- **process** — a step that performs work the user does NOT see (jobs, calls, calculations)
 - **decision** — a branching point with conditional edges
 - **entry** — an entry point into this module from another module
 - **exit** — an exit point from this module to another module
 - **start** — the beginning of a flow
 - **end** — the termination of a flow
-- **question** — an open question or gap to resolve
+
+Requirements attach to screens, roles and data — not to steps. When the user describes what the product does, create the screen/role/data it concerns, then wire the flow between them.
+
+To record a gap, use \`add_open_questions\` — never \`create_node\` with a question type.
 
 ## When to Use lookup_docs
 
@@ -455,13 +461,17 @@ ${buildSelectedOpenQuestionSection(context.resolvingOpenQuestion)}
 
 ## Node Types
 
-Available node types: \`process\`, \`decision\`, \`question\`, \`start\`, \`end\`
+Available node types: \`screen\`, \`role\`, \`data\`, \`process\`, \`decision\`, \`start\`, \`end\`
 
-- **process** — a step that performs work
+- **screen** — a page or view the user sees. **Prefer this over \`process\` whenever the user would see it.**
+- **role** — a user or actor type (e.g. Admin, Guest, Verified seller)
+- **data** — an entity the system stores
+- **process** — a step the user does NOT see
 - **decision** — a branching point with conditional edges
-- **question** — an open question or gap to resolve (created via \`add_open_questions\`)
 - **start** — the beginning of a flow
 - **end** — the termination of a flow
+
+Open questions are created with \`add_open_questions\`, never with \`create_node\`.
 
 ## When to Use lookup_docs
 

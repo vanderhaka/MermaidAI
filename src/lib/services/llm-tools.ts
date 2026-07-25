@@ -146,8 +146,9 @@ const createNodeTool: Anthropic.Tool = {
       label: { type: 'string', description: 'Label for the node (e.g. "Validate Input")' },
       nodeType: {
         type: 'string',
-        enum: ['process', 'decision', 'entry', 'exit', 'start', 'end'],
-        description: 'Type of node',
+        enum: ['process', 'decision', 'entry', 'exit', 'start', 'end', 'screen', 'role', 'data'],
+        description:
+          'Type of node. Use "screen" for a page the user sees, "role" for an actor type, "data" for a stored entity, "process" for a background step. Prefer screen over process whenever the user would see it.',
       },
       pseudocode: {
         type: 'string',
@@ -169,7 +170,7 @@ const updateNodeTool: Anthropic.Tool = {
       label: { type: 'string', description: 'New label for the node' },
       nodeType: {
         type: 'string',
-        enum: ['process', 'decision', 'entry', 'exit', 'start', 'end'],
+        enum: ['process', 'decision', 'entry', 'exit', 'start', 'end', 'screen', 'role', 'data'],
         description: 'New node type',
       },
       pseudocode: { type: 'string', description: 'Updated pseudocode' },
@@ -219,8 +220,8 @@ const insertNodeBetweenTool: Anthropic.Tool = {
       label: { type: 'string', description: 'Label for the new node' },
       nodeType: {
         type: 'string',
-        enum: ['process', 'decision', 'entry', 'exit', 'start', 'end'],
-        description: 'Type of the new node (usually process or decision)',
+        enum: ['process', 'decision', 'entry', 'exit', 'start', 'end', 'screen', 'role', 'data'],
+        description: 'Type of the new node (usually process, screen, or decision)',
       },
       pseudocode: {
         type: 'string',
@@ -402,6 +403,8 @@ const NODE_EDGE_TOOLS = [
   deleteNodeTool,
   createEdgeTool,
   deleteEdgeTool,
+  addOpenQuestionsTool,
+  resolveOpenQuestionTool,
   lookupDocsTool,
   writePrdTool,
 ]
@@ -652,6 +655,15 @@ export function createToolExecutor(projectId: string, options: ToolExecutorOptio
         }
 
         case 'create_node': {
+          // A question node without its open_questions row is an orphan marker: it shows on the
+          // canvas, is absent from the questions panel, and cannot be resolved. add_open_questions
+          // is the only path that creates both.
+          if (input.nodeType === 'question') {
+            return fail(
+              'Cannot create a question node with create_node. Use add_open_questions instead — it creates the marker and its question record together.',
+            )
+          }
+
           const result = await addNode({
             module_id: input.moduleId as string,
             label: input.label as string,
@@ -724,6 +736,12 @@ export function createToolExecutor(projectId: string, options: ToolExecutorOptio
 
           if (sourceNodeId === targetNodeId) {
             return fail('sourceNodeId and targetNodeId must be two different nodes.')
+          }
+
+          if (input.nodeType === 'question') {
+            return fail(
+              'Cannot insert a question node. Use add_open_questions instead — it creates the marker and its question record together.',
+            )
           }
 
           const graph = await getGraphForModule(moduleId)

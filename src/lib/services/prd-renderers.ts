@@ -119,6 +119,28 @@ function renderQuestionsSection(questions: OpenQuestion[]): string {
   return lines.join('\n')
 }
 
+/** Node types that describe structure rather than sequence, so they never enter the flow walk. */
+const NON_FLOW_NODE_TYPES = new Set<FlowNode['node_type']>(['screen', 'role', 'data'])
+
+function renderInventorySection(
+  heading: string,
+  nodes: FlowNode[],
+  type: FlowNode['node_type'],
+): string[] {
+  const matching = nodes.filter((n) => n.node_type === type)
+  if (matching.length === 0) return []
+
+  const lines = [`## ${heading}`, '']
+  for (const node of matching) {
+    lines.push(`- **${node.label}**`)
+    const detail = node.pseudocode?.trim()
+    if (detail) lines.push(`  - ${detail.replace(/\n+/g, ' ')}`)
+  }
+  lines.push('')
+
+  return lines
+}
+
 export function renderModulePrd(
   module: Module,
   nodes: FlowNode[],
@@ -186,12 +208,19 @@ export function renderModulePrd(
     lines.push('## Requirements', '', authored, '')
   }
 
+  // Screens, roles and data are structure, not sequence — they get their own sections.
+  lines.push(...renderInventorySection('Screens', moduleNodes, 'screen'))
+  lines.push(...renderInventorySection('Roles', moduleNodes, 'role'))
+  lines.push(...renderInventorySection('Data', moduleNodes, 'data'))
+
   // Flow — as numbered sequence. Question markers are gaps, not steps: rendering them
   // here would state an unanswered question as specified behaviour.
   const questionNodeIds = new Set(
     moduleNodes.filter((n) => n.node_type === 'question').map((n) => n.id),
   )
-  const flowNodes = moduleNodes.filter((n) => !questionNodeIds.has(n.id))
+  const flowNodes = moduleNodes.filter(
+    (n) => !questionNodeIds.has(n.id) && !NON_FLOW_NODE_TYPES.has(n.node_type),
+  )
   const flowEdges = moduleEdges.filter((e) => !questionNodeIds.has(e.target_node_id))
 
   if (flowNodes.length > 0) {

@@ -41,6 +41,12 @@ export function getFlowDetailNodeDimensions(nodeType: FlowNodeType): {
       return { width: 200, height: 44 }
     case 'question':
       return { width: 300, height: 60 }
+    case 'screen':
+      return { width: 300, height: 96 }
+    case 'role':
+      return { width: 220, height: 60 }
+    case 'data':
+      return { width: 240, height: 92 }
     case 'start':
     case 'end':
       return { width: 96, height: 96 }
@@ -664,7 +670,8 @@ function getComponentOriginalOrder(component: string[], originalOrder: Map<strin
 function getFlowNodeTypeOrder(type: FlowNodeType) {
   if (type === 'start' || type === 'entry') return 0
   if (type === 'decision') return 1
-  if (type === 'process' || type === 'question') return 2
+  if (type === 'process' || type === 'question' || type === 'screen') return 2
+  if (type === 'role' || type === 'data') return 2
   if (type === 'end' || type === 'exit') return 3
   return 2
 }
@@ -875,7 +882,14 @@ function buildFlowRouteCandidates(
 }
 
 /** Node shapes whose top/bottom edges are straight lines — safe to spread stubs along. */
-const SPREADABLE_NODE_TYPES = new Set<FlowNodeType>(['process', 'question', 'entry', 'exit'])
+const SPREADABLE_NODE_TYPES = new Set<FlowNodeType>([
+  'process',
+  'question',
+  'entry',
+  'exit',
+  'screen',
+  'data',
+])
 
 const STUB_SPREAD_STEP = 24
 

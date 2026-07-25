@@ -254,9 +254,19 @@ describe('buildSystemPrompt', () => {
       expect(prompt).toContain('question')
     })
 
-    it('lists question as an available node type with description', () => {
+    it('does not advertise question as a create_node type, and points at the right tool', () => {
+      // question nodes must come from add_open_questions, which also creates the record.
+      // create_node with 'question' is rejected by the executor.
       const prompt = buildSystemPrompt(mode, detailContext)
-      expect(prompt).toContain('**question**')
+      expect(prompt).not.toContain('**question**')
+      expect(prompt).toContain('add_open_questions')
+    })
+
+    it('lists screen, role and data as available node types', () => {
+      const prompt = buildSystemPrompt(mode, detailContext)
+      expect(prompt).toContain('**screen**')
+      expect(prompt).toContain('**role**')
+      expect(prompt).toContain('**data**')
     })
 
     it('does not contain operations delimiters', () => {
@@ -456,9 +466,17 @@ describe('buildSystemPrompt', () => {
       expect(prompt).toContain('No open questions yet')
     })
 
-    it('lists question as a node type', () => {
+    it('routes gaps to add_open_questions rather than a question node type', () => {
       const prompt = buildSystemPrompt(mode, baseContext)
-      expect(prompt).toContain('**question**')
+      expect(prompt).not.toContain('**question**')
+      expect(prompt).toContain('add_open_questions')
+    })
+
+    it('lists screen, role and data as available node types', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toContain('**screen**')
+      expect(prompt).toContain('**role**')
+      expect(prompt).toContain('**data**')
     })
 
     it('instructs AI to assign section names automatically', () => {

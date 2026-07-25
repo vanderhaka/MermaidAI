@@ -41,7 +41,27 @@ export type CreateModuleInput = Omit<
   domain?: string | null
 }
 
-export type FlowNodeType = 'decision' | 'process' | 'entry' | 'exit' | 'start' | 'end' | 'question'
+export type FlowNodeType =
+  | 'decision'
+  | 'process'
+  | 'entry'
+  | 'exit'
+  | 'start'
+  | 'end'
+  | 'question'
+  /** A screen or page the user sees. Requirements attach to these, not to steps. */
+  | 'screen'
+  /** A user role or actor type. */
+  | 'role'
+  /** A data entity the system stores. */
+  | 'data'
+
+/** States a screen can be in. "Unknown" is the point of the strip — it shows what is unspecified. */
+export const SCREEN_STATES = ['empty', 'loading', 'error', 'success'] as const
+
+export type ScreenState = (typeof SCREEN_STATES)[number]
+
+export type ScreenStateStatus = 'defined' | 'unknown' | 'not_applicable'
 
 export type FlowNode = {
   id: string

@@ -29,6 +29,9 @@ import ExitNode from '@/components/canvas/nodes/ExitNode'
 import StartNode from '@/components/canvas/nodes/StartNode'
 import EndNode from '@/components/canvas/nodes/EndNode'
 import QuestionNode from '@/components/canvas/nodes/QuestionNode'
+import ScreenNode from '@/components/canvas/nodes/ScreenNode'
+import RoleNode from '@/components/canvas/nodes/RoleNode'
+import DataNode from '@/components/canvas/nodes/DataNode'
 import ConditionEdge from '@/components/canvas/edges/ConditionEdge'
 import ModuleNotesSheet from '@/components/canvas/views/ModuleNotesSheet'
 
@@ -66,6 +69,9 @@ const nodeTypes = {
   start: StartNode,
   end: EndNode,
   question: QuestionNode,
+  screen: ScreenNode,
+  role: RoleNode,
+  data: DataNode,
   funnelLane: FunnelLaneNode,
 }
 

@@ -142,3 +142,37 @@ describe('resolve_open_question — the answer is promoted, not destroyed', () =
     )
   })
 })
+
+describe('question nodes can only be created through add_open_questions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('rejects create_node with nodeType question and points at the right tool', async () => {
+    const execute = createToolExecutor(PROJECT_ID)
+
+    const result = await execute('create_node', {
+      moduleId: 'module-1',
+      label: 'Do we retry?',
+      nodeType: 'question',
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content).toContain('add_open_questions')
+  })
+
+  it('rejects insert_node_between with nodeType question', async () => {
+    const execute = createToolExecutor(PROJECT_ID)
+
+    const result = await execute('insert_node_between', {
+      moduleId: 'module-1',
+      sourceNodeId: 'node-a',
+      targetNodeId: 'node-b',
+      label: 'Do we retry?',
+      nodeType: 'question',
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content).toContain('add_open_questions')
+  })
+})
