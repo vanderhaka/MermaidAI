@@ -23,6 +23,9 @@ import type {
   ModuleConnection,
   OpenQuestion,
   Project,
+  Requirement,
+  RequirementLink,
+  RequirementNode as RequirementNodeLink,
 } from '@/types/graph'
 
 const TOOL_LABELS: Record<string, string> = {
@@ -82,6 +85,10 @@ function formatToolName(tool: string): string {
   return TOOL_LABELS[tool] ?? tool.replace(/_/g, ' ')
 }
 
+const NO_REQUIREMENTS: Requirement[] = []
+const NO_REQUIREMENT_LINKS: RequirementLink[] = []
+const NO_REQUIREMENT_NODES: RequirementNodeLink[] = []
+
 type ScopeWorkspaceProps = {
   project: Pick<Project, 'id' | 'name' | 'description' | 'mode'>
   initialModules: Module[]
@@ -90,6 +97,9 @@ type ScopeWorkspaceProps = {
   initialConnections: ModuleConnection[]
   initialMessages: ChatMessage[]
   initialOpenQuestions: OpenQuestion[]
+  initialRequirements?: Requirement[]
+  initialRequirementLinks?: RequirementLink[]
+  initialRequirementNodes?: RequirementNodeLink[]
 }
 
 export function ScopeWorkspace({
@@ -100,6 +110,9 @@ export function ScopeWorkspace({
   initialConnections,
   initialMessages,
   initialOpenQuestions,
+  initialRequirements = NO_REQUIREMENTS,
+  initialRequirementLinks = NO_REQUIREMENT_LINKS,
+  initialRequirementNodes = NO_REQUIREMENT_NODES,
 }: ScopeWorkspaceProps) {
   const modeConfig = getProjectModeConfig(project.mode)
   const router = useRouter()
@@ -143,6 +156,9 @@ export function ScopeWorkspace({
   const setEdges = useGraphStore((state) => state.setEdges)
   const setConnections = useGraphStore((state) => state.setConnections)
   const setOpenQuestions = useGraphStore((state) => state.setOpenQuestions)
+  const setRequirements = useGraphStore((state) => state.setRequirements)
+  const setRequirementLinks = useGraphStore((state) => state.setRequirementLinks)
+  const setRequirementNodes = useGraphStore((state) => state.setRequirementNodes)
   const setActiveModuleId = useGraphStore((state) => state.setActiveModuleId)
 
   useEffect(() => {
@@ -151,6 +167,9 @@ export function ScopeWorkspace({
     setEdges(initialEdges)
     setConnections(initialConnections)
     setOpenQuestions(initialOpenQuestions)
+    setRequirements(initialRequirements)
+    setRequirementLinks(initialRequirementLinks)
+    setRequirementNodes(initialRequirementNodes)
     // Auto-set active module to the scope module
     if (initialModules.length > 0) {
       setActiveModuleId(initialModules[0].id)
@@ -161,11 +180,17 @@ export function ScopeWorkspace({
     initialModules,
     initialNodes,
     initialOpenQuestions,
+    initialRequirements,
+    initialRequirementLinks,
+    initialRequirementNodes,
     setConnections,
     setEdges,
     setModules,
     setNodes,
     setOpenQuestions,
+    setRequirements,
+    setRequirementLinks,
+    setRequirementNodes,
     setActiveModuleId,
   ])
 

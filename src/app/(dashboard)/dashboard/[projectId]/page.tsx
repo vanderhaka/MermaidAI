@@ -7,10 +7,20 @@ import { ensureDefaultModuleGraph } from '@/lib/services/graph-service'
 import { listConnectionsByProject } from '@/lib/services/module-connection-service'
 import { listModulesByProject } from '@/lib/services/module-service'
 import { listOpenQuestions } from '@/lib/services/open-question-service'
+import { listRequirements } from '@/lib/services/requirement-service'
+import { listRequirementLinks, listRequirementNodes } from '@/lib/services/requirement-link-service'
 import { getProjectById } from '@/lib/services/project-service'
 import { isSingleCanvasMode } from '@/lib/project-modes'
 import type { ChatMessage } from '@/types/chat'
-import type { FlowEdge, FlowNode, ModuleConnection, OpenQuestion } from '@/types/graph'
+import type {
+  FlowEdge,
+  FlowNode,
+  ModuleConnection,
+  OpenQuestion,
+  Requirement,
+  RequirementLink,
+  RequirementNode as RequirementNodeLink,
+} from '@/types/graph'
 
 type ProjectPageProps = {
   params: Promise<{
@@ -73,6 +83,19 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
   const oqResult = await listOpenQuestions(projectId)
   const initialOpenQuestions: OpenQuestion[] = oqResult.success ? oqResult.data : []
 
+  const reqResult = await listRequirements(projectId)
+  const initialRequirements: Requirement[] = reqResult.success ? reqResult.data : []
+  const requirementIds = initialRequirements.map((r) => r.id)
+
+  const [linkResult, reqNodeResult] = await Promise.all([
+    listRequirementLinks(requirementIds),
+    listRequirementNodes(requirementIds),
+  ])
+  const initialRequirementLinks: RequirementLink[] = linkResult.success ? linkResult.data : []
+  const initialRequirementNodes: RequirementNodeLink[] = reqNodeResult.success
+    ? reqNodeResult.data
+    : []
+
   if (usesSingleCanvasWorkspace) {
     return (
       <ScopeWorkspace
@@ -83,6 +106,9 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
         initialConnections={connections}
         initialMessages={messages}
         initialOpenQuestions={initialOpenQuestions}
+        initialRequirements={initialRequirements}
+        initialRequirementLinks={initialRequirementLinks}
+        initialRequirementNodes={initialRequirementNodes}
       />
     )
   }
@@ -96,6 +122,9 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
       initialConnections={connections}
       initialMessages={messages}
       initialOpenQuestions={initialOpenQuestions}
+      initialRequirements={initialRequirements}
+      initialRequirementLinks={initialRequirementLinks}
+      initialRequirementNodes={initialRequirementNodes}
     />
   )
 }

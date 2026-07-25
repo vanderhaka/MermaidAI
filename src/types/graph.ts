@@ -162,3 +162,22 @@ export type CreateRequirementInput = Pick<Requirement, 'project_id' | 'statement
   Partial<
     Pick<Requirement, 'module_id' | 'kind' | 'status' | 'coverage_area' | 'source_question_id'>
   >
+
+export type RequirementLinkKind = 'depends_on' | 'conflicts_with' | 'refines'
+
+/** How two requirements relate. These edges are the "fit together" in the product's purpose. */
+export type RequirementLink = {
+  id: string
+  source_requirement_id: string
+  target_requirement_id: string
+  kind: RequirementLinkKind
+  created_at: string
+}
+
+/** Traceability: which flow node (screen, role, data, step) a requirement governs. */
+export type RequirementNode = {
+  id: string
+  requirement_id: string
+  node_id: string
+  created_at: string
+}

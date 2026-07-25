@@ -1,5 +1,17 @@
 import { create } from 'zustand'
-import type { Module, FlowNode, FlowEdge, ModuleConnection, OpenQuestion } from '@/types/graph'
+import type {
+  Module,
+  FlowNode,
+  FlowEdge,
+  ModuleConnection,
+  OpenQuestion,
+  Requirement,
+  RequirementLink,
+  RequirementNode as RequirementNodeLink,
+} from '@/types/graph'
+
+/** Which canvas is showing: the flow graph, or the requirements graph. */
+export type CanvasView = 'flow' | 'requirements'
 
 type GraphState = {
   modules: Module[]
@@ -7,7 +19,14 @@ type GraphState = {
   edges: FlowEdge[]
   connections: ModuleConnection[]
   openQuestions: OpenQuestion[]
+  requirements: Requirement[]
+  requirementLinks: RequirementLink[]
+  requirementNodes: RequirementNodeLink[]
   activeModuleId: string | null
+  /** Which canvas the user is looking at: the flow, or the requirements graph. */
+  canvasView: CanvasView
+  /** Flow nodes highlighted because the selected requirement governs them. */
+  highlightedNodeIds: string[]
 }
 
 type GraphActions = {
@@ -16,6 +35,12 @@ type GraphActions = {
   setEdges: (edges: FlowEdge[]) => void
   setConnections: (connections: ModuleConnection[]) => void
   setOpenQuestions: (questions: OpenQuestion[]) => void
+  setRequirements: (requirements: Requirement[]) => void
+  setRequirementLinks: (links: RequirementLink[]) => void
+  setRequirementNodes: (links: RequirementNodeLink[]) => void
+  addRequirement: (requirement: Requirement) => void
+  setCanvasView: (view: CanvasView) => void
+  setHighlightedNodeIds: (nodeIds: string[]) => void
   addModule: (module: Module) => void
   addNode: (node: FlowNode) => void
   addEdge: (edge: FlowEdge) => void
@@ -37,7 +62,12 @@ const initialState: GraphState = {
   edges: [],
   connections: [],
   openQuestions: [],
+  requirements: [],
+  requirementLinks: [],
+  requirementNodes: [],
   activeModuleId: null,
+  canvasView: 'flow' as CanvasView,
+  highlightedNodeIds: [],
 }
 
 export const useGraphStore = create<GraphState & GraphActions>()((set) => ({
@@ -48,6 +78,13 @@ export const useGraphStore = create<GraphState & GraphActions>()((set) => ({
   setEdges: (edges) => set({ edges }),
   setConnections: (connections) => set({ connections }),
   setOpenQuestions: (questions) => set({ openQuestions: questions }),
+  setRequirements: (requirements) => set({ requirements }),
+  setRequirementLinks: (requirementLinks) => set({ requirementLinks }),
+  setRequirementNodes: (requirementNodes) => set({ requirementNodes }),
+  addRequirement: (requirement) =>
+    set((state) => ({ requirements: [...state.requirements, requirement] })),
+  setCanvasView: (canvasView) => set({ canvasView }),
+  setHighlightedNodeIds: (highlightedNodeIds) => set({ highlightedNodeIds }),
 
   addModule: (module) => set((state) => ({ modules: [...state.modules, module] })),
   addNode: (node) => set((state) => ({ nodes: [...state.nodes, node] })),

@@ -23,9 +23,10 @@ import {
   listOpenQuestions,
 } from '@/lib/services/open-question-service'
 import { createRequirement } from '@/lib/services/requirement-service'
+import { linkRequirementToNodes } from '@/lib/services/requirement-link-service'
 import { composePrdContent, writePrdSection } from '@/lib/services/prd-section-service'
 import type { ToolResult } from '@/lib/services/llm-client'
-import type { FlowEdge, FlowNode } from '@/types/graph'
+import type { CreateRequirementInput, FlowEdge, FlowNode } from '@/types/graph'
 import type { PromptMode } from '@/lib/services/prompt-builder'
 import { validateFlowGraph, type FlowGraphIssue } from '@/lib/canvas/graph-invariants'
 import { isClickOnlySelectedQuestionPrompt } from '@/lib/services/selected-open-question'
@@ -366,6 +367,49 @@ const writePrdTool: Anthropic.Tool = {
   },
 }
 
+const writeRequirementTool: Anthropic.Tool = {
+  name: 'write_requirement',
+  description:
+    'Record ONE atomic requirement — a single statement of what the product must do. Use this whenever the client states or confirms something the build must satisfy. Requirements are drawn on the canvas and are how the client sees the spec fit together, so prefer many small precise statements over one long paragraph.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      statement: {
+        type: 'string',
+        description:
+          'One requirement, in one sentence, in the client\'s language (e.g. "Guests can check out without creating an account").',
+      },
+      moduleId: {
+        type: 'string',
+        description: 'ID of the module this requirement belongs to. Omit if it is project-wide.',
+      },
+      kind: {
+        type: 'string',
+        enum: ['functional', 'rule', 'constraint', 'non_functional'],
+        description:
+          'functional = something the system does; rule = a business rule or threshold; constraint = a limit or obligation; non_functional = performance, security, compliance.',
+      },
+      status: {
+        type: 'string',
+        enum: ['proposed', 'agreed', 'disputed', 'out_of_scope'],
+        description:
+          'Use "agreed" only when the client has confirmed it. Use "out_of_scope" to record something explicitly ruled out — that record is valuable, do not discard it.',
+      },
+      coverageArea: {
+        type: 'string',
+        description: 'Coverage area this belongs to (e.g. "Money", "Failure modes", "Liability").',
+      },
+      nodeIds: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'IDs of flow nodes (screens, roles, data, steps) this requirement governs, so it traces onto the canvas.',
+      },
+    },
+    required: ['statement'],
+  },
+}
+
 const promoteProjectTool: Anthropic.Tool = {
   name: 'promote_project',
   description:
@@ -396,6 +440,7 @@ const MODULE_TOOLS = [
   connectModulesTool,
   lookupDocsTool,
   writePrdTool,
+  writeRequirementTool,
 ]
 const NODE_EDGE_TOOLS = [
   createNodeTool,
@@ -407,6 +452,7 @@ const NODE_EDGE_TOOLS = [
   resolveOpenQuestionTool,
   lookupDocsTool,
   writePrdTool,
+  writeRequirementTool,
 ]
 const ALL_TOOLS = [
   createModuleTool,
@@ -420,6 +466,7 @@ const ALL_TOOLS = [
   deleteEdgeTool,
   lookupDocsTool,
   writePrdTool,
+  writeRequirementTool,
 ]
 const SCOPE_TOOLS = [
   createNodeTool,
@@ -436,6 +483,7 @@ const SCOPE_TOOLS = [
   createModuleTool,
   updateModuleTool,
   connectModulesTool,
+  writeRequirementTool,
 ]
 const FLOWCHART_TOOLS = [
   createNodeTool,
@@ -445,6 +493,7 @@ const FLOWCHART_TOOLS = [
   deleteEdgeTool,
   insertNodeBetweenTool,
   writePrdTool,
+  writeRequirementTool,
 ]
 const BRAINSTORM_TOOLS = [
   createNodeTool,
@@ -455,6 +504,7 @@ const BRAINSTORM_TOOLS = [
   insertNodeBetweenTool,
   writePrdTool,
   promoteProjectTool,
+  writeRequirementTool,
 ]
 
 export function getToolsForMode(mode: PromptMode): Anthropic.Tool[] {
@@ -847,6 +897,29 @@ export function createToolExecutor(projectId: string, options: ToolExecutorOptio
           return ok(`Updated PRD section "${section}" for "${result.data.name}"`, {
             module: result.data,
           })
+        }
+
+        case 'write_requirement': {
+          const statement = (input.statement as string)?.trim()
+          if (!statement) return fail('statement is required.')
+
+          const nodeIds = Array.isArray(input.nodeIds) ? (input.nodeIds as string[]) : []
+
+          const result = await createRequirement({
+            project_id: projectId,
+            module_id: (input.moduleId as string) ?? null,
+            statement,
+            kind: (input.kind as CreateRequirementInput['kind']) ?? 'functional',
+            status: (input.status as CreateRequirementInput['status']) ?? 'proposed',
+            coverage_area: (input.coverageArea as string) ?? null,
+          })
+          if (!result.success) return fail(result.error)
+
+          if (nodeIds.length > 0) {
+            await linkRequirementToNodes(result.data.id, nodeIds)
+          }
+
+          return ok(`Recorded requirement: ${statement}`, { requirement: result.data })
         }
 
         case 'add_open_questions': {

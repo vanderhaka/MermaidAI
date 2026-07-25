@@ -352,6 +352,81 @@ export type Database = {
           },
         ]
       }
+      requirement_links: {
+        Row: {
+          created_at: string
+          id: string
+          kind: string
+          source_requirement_id: string
+          target_requirement_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kind?: string
+          source_requirement_id: string
+          target_requirement_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kind?: string
+          source_requirement_id?: string
+          target_requirement_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'requirement_links_source_requirement_id_fkey'
+            columns: ['source_requirement_id']
+            isOneToOne: false
+            referencedRelation: 'requirements'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'requirement_links_target_requirement_id_fkey'
+            columns: ['target_requirement_id']
+            isOneToOne: false
+            referencedRelation: 'requirements'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      requirement_nodes: {
+        Row: {
+          created_at: string
+          id: string
+          node_id: string
+          requirement_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          node_id: string
+          requirement_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          node_id?: string
+          requirement_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'requirement_nodes_requirement_id_fkey'
+            columns: ['requirement_id']
+            isOneToOne: false
+            referencedRelation: 'requirements'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'requirement_nodes_node_id_fkey'
+            columns: ['node_id']
+            isOneToOne: false
+            referencedRelation: 'flow_nodes'
+            referencedColumns: ['id']
+          },
+        ]
+      }
       requirements: {
         Row: {
           coverage_area: string | null

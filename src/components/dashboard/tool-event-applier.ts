@@ -1,5 +1,12 @@
 import { useGraphStore } from '@/store/graph-store'
-import type { FlowEdge, FlowNode, Module, ModuleConnection, OpenQuestion } from '@/types/graph'
+import type {
+  FlowEdge,
+  FlowNode,
+  Module,
+  ModuleConnection,
+  OpenQuestion,
+  Requirement,
+} from '@/types/graph'
 
 type ToolEventOptions = {
   recordToolCall: (label: string) => void
@@ -105,7 +112,18 @@ export function applyScopeToolEvent(
           options.clearActiveResolutionQuestion?.()
         }
       }
+      // The resolution is promoted into a requirement server-side; show it immediately.
+      const promoted = data.requirement as Requirement | undefined
+      if (promoted) store.addRequirement(promoted)
       options.recordToolCall('Resolved question')
+      break
+    }
+    case 'write_requirement': {
+      const requirement = data.requirement as Requirement | undefined
+      if (requirement) {
+        store.addRequirement(requirement)
+        options.recordToolCall('Recorded requirement')
+      }
       break
     }
     case 'write_prd': {
@@ -207,7 +225,18 @@ export function applyProjectToolEvent(
         if (question.node_id) store.removeNode(question.node_id)
         store.resolveOpenQuestion(question.id, question.resolution ?? '')
       }
+      // The resolution is promoted into a requirement server-side; show it immediately.
+      const promoted = data.requirement as Requirement | undefined
+      if (promoted) store.addRequirement(promoted)
       options.recordToolCall('Resolved question')
+      break
+    }
+    case 'write_requirement': {
+      const requirement = data.requirement as Requirement | undefined
+      if (requirement) {
+        store.addRequirement(requirement)
+        options.recordToolCall('Recorded requirement')
+      }
       break
     }
     case 'write_prd': {

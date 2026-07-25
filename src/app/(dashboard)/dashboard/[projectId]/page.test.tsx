@@ -46,6 +46,15 @@ vi.mock('@/lib/services/open-question-service', () => ({
   listOpenQuestions: (...args: unknown[]) => mockListOpenQuestions(...args),
 }))
 
+vi.mock('@/lib/services/requirement-service', () => ({
+  listRequirements: vi.fn(() => Promise.resolve({ success: true, data: [] })),
+}))
+
+vi.mock('@/lib/services/requirement-link-service', () => ({
+  listRequirementLinks: vi.fn(() => Promise.resolve({ success: true, data: [] })),
+  listRequirementNodes: vi.fn(() => Promise.resolve({ success: true, data: [] })),
+}))
+
 vi.mock('server-only', () => ({}))
 
 const mockProjectWorkspace = vi.fn((_props: unknown) => null)

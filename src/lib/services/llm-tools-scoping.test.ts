@@ -113,6 +113,7 @@ describe('flowchart_build tools', () => {
       'delete_edge',
       'insert_node_between',
       'write_prd',
+      'write_requirement',
     ])
   })
 
@@ -153,6 +154,7 @@ describe('existing mode tool scopes', () => {
       'create_module',
       'update_module',
       'connect_modules',
+      'write_requirement',
     ])
   })
 
@@ -168,6 +170,7 @@ describe('existing mode tool scopes', () => {
       'insert_node_between',
       'write_prd',
       'promote_project',
+      'write_requirement',
     ])
   })
 
@@ -182,6 +185,7 @@ describe('existing mode tool scopes', () => {
       'connect_modules',
       'lookup_docs',
       'write_prd',
+      'write_requirement',
     ])
     // module_detail can flag and resolve gaps: it advertises the question node type,
     // and it is the deepest mode, where gaps most often surface.
@@ -195,6 +199,7 @@ describe('existing mode tool scopes', () => {
       'resolve_open_question',
       'lookup_docs',
       'write_prd',
+      'write_requirement',
     ])
   })
 })

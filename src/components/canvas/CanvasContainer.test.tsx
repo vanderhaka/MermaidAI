@@ -3,15 +3,32 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import CanvasContainer from '@/components/canvas/CanvasContainer'
-import type { Module, FlowNode, FlowEdge } from '@/types/graph'
+import type {
+  Module,
+  FlowNode,
+  FlowEdge,
+  ModuleConnection,
+  OpenQuestion,
+  Requirement,
+  RequirementLink,
+  RequirementNode as RequirementNodeLink,
+} from '@/types/graph'
 
 // --- Mock graph store ---
 const mockStore = {
   modules: [] as Module[],
   nodes: [] as FlowNode[],
   edges: [] as FlowEdge[],
+  connections: [] as ModuleConnection[],
+  openQuestions: [] as OpenQuestion[],
+  requirements: [] as Requirement[],
+  requirementLinks: [] as RequirementLink[],
+  requirementNodes: [] as RequirementNodeLink[],
   activeModuleId: null as string | null,
+  canvasView: 'flow' as 'flow' | 'requirements',
   setActiveModuleId: vi.fn(),
+  setCanvasView: vi.fn(),
+  setHighlightedNodeIds: vi.fn(),
 }
 
 vi.mock('@/store/graph-store', () => ({
@@ -19,6 +36,14 @@ vi.mock('@/store/graph-store', () => ({
 }))
 
 // --- Mock child views ---
+vi.mock('@/components/canvas/views/RequirementsView', () => ({
+  default: ({ requirements }: { requirements: Requirement[] }) => (
+    <div data-testid="requirements-view">
+      <span data-testid="requirement-count">{requirements.length}</span>
+    </div>
+  ),
+}))
+
 vi.mock('@/components/canvas/views/ModuleMapView', () => ({
   default: ({
     modules,
@@ -219,5 +244,55 @@ describe('CanvasContainer', () => {
       expect(screen.getByTestId('module-map-view')).toBeInTheDocument()
       expect(screen.queryByTestId('module-detail-view')).not.toBeInTheDocument()
     })
+  })
+})
+
+describe('requirements view', () => {
+  beforeEach(() => {
+    mockStore.canvasView = 'flow'
+    mockStore.requirements = []
+    mockStore.setCanvasView.mockClear()
+    mockStore.setHighlightedNodeIds.mockClear()
+  })
+
+  it('offers a toggle between the flow and the requirements graph', () => {
+    render(<CanvasContainer />)
+
+    expect(screen.getByRole('button', { name: /flow/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /requirements/i })).toBeInTheDocument()
+  })
+
+  it('shows the flow by default', () => {
+    render(<CanvasContainer />)
+
+    expect(screen.getByTestId('module-map-view')).toBeInTheDocument()
+    expect(screen.queryByTestId('requirements-view')).not.toBeInTheDocument()
+  })
+
+  it('switches the store to the requirements view when clicked', async () => {
+    const user = userEvent.setup()
+    render(<CanvasContainer />)
+
+    await user.click(screen.getByRole('button', { name: /requirements/i }))
+
+    expect(mockStore.setCanvasView).toHaveBeenCalledWith('requirements')
+  })
+
+  it('renders the requirements graph when that view is active', () => {
+    mockStore.canvasView = 'requirements'
+    render(<CanvasContainer />)
+
+    expect(screen.getByTestId('requirements-view')).toBeInTheDocument()
+    expect(screen.queryByTestId('module-map-view')).not.toBeInTheDocument()
+  })
+
+  it('takes precedence over module drill-down, so the toggle always works', () => {
+    mockStore.canvasView = 'requirements'
+    mockStore.modules = [makeModule({ id: 'mod-1' })]
+    mockStore.activeModuleId = 'mod-1'
+    render(<CanvasContainer />)
+
+    expect(screen.getByTestId('requirements-view')).toBeInTheDocument()
+    expect(screen.queryByTestId('module-detail-view')).not.toBeInTheDocument()
   })
 })

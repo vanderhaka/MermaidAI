@@ -24,6 +24,9 @@ import type {
   ModuleConnection,
   OpenQuestion,
   Project,
+  Requirement,
+  RequirementLink,
+  RequirementNode as RequirementNodeLink,
 } from '@/types/graph'
 
 const TOOL_LABELS: Record<string, string> = {
@@ -55,6 +58,11 @@ function truncateDescription(desc: string | null | undefined): string {
   return firstSentence + (firstSentence.length < text.length ? '.' : '')
 }
 
+const NO_OPEN_QUESTIONS: OpenQuestion[] = []
+const NO_REQUIREMENTS: Requirement[] = []
+const NO_REQUIREMENT_LINKS: RequirementLink[] = []
+const NO_REQUIREMENT_NODES: RequirementNodeLink[] = []
+
 type ProjectWorkspaceProps = {
   project: Pick<Project, 'id' | 'name' | 'description' | 'mode'>
   initialModules: Module[]
@@ -63,6 +71,9 @@ type ProjectWorkspaceProps = {
   initialConnections: ModuleConnection[]
   initialMessages: ChatMessage[]
   initialOpenQuestions?: OpenQuestion[]
+  initialRequirements?: Requirement[]
+  initialRequirementLinks?: RequirementLink[]
+  initialRequirementNodes?: RequirementNodeLink[]
 }
 
 export function ProjectWorkspace({
@@ -72,7 +83,10 @@ export function ProjectWorkspace({
   initialEdges,
   initialConnections,
   initialMessages,
-  initialOpenQuestions = [],
+  initialOpenQuestions = NO_OPEN_QUESTIONS,
+  initialRequirements = NO_REQUIREMENTS,
+  initialRequirementLinks = NO_REQUIREMENT_LINKS,
+  initialRequirementNodes = NO_REQUIREMENT_NODES,
 }: ProjectWorkspaceProps) {
   const router = useRouter()
   const [isRefreshing, startRefresh] = useTransition()
@@ -117,6 +131,9 @@ export function ProjectWorkspace({
   const setActiveModuleId = useGraphStore((state) => state.setActiveModuleId)
 
   const setOpenQuestions = useGraphStore((state) => state.setOpenQuestions)
+  const setRequirements = useGraphStore((state) => state.setRequirements)
+  const setRequirementLinks = useGraphStore((state) => state.setRequirementLinks)
+  const setRequirementNodes = useGraphStore((state) => state.setRequirementNodes)
 
   useEffect(() => {
     setModules(initialModules)
@@ -124,17 +141,26 @@ export function ProjectWorkspace({
     setEdges(initialEdges)
     setConnections(initialConnections)
     setOpenQuestions(initialOpenQuestions)
+    setRequirements(initialRequirements)
+    setRequirementLinks(initialRequirementLinks)
+    setRequirementNodes(initialRequirementNodes)
   }, [
     initialConnections,
     initialEdges,
     initialModules,
     initialNodes,
     initialOpenQuestions,
+    initialRequirements,
+    initialRequirementLinks,
+    initialRequirementNodes,
     setConnections,
     setEdges,
     setModules,
     setNodes,
     setOpenQuestions,
+    setRequirements,
+    setRequirementLinks,
+    setRequirementNodes,
   ])
 
   useEffect(() => {
