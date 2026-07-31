@@ -1,6 +1,9 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
+// Mock server-only (it throws at import time in non-server contexts)
+vi.mock('server-only', () => ({}))
+
 function createMockStream() {
   const callbacks: Record<string, ((...args: unknown[]) => void)[]> = {}
   return {
@@ -46,6 +49,15 @@ describe('sanitizeError', () => {
     const { sanitizeError } = await import('@/lib/services/llm-client')
     const result = sanitizeError(new Error('Auth failed for sk-ant-api03-secret-key'))
     expect(result).not.toContain('sk-ant')
+    expect(result).toContain('[REDACTED]')
+  })
+
+  it('redacts JWTs (Codex OAuth tokens)', async () => {
+    const { sanitizeError } = await import('@/lib/services/llm-client')
+    const token = `eyJhbGciOiJIUzI1NiJ9.${'a'.repeat(40)}.signature`
+    const result = sanitizeError(new Error(`401 from Bearer ${token}`))
+    expect(result).not.toContain('eyJ')
+    expect(result).not.toContain('signature')
     expect(result).toContain('[REDACTED]')
   })
 

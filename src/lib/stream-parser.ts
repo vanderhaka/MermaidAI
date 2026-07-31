@@ -1,4 +1,6 @@
-import { TOOL_EVENT_DELIMITER } from '@/lib/services/llm-client'
+// Imported from llm-shared, not llm-client: this module is reachable from
+// client components, and llm-client pulls in server-only provider code.
+import { TOOL_EVENT_DELIMITER } from '@/lib/services/llm-shared'
 
 export interface ToolEvent {
   tool: string

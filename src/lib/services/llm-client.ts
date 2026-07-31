@@ -1,5 +1,22 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { AIProvider } from '@/types/chat'
+
+import { callCodexWithTools } from '@/lib/services/codex-client'
+import {
+  FORCED_TEXT_NUDGE,
+  TOOL_BUDGET_NUDGE,
+  TOOL_EVENT_DELIMITER,
+  sanitizeError,
+  stringifyMessageContent,
+} from '@/lib/services/llm-shared'
+import type {
+  CallLLMWithToolsOptions,
+  ToolEventCallback,
+  ToolExecutor,
+  ToolResult,
+} from '@/lib/services/llm-shared'
+
+export { TOOL_EVENT_DELIMITER, sanitizeError }
+export type { ToolResult, ToolExecutor, ToolEventCallback, CallLLMWithToolsOptions }
 
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001'
 const MAX_TOKENS = 4096
@@ -9,16 +26,6 @@ const DEFAULT_CEREBRAS_MODEL = 'gpt-oss-120b'
 const DEFAULT_CEREBRAS_MAX_COMPLETION_TOKENS = 2048
 const CEREBRAS_CHAT_COMPLETIONS_URL = 'https://api.cerebras.ai/v1/chat/completions'
 const MAX_CEREBRAS_TOOL_ROUNDS = 16
-
-/**
- * Injected as a user turn when a tool-use loop ends without ever streaming
- * visible text — without it the chat goes silent and the conversation stalls.
- */
-const FORCED_TEXT_NUDGE =
-  'Your reply contained no text for the user. Respond now in plain text: briefly state what you just did on the canvas, then ask exactly ONE follow-up question with a `Recommended answer:` line. Do not call any more tools.'
-
-const TOOL_BUDGET_NUDGE =
-  'You have reached the tool budget for this turn. Stop calling tools. Reply in plain text: summarize what was captured on the canvas, mention anything still left to build, then ask exactly ONE follow-up question with a `Recommended answer:` line.'
 
 const CEREBRAS_UNSUPPORTED_SCHEMA_KEYS = new Set([
   'maxItems',
@@ -55,29 +62,6 @@ function getClient(): Anthropic {
   }
   return _client
 }
-
-export type ToolResult = {
-  content: string
-  isError: boolean
-  /** Structured data for client-side store updates */
-  data?: Record<string, unknown>
-}
-
-export type ToolExecutor = (name: string, input: Record<string, unknown>) => Promise<ToolResult>
-
-export type ToolEventCallback = (
-  toolName: string,
-  input: Record<string, unknown>,
-  result: ToolResult,
-) => void
-
-export type CallLLMWithToolsOptions = {
-  provider?: AIProvider
-  onToolResult?: ToolEventCallback
-}
-
-/** Delimiter used to embed tool events in the text stream */
-export const TOOL_EVENT_DELIMITER = '\x1ETOOL_EVENT:'
 
 type CerebrasToolCall = {
   id?: string
@@ -269,16 +253,6 @@ export function markCerebrasRateLimited(nowMs = Date.now(), retryAfterSeconds?: 
 export function resetCerebrasQuotaForTests(): void {
   cerebrasQuotaSnapshot = null
   cerebrasBlockedUntilMs = 0
-}
-
-function stringifyMessageContent(content: Anthropic.MessageParam['content']): string {
-  if (typeof content === 'string') return content
-  return content
-    .map((block) => {
-      if ('text' in block && typeof block.text === 'string') return block.text
-      return JSON.stringify(block)
-    })
-    .join('\n')
 }
 
 function adaptNullableTypeArray(types: unknown[]): Record<string, unknown> | null {
@@ -520,7 +494,13 @@ export async function callLLMWithTools(
   executeTool: ToolExecutor,
   options: CallLLMWithToolsOptions = {},
 ): Promise<ReadableStream<string>> {
-  if ((options.provider ?? 'anthropic') === 'cerebras') {
+  const provider = options.provider ?? 'anthropic'
+
+  if (provider === 'codex') {
+    return callCodexWithTools(systemPrompt, messages, tools, executeTool, options)
+  }
+
+  if (provider === 'cerebras') {
     if (isCerebrasQuotaExhausted()) {
       // Starting the turn would burn requests guaranteed to 429 partway
       // through — go straight to the fallback provider instead.
@@ -888,24 +868,4 @@ export async function callLLM(
       })
     },
   })
-}
-
-export function sanitizeError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error)
-  const sanitized = message
-    // Anthropic API keys
-    .replace(/sk-ant[^\s]*/gi, '[REDACTED]')
-    // Cerebras API keys
-    .replace(/csk-[^\s"'`]+/gi, '[REDACTED]')
-    // Stripe keys (sk_live_, sk_test_)
-    .replace(/sk_(live|test)_[^\s]*/gi, '[REDACTED]')
-    // Postgres/Supabase connection strings
-    .replace(/postgresql:\/\/[^\s]*/gi, '[REDACTED]')
-    // Absolute file paths (Unix)
-    .replace(/\/(Users|home)\/[^\s]*/g, '[REDACTED]')
-    // IPv4 addresses (with optional port)
-    .replace(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?\b/g, '[REDACTED]')
-    // Internal hostnames (multi-segment with .internal., .local, .io, .co with port)
-    .replace(/\b[a-zA-Z0-9-]+\.[a-zA-Z0-9.-]*\b(:\d+)/g, '[REDACTED]')
-  return `LLM request failed: ${sanitized}`
 }

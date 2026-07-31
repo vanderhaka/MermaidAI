@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ScopeWorkspace } from '@/components/dashboard/scope-workspace'
-import { TOOL_EVENT_DELIMITER } from '@/lib/services/llm-client'
+import { TOOL_EVENT_DELIMITER } from '@/lib/services/llm-shared'
 import { useGraphStore } from '@/store/graph-store'
 import type { FlowEdge, Module, OpenQuestion, ProjectMode } from '@/types/graph'
 

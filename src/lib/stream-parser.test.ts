@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest'
 import { createStreamParser } from '@/lib/stream-parser'
-import { TOOL_EVENT_DELIMITER } from '@/lib/services/llm-client'
+import { TOOL_EVENT_DELIMITER } from '@/lib/services/llm-shared'
 
 describe('createStreamParser', () => {
   it('passes through a chunk with no delimiter as text', () => {

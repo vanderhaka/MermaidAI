@@ -17,6 +17,16 @@ import {
   isClickOnlySelectedQuestionPrompt,
 } from '@/lib/services/selected-open-question'
 import { AI_PROVIDERS, CHAT_MODES } from '@/types/chat'
+import type { AIProvider } from '@/types/chat'
+
+/**
+ * The app runs on the user's Codex (ChatGPT) membership unless a request or
+ * AI_PROVIDER says otherwise.
+ */
+function defaultProvider(): AIProvider {
+  const configured = process.env.AI_PROVIDER?.trim()
+  return AI_PROVIDERS.find((provider) => provider === configured) ?? 'codex'
+}
 
 const resolvingOpenQuestionSchema = z.object({
   id: z.string().min(1),
@@ -28,7 +38,7 @@ const chatRequestSchema = z.object({
   projectId: z.string().min(1),
   message: z.string().trim().min(1),
   mode: z.enum(CHAT_MODES),
-  provider: z.enum(AI_PROVIDERS).optional().default('anthropic'),
+  provider: z.enum(AI_PROVIDERS).optional(),
   context: z.object({
     projectId: z.string(),
     projectName: z.string(),
@@ -47,6 +57,11 @@ const chatRequestSchema = z.object({
     .optional()
     .default([]),
 })
+
+// The canvas and open questions carry the durable project state, so old chat
+// turns only add tokens, not truth — cap history sent to the LLM to the most
+// recent turns.
+const MAX_HISTORY_MESSAGES = 30
 
 function makeTextStream(text: string): ReadableStream<string> {
   return new ReadableStream<string>({
@@ -94,7 +109,8 @@ export async function POST(request: Request) {
     )
   }
 
-  const { projectId, message, mode, provider, context, history } = parsed.data
+  const { projectId, message, mode, context, history } = parsed.data
+  const provider = parsed.data.provider ?? defaultProvider()
 
   let llmStream: ReadableStream<string>
   try {
@@ -124,8 +140,9 @@ export async function POST(request: Request) {
     } else {
       const systemPrompt = buildSystemPrompt(mode as PromptMode, promptContext)
 
+      const recentHistory = history.slice(-MAX_HISTORY_MESSAGES)
       const messages: Anthropic.MessageParam[] = [
-        ...history.map((h) => ({
+        ...recentHistory.map((h) => ({
           role: h.role as 'user' | 'assistant',
           content: h.content,
         })),
@@ -141,6 +158,7 @@ export async function POST(request: Request) {
 
       llmStream = await callLLMWithTools(systemPrompt, messages, tools, executeTool, {
         provider,
+        sessionKey: projectId,
       })
     }
   } catch (err) {

@@ -26,9 +26,10 @@ export async function loadChatPromptContext({
     promptContext.resolvingOpenQuestion = resolvingOpenQuestion
   }
 
-  const [modulesResult, connectionsResult] = await Promise.all([
+  const [modulesResult, connectionsResult, openQuestionsResult] = await Promise.all([
     listModulesByProject(projectId),
     listConnectionsByProject(projectId),
+    listOpenOpenQuestions(projectId),
   ])
   if (modulesResult.success) {
     promptContext.modules = modulesResult.data
@@ -37,7 +38,6 @@ export async function loadChatPromptContext({
     promptContext.connections = connectionsResult.data
   }
 
-  const openQuestionsResult = await listOpenOpenQuestions(projectId)
   if (openQuestionsResult.success) {
     promptContext.openQuestions = openQuestionsResult.data.map((question) => ({
       id: question.id,
@@ -63,7 +63,11 @@ export async function loadChatPromptContext({
   }
 
   if (activeModuleId) {
-    const moduleResult = await getModuleById(activeModuleId)
+    const [moduleResult, graphResult] = await Promise.all([
+      getModuleById(activeModuleId),
+      getGraphForModule(activeModuleId),
+    ])
+
     if (moduleResult.success) {
       promptContext.currentModule = moduleResult.data
       const loaded = await loadModuleNotesForChat(moduleResult.data.name)
@@ -73,7 +77,6 @@ export async function loadChatPromptContext({
           : { source: loaded.source, markdown: loaded.markdown }
     }
 
-    const graphResult = await getGraphForModule(activeModuleId)
     if (graphResult.success) {
       promptContext.nodes = graphResult.data.nodes
       promptContext.edges = graphResult.data.edges

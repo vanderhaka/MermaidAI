@@ -3,6 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // --- Mocks ---
 
+// Mock server-only (it throws at import time in non-server contexts)
+vi.mock('server-only', () => ({}))
+
 const mockGetUser = vi.fn()
 const mockSupabase = { auth: { getUser: mockGetUser } }
 vi.mock('@/lib/supabase/server', () => ({
@@ -134,6 +137,9 @@ describe('POST /api/chat', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // The default provider is env-driven — keep it unset so these tests
+    // assert the built-in default rather than the developer's shell.
+    delete process.env.AI_PROVIDER
 
     // Default: authenticated user
     mockGetUser.mockResolvedValue({
@@ -547,7 +553,7 @@ describe('POST /api/chat', () => {
       expect.any(Array),
       tools,
       mockExecutor,
-      { provider: 'anthropic' },
+      { provider: 'codex', sessionKey: 'proj-1' },
     )
   })
 
@@ -560,7 +566,37 @@ describe('POST /api/chat', () => {
       expect.any(Array),
       expect.any(Array),
       mockExecutor,
-      { provider: 'anthropic' },
+      { provider: 'anthropic', sessionKey: 'proj-1' },
+    )
+  })
+
+  it('honors AI_PROVIDER when the request omits a provider', async () => {
+    process.env.AI_PROVIDER = 'anthropic'
+
+    const { POST } = await import('@/app/api/chat/route')
+    await POST(makeRequest(validBody()))
+
+    expect(mockCallLLMWithTools).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      expect.any(Array),
+      mockExecutor,
+      { provider: 'anthropic', sessionKey: 'proj-1' },
+    )
+  })
+
+  it('falls back to codex when AI_PROVIDER is not a known provider', async () => {
+    process.env.AI_PROVIDER = 'not-a-provider'
+
+    const { POST } = await import('@/app/api/chat/route')
+    await POST(makeRequest(validBody()))
+
+    expect(mockCallLLMWithTools).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      expect.any(Array),
+      mockExecutor,
+      { provider: 'codex', sessionKey: 'proj-1' },
     )
   })
 
@@ -618,8 +654,28 @@ describe('POST /api/chat', () => {
       ]),
       expect.any(Array),
       expect.any(Function),
-      { provider: 'anthropic' },
+      { provider: 'codex', sessionKey: 'proj-1' },
     )
+  })
+
+  it('caps history to the last 30 entries before calling callLLMWithTools', async () => {
+    const longHistory = Array.from({ length: 35 }, (_, i) => ({
+      role: i % 2 === 0 ? 'user' : ('assistant' as const),
+      content: `turn-${i}`,
+    }))
+
+    const { POST } = await import('@/app/api/chat/route')
+    const body = { ...validBody(), history: longHistory }
+
+    await POST(makeRequest(body))
+
+    const [, messages] = mockCallLLMWithTools.mock.calls[0] as [string, { content: string }[]]
+    // Last 30 of the 35 history entries (turn-5..turn-34) plus the new user message.
+    expect(messages).toHaveLength(31)
+    expect(messages.map((m) => m.content)).toEqual([
+      ...longHistory.slice(-30).map((h) => h.content),
+      'Create an auth module',
+    ])
   })
 
   // --- Message persistence ---
