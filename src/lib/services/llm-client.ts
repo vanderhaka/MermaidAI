@@ -505,18 +505,12 @@ export async function callLLMWithTools(
       // Starting the turn would burn requests guaranteed to 429 partway
       // through — go straight to the fallback provider instead.
       console.warn('Cerebras quota exhausted (from rate-limit headers); routing turn to Anthropic')
-      return callAnthropicWithTools(
-        systemPrompt,
-        messages,
-        tools,
-        executeTool,
-        options.onToolResult,
-      )
+      return callAnthropicWithTools(systemPrompt, messages, tools, executeTool, options)
     }
     return callCerebrasWithTools(systemPrompt, messages, tools, executeTool, options)
   }
 
-  return callAnthropicWithTools(systemPrompt, messages, tools, executeTool, options.onToolResult)
+  return callAnthropicWithTools(systemPrompt, messages, tools, executeTool, options)
 }
 
 async function callAnthropicWithTools(
@@ -524,7 +518,7 @@ async function callAnthropicWithTools(
   messages: Anthropic.MessageParam[],
   tools: Anthropic.Tool[],
   executeTool: ToolExecutor,
-  onToolResult?: ToolEventCallback,
+  options: CallLLMWithToolsOptions = {},
 ): Promise<ReadableStream<string>> {
   const client = getClient()
   const model = process.env.AI_MODEL?.trim() || DEFAULT_MODEL
@@ -536,16 +530,22 @@ async function callAnthropicWithTools(
 
       try {
         while (true) {
+          // The turn was stopped — no new round, and no wrap-up nudge either.
+          if (options.signal?.aborted) break
+
           let streamedTextThisRound = ''
 
-          const stream = client.messages.stream({
-            model,
-            max_tokens: MAX_TOKENS,
-            system: systemPrompt,
-            tools,
-            tool_choice: { type: 'auto', disable_parallel_tool_use: true },
-            messages: currentMessages,
-          })
+          const stream = client.messages.stream(
+            {
+              model,
+              max_tokens: MAX_TOKENS,
+              system: systemPrompt,
+              tools,
+              tool_choice: { type: 'auto', disable_parallel_tool_use: true },
+              messages: currentMessages,
+            },
+            { signal: options.signal },
+          )
 
           // Buffer text per round — text written alongside tool calls is
           // model narration ("let me rewire this"), not a user-facing reply,
@@ -574,6 +574,12 @@ async function callAnthropicWithTools(
           const toolResults: Anthropic.ToolResultBlockParam[] = []
 
           for (const toolBlock of toolUseBlocks) {
+            // Stop before starting another tool. A tool already running is
+            // left to finish — they are short writes, and killing one midway
+            // would leave the canvas half-built. The round's remaining work is
+            // abandoned; the loop exits at the top of the next iteration.
+            if (options.signal?.aborted) break
+
             const toolInput = toolBlock.input as Record<string, unknown>
 
             // Notify client that a tool is about to execute
@@ -583,9 +589,7 @@ async function callAnthropicWithTools(
 
             const result = await executeTool(toolBlock.name, toolInput)
 
-            if (onToolResult) {
-              onToolResult(toolBlock.name, toolInput, result)
-            }
+            options.onToolResult?.(toolBlock.name, toolInput, result)
 
             // Emit tool event into stream so the client can update state in real-time
             if (result.data) {
@@ -614,16 +618,21 @@ async function callAnthropicWithTools(
 
         // The loop can end on a tool-only turn with no visible text at all,
         // which renders as a silent assistant in the chat. Force one final
-        // text-only round so the conversation always keeps moving.
-        if (!totalStreamedText.trim()) {
-          const finalStream = client.messages.stream({
-            model,
-            max_tokens: MAX_TOKENS,
-            system: systemPrompt,
-            tools,
-            tool_choice: { type: 'none' },
-            messages: [...currentMessages, { role: 'user', content: FORCED_TEXT_NUDGE }],
-          })
+        // text-only round so the conversation always keeps moving — unless the
+        // turn was stopped, when another round is exactly what the user
+        // asked us not to do.
+        if (!options.signal?.aborted && !totalStreamedText.trim()) {
+          const finalStream = client.messages.stream(
+            {
+              model,
+              max_tokens: MAX_TOKENS,
+              system: systemPrompt,
+              tools,
+              tool_choice: { type: 'none' },
+              messages: [...currentMessages, { role: 'user', content: FORCED_TEXT_NUDGE }],
+            },
+            { signal: options.signal },
+          )
 
           finalStream.on('text', (text: string) => {
             controller.enqueue(text)
@@ -634,6 +643,12 @@ async function callAnthropicWithTools(
 
         controller.close()
       } catch (err) {
+        // A round aborted in flight throws — that is the stop landing, not a
+        // failure worth showing the user.
+        if (options.signal?.aborted) {
+          controller.close()
+          return
+        }
         controller.error(new Error(sanitizeError(err)))
       }
     },
@@ -665,6 +680,9 @@ async function callCerebrasWithTools(
         let forcedTextRound = false
 
         for (let round = 0; round <= MAX_CEREBRAS_TOOL_ROUNDS; round++) {
+          // The turn was stopped — no new round, and no wrap-up nudge either.
+          if (options.signal?.aborted) break
+
           if (round === MAX_CEREBRAS_TOOL_ROUNDS && !forcedTextRound) {
             // Tool budget exhausted — wrap up with a text-only round instead
             // of erroring out mid-build.
@@ -674,6 +692,7 @@ async function callCerebrasWithTools(
 
           const response = await fetch(CEREBRAS_CHAT_COMPLETIONS_URL, {
             method: 'POST',
+            signal: options.signal,
             headers: {
               Authorization: `Bearer ${apiKey}`,
               'Content-Type': 'application/json',
@@ -751,6 +770,12 @@ async function callCerebrasWithTools(
           })
 
           for (const toolCall of toolCalls) {
+            // Stop before starting another tool. A tool already running is
+            // left to finish — they are short writes, and killing one midway
+            // would leave the canvas half-built. The round's remaining work is
+            // abandoned; the loop exits at the top of the next iteration.
+            if (options.signal?.aborted) break
+
             const toolName = toolCall.function.name
             let toolInput: Record<string, unknown>
             let parseError = false
@@ -794,6 +819,14 @@ async function callCerebrasWithTools(
         controller.close()
         return
       } catch (err) {
+        // A round aborted in flight throws — that is the stop landing, not a
+        // failure worth showing the user, and not a reason to open a fallback
+        // turn on Anthropic.
+        if (options.signal?.aborted) {
+          controller.close()
+          return
+        }
+
         if (isCerebrasRateLimitError(err)) {
           const retryAfterRaw =
             err instanceof CerebrasAPIError ? err.diagnostics['retry-after'] : undefined
@@ -821,7 +854,7 @@ async function callCerebrasWithTools(
               fallbackMessages,
               tools,
               executeTool,
-              options.onToolResult,
+              options,
             )
             await pipeTextStream(fallbackStream, controller)
             controller.close()

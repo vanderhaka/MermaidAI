@@ -30,6 +30,34 @@ async function readStreamToString(stream: ReadableStream<string>): Promise<strin
   return result
 }
 
+function jsonResponse(payload: unknown): Response {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+function cerebrasTextResponse(content: string): Response {
+  return jsonResponse({ choices: [{ message: { content, tool_calls: null } }] })
+}
+
+function cerebrasToolCallResponse(calls: Array<{ id: string; label: string }>): Response {
+  return jsonResponse({
+    choices: [
+      {
+        message: {
+          content: null,
+          tool_calls: calls.map((call) => ({
+            id: call.id,
+            type: 'function',
+            function: { name: 'create_node', arguments: JSON.stringify({ label: call.label }) },
+          })),
+        },
+      },
+    ],
+  })
+}
+
 let mockStreamInstance = createMockStream()
 const mockStreamFn = vi.fn(() => mockStreamInstance)
 let constructorCallCount = 0
@@ -371,6 +399,7 @@ describe('llm-client', () => {
           system: 'System prompt',
           tool_choice: { type: 'auto', disable_parallel_tool_use: true },
         }),
+        { signal: undefined },
       )
     })
 
@@ -637,6 +666,201 @@ describe('llm-client', () => {
         required: ['title'],
         additionalProperties: false,
       })
+    })
+
+    it('stops the Anthropic loop before the next round once the turn is stopped', async () => {
+      const abort = new AbortController()
+      mockStreamInstance.finalMessage
+        .mockResolvedValueOnce({
+          stop_reason: 'tool_use',
+          content: [
+            { type: 'tool_use', id: 'call-1', name: 'create_node', input: { label: 'First' } },
+          ],
+        })
+        .mockResolvedValue({ stop_reason: 'end_turn', content: [] })
+
+      // The user hits Stop while the first tool is running.
+      const executeTool = vi.fn(async () => {
+        abort.abort()
+        return { content: 'ok', isError: false }
+      })
+
+      const { TOOL_EVENT_DELIMITER, callLLMWithTools } = await import('@/lib/services/llm-client')
+      const stream = await callLLMWithTools(
+        'System prompt',
+        [{ role: 'user', content: 'Create a node' }],
+        [],
+        executeTool,
+        { provider: 'anthropic', signal: abort.signal },
+      )
+
+      const text = await readStreamToString(stream)
+
+      // One round, one tool, and no forced-text nudge round.
+      expect(mockStreamFn).toHaveBeenCalledTimes(1)
+      expect(executeTool).toHaveBeenCalledTimes(1)
+      // Only the tool-start event reached the client, and the stream resolved
+      // rather than erroring — a clean stop.
+      expect(text).toBe(
+        `${TOOL_EVENT_DELIMITER}${JSON.stringify({ tool: 'create_node', status: 'start' })}\n`,
+      )
+    })
+
+    it('runs no further Anthropic tools once the turn is stopped mid-round', async () => {
+      const abort = new AbortController()
+      mockStreamInstance.finalMessage
+        .mockResolvedValueOnce({
+          stop_reason: 'tool_use',
+          content: [
+            { type: 'tool_use', id: 'call-1', name: 'create_node', input: { label: 'First' } },
+            { type: 'tool_use', id: 'call-2', name: 'create_node', input: { label: 'Second' } },
+          ],
+        })
+        // A regression that keeps looping must fail an assertion, not spin
+        // forever on an endless run of tool rounds.
+        .mockResolvedValue({ stop_reason: 'end_turn', content: [] })
+
+      const executeTool = vi.fn(async () => {
+        abort.abort()
+        return { content: 'ok', isError: false }
+      })
+
+      const { callLLMWithTools } = await import('@/lib/services/llm-client')
+      await readStreamToString(
+        await callLLMWithTools(
+          'System prompt',
+          [{ role: 'user', content: 'Add both nodes' }],
+          [],
+          executeTool,
+          { provider: 'anthropic', signal: abort.signal },
+        ),
+      )
+
+      expect(executeTool).toHaveBeenCalledTimes(1)
+      expect(executeTool).toHaveBeenCalledWith('create_node', { label: 'First' })
+      expect(mockStreamFn).toHaveBeenCalledTimes(1)
+    })
+
+    it('passes the stop signal to the Anthropic request', async () => {
+      const abort = new AbortController()
+      mockStreamInstance.finalMessage.mockResolvedValue({ stop_reason: 'end_turn', content: [] })
+
+      const { callLLMWithTools } = await import('@/lib/services/llm-client')
+      await readStreamToString(
+        await callLLMWithTools('System prompt', [{ role: 'user', content: 'Hi' }], [], vi.fn(), {
+          provider: 'anthropic',
+          signal: abort.signal,
+        }),
+      )
+
+      expect(mockStreamFn).toHaveBeenCalledWith(expect.any(Object), { signal: abort.signal })
+    })
+
+    it('starts no second Cerebras round once the turn is stopped', async () => {
+      process.env.CEREBRAS_API_KEY = 'csk-test-key'
+      const abort = new AbortController()
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(cerebrasToolCallResponse([{ id: 'call-1', label: 'First' }]))
+        // Fresh Response per call: a regression that keeps looping must fail
+        // an assertion, not choke on an already-consumed body.
+        .mockImplementation(() => Promise.resolve(cerebrasTextResponse('Should never run.')))
+      vi.stubGlobal('fetch', fetchMock)
+
+      const executeTool = vi.fn(async () => {
+        abort.abort()
+        return { content: 'ok', isError: false }
+      })
+
+      const { callLLMWithTools } = await import('@/lib/services/llm-client')
+      const text = await readStreamToString(
+        await callLLMWithTools(
+          'System prompt',
+          [{ role: 'user', content: 'Create a node' }],
+          [],
+          executeTool,
+          { provider: 'cerebras', signal: abort.signal },
+        ),
+      )
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(executeTool).toHaveBeenCalledTimes(1)
+      expect(text).not.toContain('Should never run.')
+    })
+
+    it('runs no further Cerebras tools once the turn is stopped mid-round', async () => {
+      process.env.CEREBRAS_API_KEY = 'csk-test-key'
+      const abort = new AbortController()
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          cerebrasToolCallResponse([
+            { id: 'call-1', label: 'First' },
+            { id: 'call-2', label: 'Second' },
+          ]),
+        )
+        .mockImplementation(() => Promise.resolve(cerebrasTextResponse('Should never run.')))
+      vi.stubGlobal('fetch', fetchMock)
+
+      const executeTool = vi.fn(async () => {
+        abort.abort()
+        return { content: 'ok', isError: false }
+      })
+
+      const { callLLMWithTools } = await import('@/lib/services/llm-client')
+      await readStreamToString(
+        await callLLMWithTools(
+          'System prompt',
+          [{ role: 'user', content: 'Add both nodes' }],
+          [],
+          executeTool,
+          { provider: 'cerebras', signal: abort.signal },
+        ),
+      )
+
+      expect(executeTool).toHaveBeenCalledTimes(1)
+      expect(executeTool).toHaveBeenCalledWith('create_node', { label: 'First' })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('passes the stop signal to the Cerebras request', async () => {
+      process.env.CEREBRAS_API_KEY = 'csk-test-key'
+      const abort = new AbortController()
+      const fetchMock = vi.fn().mockResolvedValue(cerebrasTextResponse('Done.'))
+      vi.stubGlobal('fetch', fetchMock)
+
+      const { callLLMWithTools } = await import('@/lib/services/llm-client')
+      await readStreamToString(
+        await callLLMWithTools('System prompt', [{ role: 'user', content: 'Hi' }], [], vi.fn(), {
+          provider: 'cerebras',
+          signal: abort.signal,
+        }),
+      )
+
+      const [, init] = fetchMock.mock.calls[0]
+      expect((init as RequestInit).signal).toBe(abort.signal)
+    })
+
+    it('closes cleanly without an Anthropic fallback when a Cerebras round is aborted in flight', async () => {
+      process.env.CEREBRAS_API_KEY = 'csk-test-key'
+      const abort = new AbortController()
+      const fetchMock = vi.fn(() => {
+        abort.abort()
+        return Promise.reject(new DOMException('This operation was aborted', 'AbortError'))
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      const { callLLMWithTools } = await import('@/lib/services/llm-client')
+      const stream = await callLLMWithTools(
+        'System prompt',
+        [{ role: 'user', content: 'Hi' }],
+        [],
+        vi.fn(),
+        { provider: 'cerebras', signal: abort.signal },
+      )
+
+      await expect(readStreamToString(stream)).resolves.toBe('')
+      expect(mockStreamFn).not.toHaveBeenCalled()
     })
 
     it('preserves non-nullable union types as anyOf for Cerebras', async () => {

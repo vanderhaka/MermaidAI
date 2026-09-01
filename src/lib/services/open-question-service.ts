@@ -34,6 +34,7 @@ export async function createOpenQuestion(input: {
 }
 
 export async function resolveOpenQuestion(
+  projectId: string,
   id: string,
   resolution: string,
 ): Promise<ServiceResult<OpenQuestion>> {
@@ -51,6 +52,8 @@ export async function resolveOpenQuestion(
       resolved_at: new Date().toISOString(),
     })
     .eq('id', id)
+    .eq('project_id', projectId)
+    .eq('status', 'open')
     .select()
     .single()
 

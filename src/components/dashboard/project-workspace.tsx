@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 
 import CanvasContainer from '@/components/canvas/CanvasContainer'
@@ -10,11 +10,12 @@ import { InlineProjectName } from '@/components/dashboard/InlineProjectName'
 import PrdPreviewPanel from '@/components/dashboard/PrdPreviewPanel'
 import { SavedIndicator } from '@/components/dashboard/SavedIndicator'
 import { applyProjectToolEvent } from '@/components/dashboard/tool-event-applier'
+import { useChatStream } from '@/hooks/useChatStream'
 import { signOut } from '@/lib/services/auth-service'
 import { createModule } from '@/lib/services/module-service'
 import { updateProject, deleteProject } from '@/lib/services/project-service'
-import { createStreamParser } from '@/lib/stream-parser'
 import { groupModulesByDomain } from '@/lib/module-hierarchy'
+import { SCOPE_HANDOFF_PROMPT, takeScopeHandoff } from '@/lib/scope-handoff'
 import { useGraphStore } from '@/store/graph-store'
 import type { ChatMessage } from '@/types/chat'
 import type {
@@ -26,25 +27,11 @@ import type {
   Project,
 } from '@/types/graph'
 
-const TOOL_LABELS: Record<string, string> = {
-  create_node: 'Creating node',
-  update_node: 'Updating node',
-  delete_node: 'Removing node',
-  create_edge: 'Connecting nodes',
-  delete_edge: 'Removing connection',
-  create_module: 'Creating module',
-  update_module: 'Updating module',
-  delete_module: 'Removing module',
-  connect_modules: 'Connecting modules',
-  add_open_questions: 'Flagging questions',
-  resolve_open_question: 'Resolving question',
-  lookup_docs: 'Looking up docs',
-  write_prd: 'Writing PRD',
-}
-
-function formatToolName(tool: string): string {
-  return TOOL_LABELS[tool] ?? tool.replace(/_/g, ' ')
-}
+/**
+ * Stable identity: this feeds the store-sync effect's dependency array, and a
+ * fresh `[]` per render would reset the canvas on every keystroke of a stream.
+ */
+const NO_OPEN_QUESTIONS: OpenQuestion[] = []
 
 function truncateDescription(desc: string | null | undefined): string {
   const text = desc?.trim()
@@ -65,6 +52,10 @@ type ProjectWorkspaceProps = {
   initialOpenQuestions?: OpenQuestion[]
 }
 
+type ProjectSendOptions = {
+  scopeHandoff?: boolean
+}
+
 export function ProjectWorkspace({
   project,
   initialModules,
@@ -72,17 +63,14 @@ export function ProjectWorkspace({
   initialEdges,
   initialConnections,
   initialMessages,
-  initialOpenQuestions = [],
+  initialOpenQuestions = NO_OPEN_QUESTIONS,
 }: ProjectWorkspaceProps) {
   const router = useRouter()
   const [isRefreshing, startRefresh] = useTransition()
   const [isCreatingModule, setIsCreatingModule] = useState(false)
-  const [isSending, setIsSending] = useState(false)
-  const [streamingContent, setStreamingContent] = useState('')
-  const [toolActivity, setToolActivity] = useState<string | null>(null)
-  const [currentToolCalls, setCurrentToolCalls] = useState<string[]>([])
+  // Page-level failures (settings, modules) stay in page flow; chat failures
+  // belong inside the panel, which is fixed and can cover anything under it.
   const [error, setError] = useState<string | null>(null)
-  const [messages, setMessages] = useState(initialMessages)
   const [showSettings, setShowSettings] = useState(false)
   const [projectName, setProjectName] = useState(project.name)
   const [projectDescription, setProjectDescription] = useState(project.description ?? '')
@@ -137,10 +125,55 @@ export function ProjectWorkspace({
     setOpenQuestions,
   ])
 
+  const chat = useChatStream<ProjectSendOptions>({
+    projectId: project.id,
+    initialMessages,
+    fallbackErrorMessage: 'Failed to send chat message',
+    buildTurnRequest: (_message, options) => {
+      const requestActiveModuleId = options?.scopeHandoff ? null : activeModuleId
+      const mode = options?.scopeHandoff
+        ? 'module_map'
+        : requestActiveModuleId
+          ? 'module_detail'
+          : modules.length > 0
+            ? 'module_map'
+            : 'discovery'
+
+      return {
+        mode,
+        context: {
+          projectId: project.id,
+          projectName: project.name,
+          activeModuleId: requestActiveModuleId,
+          mode,
+          modules: modules.map((module) => ({
+            id: module.id,
+            name: module.name,
+          })),
+        },
+      }
+    },
+    applyToolEvent: (tool, data, recordToolCall) =>
+      applyProjectToolEvent(tool, data, { recordToolCall }),
+    onTurnEnd: ({ completedSuccessfully, graphChanged }) => {
+      if (completedSuccessfully) setSaveCounter((n) => n + 1)
+      // On failure the canvas already shows tool results only the server can confirm.
+      if (completedSuccessfully || graphChanged) startRefresh(() => router.refresh())
+    },
+  })
+
+  const handoffProjectRef = useRef<string | null>(null)
+
   useEffect(() => {
-    const timeout = window.setTimeout(() => setMessages(initialMessages), 0)
-    return () => window.clearTimeout(timeout)
-  }, [initialMessages])
+    if (handoffProjectRef.current === project.id) return
+    handoffProjectRef.current = project.id
+    if (!takeScopeHandoff(project.id)) return
+
+    queueMicrotask(() => {
+      setAssistantOpen(true)
+      void chat.sendMessage(SCOPE_HANDOFF_PROMPT, { scopeHandoff: true })
+    })
+  }, [chat, project.id])
 
   async function handleSaveSettings() {
     setIsSaving(true)
@@ -195,127 +228,6 @@ export function ProjectWorkspace({
     addModuleToStore(result.data)
     setActiveModuleId(result.data.id)
     setSaveCounter((n) => n + 1)
-  }
-
-  function addToolCall(label: string) {
-    setToolActivity(label)
-    setCurrentToolCalls((prev) => [...prev, label])
-  }
-
-  function handleToolEvent(tool: string, data: Record<string, unknown>) {
-    applyProjectToolEvent(tool, data, { recordToolCall: addToolCall })
-  }
-
-  async function handleSend(message: string) {
-    const optimisticUserMessage: ChatMessage = {
-      id: `local-user-${crypto.randomUUID()}`,
-      role: 'user',
-      content: message,
-      operations: [],
-      createdAt: new Date().toISOString(),
-    }
-
-    setMessages((current) => [...current, optimisticUserMessage])
-    setIsSending(true)
-    setStreamingContent('')
-    setToolActivity(null)
-    setCurrentToolCalls([])
-    setError(null)
-
-    try {
-      const mode = activeModuleId
-        ? 'module_detail'
-        : modules.length > 0
-          ? 'module_map'
-          : 'discovery'
-
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: project.id,
-          message,
-          mode,
-          context: {
-            projectId: project.id,
-            projectName: project.name,
-            activeModuleId,
-            mode,
-            modules: modules.map((module) => ({
-              id: module.id,
-              name: module.name,
-            })),
-          },
-          history: messages.map((entry) => ({
-            role: entry.role,
-            content: entry.content,
-          })),
-        }),
-      })
-
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null)
-        throw new Error(payload?.error ?? 'Failed to send chat message')
-      }
-
-      const reader = response.body?.getReader()
-      if (!reader) {
-        throw new Error('Assistant response stream was unavailable')
-      }
-
-      const decoder = new TextDecoder()
-      const parser = createStreamParser()
-      let assistantText = ''
-
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) {
-          break
-        }
-
-        const chunk = decoder.decode(value, { stream: true })
-        const { text, events } = parser.push(chunk)
-
-        assistantText += text
-        setStreamingContent(assistantText)
-
-        for (const event of events) {
-          if (event.status === 'start') {
-            setToolActivity(formatToolName(event.tool))
-          } else if (event.data) {
-            handleToolEvent(event.tool, event.data)
-          }
-        }
-      }
-
-      // Flush any remaining buffered content
-      const { text: flushedText } = parser.flush()
-      if (flushedText) {
-        assistantText += flushedText
-        setStreamingContent(assistantText)
-      }
-
-      if (assistantText.trim()) {
-        setMessages((current) => [
-          ...current,
-          {
-            id: `local-assistant-${crypto.randomUUID()}`,
-            role: 'assistant',
-            content: assistantText.trim(),
-            operations: [],
-            createdAt: new Date().toISOString(),
-          },
-        ])
-      }
-
-      setStreamingContent('')
-      setSaveCounter((n) => n + 1)
-      startRefresh(() => router.refresh())
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send chat message')
-    } finally {
-      setIsSending(false)
-    }
   }
 
   const activeModuleName =
@@ -756,14 +668,20 @@ export function ProjectWorkspace({
         </div>
 
         <FloatingChat
-          messages={messages}
-          isLoading={isSending || isRefreshing}
-          streamingContent={streamingContent}
-          toolActivity={toolActivity}
-          toolCalls={currentToolCalls}
-          onSend={handleSend}
+          messages={chat.messages}
+          isLoading={chat.isSending || isRefreshing}
+          streamingContent={chat.streamingContent}
+          toolActivity={chat.toolActivity}
+          toolCalls={chat.toolCalls}
+          onSend={chat.sendMessage}
+          onStop={chat.stop}
+          error={chat.chatError}
+          onRetry={chat.retry}
+          onDismissError={() => chat.setChatError(null)}
           isOpen={assistantOpen}
           onToggle={() => setAssistantOpen((o) => !o)}
+          helperMode={chat.helperMode}
+          onToggleHelperMode={chat.toggleHelperMode}
         />
 
         <PrdPreviewPanel

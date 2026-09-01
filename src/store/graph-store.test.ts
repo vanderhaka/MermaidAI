@@ -70,6 +70,10 @@ describe('useGraphStore', () => {
     it('starts with activeModuleId null', () => {
       expect(useGraphStore.getState().activeModuleId).toBeNull()
     })
+
+    it('starts with no changed node ids', () => {
+      expect(useGraphStore.getState().lastTurnChangedIds.size).toBe(0)
+    })
   })
 
   describe('setModules', () => {
@@ -236,6 +240,28 @@ describe('useGraphStore', () => {
     })
   })
 
+  describe('updateEdge', () => {
+    it('replaces the matching edge', () => {
+      useGraphStore.getState().setEdges([makeEdge({ id: 'e1', label: null })])
+      useGraphStore.getState().updateEdge(makeEdge({ id: 'e1', label: 'approved' }))
+      expect(useGraphStore.getState().edges).toHaveLength(1)
+      expect(useGraphStore.getState().edges[0].label).toBe('approved')
+    })
+
+    it('does not modify other edges', () => {
+      useGraphStore.getState().setEdges([makeEdge({ id: 'e1' }), makeEdge({ id: 'e2' })])
+      useGraphStore.getState().updateEdge(makeEdge({ id: 'e1', condition: 'paid' }))
+      expect(useGraphStore.getState().edges[1].condition).toBeNull()
+    })
+
+    it('inserts the edge when it is not in the store yet', () => {
+      useGraphStore.getState().setEdges([makeEdge({ id: 'e1' })])
+      useGraphStore.getState().updateEdge(makeEdge({ id: 'e9', label: 'retry' }))
+      expect(useGraphStore.getState().edges).toHaveLength(2)
+      expect(useGraphStore.getState().edges[1].id).toBe('e9')
+    })
+  })
+
   describe('removeModule', () => {
     it('removes module by id', () => {
       useGraphStore.getState().setModules([makeModule({ id: 'm1' }), makeModule({ id: 'm2' })])
@@ -301,6 +327,7 @@ describe('useGraphStore', () => {
       useGraphStore.getState().addEdge(makeEdge())
       useGraphStore.getState().addOpenQuestion(makeQuestion())
       useGraphStore.getState().setActiveModuleId('m1')
+      useGraphStore.getState().markTurnChanged(['n1'])
 
       useGraphStore.getState().reset()
 
@@ -310,6 +337,61 @@ describe('useGraphStore', () => {
       expect(state.edges).toEqual([])
       expect(state.openQuestions).toEqual([])
       expect(state.activeModuleId).toBeNull()
+      expect(state.lastTurnChangedIds.size).toBe(0)
+    })
+  })
+
+  describe('turn change tracking', () => {
+    it('markTurnChanged records the ids it is given', () => {
+      useGraphStore.getState().markTurnChanged(['n1', 'n2'])
+      const changed = useGraphStore.getState().lastTurnChangedIds
+      expect([...changed].sort()).toEqual(['n1', 'n2'])
+    })
+
+    it('markTurnChanged unions with ids already marked this turn', () => {
+      useGraphStore.getState().markTurnChanged(['n1'])
+      useGraphStore.getState().markTurnChanged(['n2'])
+      expect([...useGraphStore.getState().lastTurnChangedIds].sort()).toEqual(['n1', 'n2'])
+    })
+
+    it('markTurnChanged does not duplicate an id marked twice', () => {
+      useGraphStore.getState().markTurnChanged(['n1'])
+      useGraphStore.getState().markTurnChanged(['n1'])
+      expect(useGraphStore.getState().lastTurnChangedIds.size).toBe(1)
+    })
+
+    it('beginTurnChanges drops the previous turn ids', () => {
+      useGraphStore.getState().markTurnChanged(['n1', 'n2'])
+      useGraphStore.getState().beginTurnChanges()
+      expect(useGraphStore.getState().lastTurnChangedIds.size).toBe(0)
+    })
+
+    it('collects ids again after a new turn begins', () => {
+      useGraphStore.getState().markTurnChanged(['n1'])
+      useGraphStore.getState().beginTurnChanges()
+      useGraphStore.getState().markTurnChanged(['n2'])
+      expect([...useGraphStore.getState().lastTurnChangedIds]).toEqual(['n2'])
+    })
+
+    // Subscribers diff by identity, so an in-place mutation would leave the
+    // canvas showing a stale highlight.
+    it('markTurnChanged replaces the set rather than mutating it', () => {
+      useGraphStore.getState().markTurnChanged(['n1'])
+      const before = useGraphStore.getState().lastTurnChangedIds
+      useGraphStore.getState().markTurnChanged(['n2'])
+      const after = useGraphStore.getState().lastTurnChangedIds
+
+      expect(after).not.toBe(before)
+      expect(before.has('n2')).toBe(false)
+    })
+
+    it('beginTurnChanges replaces the set rather than clearing it', () => {
+      useGraphStore.getState().markTurnChanged(['n1'])
+      const before = useGraphStore.getState().lastTurnChangedIds
+      useGraphStore.getState().beginTurnChanges()
+
+      expect(useGraphStore.getState().lastTurnChangedIds).not.toBe(before)
+      expect(before.has('n1')).toBe(true)
     })
   })
 

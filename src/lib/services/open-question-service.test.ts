@@ -112,7 +112,7 @@ describe('resolveOpenQuestion', () => {
     }
     mockSingle.mockResolvedValue({ data: resolvedData, error: null })
 
-    const result = await resolveOpenQuestion('oq-1', 'Google + GitHub')
+    const result = await resolveOpenQuestion('proj-1', 'oq-1', 'Google + GitHub')
 
     expect(result).toEqual({ success: true, data: resolvedData })
     expect(mockUpdate).toHaveBeenCalledWith(
@@ -121,10 +121,13 @@ describe('resolveOpenQuestion', () => {
         resolution: 'Google + GitHub',
       }),
     )
+    expect(mockEq).toHaveBeenCalledWith('id', 'oq-1')
+    expect(mockEq).toHaveBeenCalledWith('project_id', 'proj-1')
+    expect(mockEq).toHaveBeenCalledWith('status', 'open')
   })
 
   it('returns failure for empty resolution', async () => {
-    const result = await resolveOpenQuestion('oq-1', '')
+    const result = await resolveOpenQuestion('proj-1', 'oq-1', '')
 
     expect(result.success).toBe(false)
     expect(mockFrom).not.toHaveBeenCalled()
@@ -133,7 +136,7 @@ describe('resolveOpenQuestion', () => {
   it('returns failure when supabase update fails', async () => {
     mockSingle.mockResolvedValue({ data: null, error: { message: 'Not found' } })
 
-    const result = await resolveOpenQuestion('oq-1', 'Some resolution')
+    const result = await resolveOpenQuestion('proj-1', 'oq-1', 'Some resolution')
 
     expect(result).toEqual({ success: false, error: 'Not found' })
   })

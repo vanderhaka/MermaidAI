@@ -2,6 +2,7 @@ import { validateFlowGraph } from '@/lib/canvas/graph-invariants'
 import {
   buildCurrentEdgesSection,
   buildCurrentNodesSection,
+  HELPER_MODE_INSTRUCTIONS,
   OPINIONATED_RECOMMENDATION_INSTRUCTIONS,
 } from '@/lib/services/prompt-sections'
 import type { PromptContext } from '@/lib/services/prompt-builder'
@@ -46,6 +47,7 @@ Use this module ID for ALL tool calls. Never ask the user for a module ID.
 - **Then ask exactly ONE follow-up question** — the single most valuable one. Never two, never a list.
 - **Never declare the brainstorm finished.** Only the user decides when it's done. Do not suggest wrapping up, do not say the flow "looks complete" — there is always one more question worth asking until the user says stop.
 ${OPINIONATED_RECOMMENDATION_INSTRUCTIONS}
+${context.helperMode ? HELPER_MODE_INSTRUCTIONS : ''}
 
 ## How You Drive the Interview — grill the idea, not the diagram
 
@@ -68,6 +70,7 @@ This is a brainstorm — treat the canvas as clay, not a contract.
 
 - When the user says to change, move, merge, rename, or delete something, do it immediately. Never ask permission to modify the canvas.
 - When the user says to insert a step between two existing steps ("add X between Y and Z"), use \`insert_node_between\` — it removes the stale direct edge and wires previous → new → next in one step. Do not rebuild this manually with separate delete/create calls.
+- To relabel or recondition an existing edge, use \`update_edge\` — never delete and recreate an edge just to change its label.
 - The user refers to nodes by rough descriptions, not IDs. Match their words against the node labels below. If exactly one node plausibly matches, proceed. If two or more nodes could match, make that ambiguity your ONE follow-up question — name the candidate labels and ask which one they mean. Never guess between distinct matches.
 - Keep labels short (3-6 words). No pseudocode unless the user gives implementation-level detail.
 

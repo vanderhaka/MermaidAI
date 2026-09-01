@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import ChatErrorNotice from '@/components/chat/ChatErrorNotice'
 import ChatInput from '@/components/chat/ChatInput'
 import ChatMessageList from '@/components/chat/ChatMessageList'
 import type { ChatMessage } from '@/types/chat'
@@ -13,8 +14,14 @@ type FloatingChatProps = {
   toolCalls?: string[]
   onSend: (message: string) => void | Promise<boolean | void>
   onAttachFile?: (file: File, note: string) => void | Promise<boolean | void>
+  onStop?: () => void
+  error?: string | null
+  onRetry?: () => void
+  onDismissError?: () => void
   isOpen: boolean
   onToggle: () => void
+  helperMode?: boolean
+  onToggleHelperMode?: () => void
   subtitle?: string
   isPeeking?: boolean
   examplePrompts?: string[]
@@ -93,8 +100,14 @@ export default function FloatingChat({
   toolCalls = [],
   onSend,
   onAttachFile,
+  onStop,
+  error = null,
+  onRetry,
+  onDismissError,
   isOpen,
   onToggle,
+  helperMode = false,
+  onToggleHelperMode,
   subtitle = 'Ask MermaidAI to sketch modules or refine the active module flow.',
   isPeeking = false,
   examplePrompts,
@@ -108,8 +121,8 @@ export default function FloatingChat({
         onToggle()
       }
       if (e.key === 'Escape' && isOpen) {
-        // Closing unmounts the panel (and any draft in the input) — don't do it
-        // while the user is focused in a form field.
+        // Escape belongs to the field the user is in (IME, autocomplete) before
+        // it belongs to the panel.
         const tag = (e.target as HTMLElement)?.tagName
         if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return
         e.preventDefault()
@@ -150,6 +163,7 @@ export default function FloatingChat({
     const startX = event.clientX
     const startY = event.clientY
     const startSize = chatSize
+    let latestSize = startSize
     const originalCursor = document.body.style.cursor
     const originalUserSelect = document.body.style.userSelect
 
@@ -158,23 +172,21 @@ export default function FloatingChat({
     document.body.style.userSelect = 'none'
 
     function handlePointerMove(moveEvent: PointerEvent) {
-      setChatSize(() => {
-        const next = clampChatSize({
-          width:
-            axis === 'width' || axis === 'both'
-              ? startSize.width + startX - moveEvent.clientX
-              : startSize.width,
-          height:
-            axis === 'height' || axis === 'both'
-              ? startSize.height + startY - moveEvent.clientY
-              : startSize.height,
-        })
-        storeChatSize(next)
-        return next
+      latestSize = clampChatSize({
+        width:
+          axis === 'width' || axis === 'both'
+            ? startSize.width + startX - moveEvent.clientX
+            : startSize.width,
+        height:
+          axis === 'height' || axis === 'both'
+            ? startSize.height + startY - moveEvent.clientY
+            : startSize.height,
       })
+      setChatSize(latestSize)
     }
 
     function handlePointerUp() {
+      storeChatSize(latestSize)
       document.body.style.cursor = originalCursor
       document.body.style.userSelect = originalUserSelect
       window.removeEventListener('pointermove', handlePointerMove)
@@ -187,96 +199,114 @@ export default function FloatingChat({
 
   return (
     <div
-      className="pointer-events-none fixed bottom-4 right-4 z-[100] flex flex-col gap-3 sm:right-6"
+      className="pointer-events-none fixed bottom-4 right-4 z-[100] flex max-w-[calc(100vw-2rem)] flex-col gap-3 sm:right-6 sm:max-w-[calc(100vw-3rem)]"
       style={{ width: chatSize.width }}
     >
-      {isOpen && (
-        <section
-          id="assistant-chat-panel"
-          className={`pointer-events-auto relative flex min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl ring-1 ring-black/5 transition-all duration-150 ${
-            isPeeking ? 'pointer-events-none scale-95 opacity-0' : 'scale-100 opacity-100'
-          }`}
-          style={{ height: chatSize.height }}
-          data-testid="chat-panel"
-          role="dialog"
-          aria-label="Assistant"
-          aria-modal="false"
+      {/* Hidden rather than unmounted: closing the panel must not throw away a
+          typed draft or queued messages. */}
+      <section
+        id="assistant-chat-panel"
+        className={`pointer-events-auto relative flex max-h-[calc(100dvh-7.5rem)] min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl ring-1 ring-black/5 transition-all duration-150 ${
+          isPeeking ? 'pointer-events-none scale-95 opacity-0' : 'scale-100 opacity-100'
+        }`}
+        style={{ height: chatSize.height, display: isOpen ? undefined : 'none' }}
+        data-testid="chat-panel"
+        role="dialog"
+        aria-label="Assistant"
+        aria-modal="false"
+      >
+        <button
+          type="button"
+          aria-label="Resize assistant height and width"
+          title="Drag to resize assistant"
+          data-testid="chat-resize-handle"
+          onPointerDown={(event) => startResize('both', event)}
+          className="absolute left-1 top-1 z-20 h-6 w-6 cursor-nwse-resize rounded-md text-gray-300 transition hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
         >
-          <button
-            type="button"
-            aria-label="Resize assistant height and width"
-            title="Drag to resize assistant"
-            data-testid="chat-resize-handle"
-            onPointerDown={(event) => startResize('both', event)}
-            className="absolute left-1 top-1 z-20 h-6 w-6 cursor-nwse-resize rounded-md text-gray-300 transition hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          >
-            <span className="absolute left-1.5 top-1.5 block h-3.5 w-3.5 rounded-tl border-l-2 border-t-2 border-current" />
-          </button>
-          <button
-            type="button"
-            aria-label="Resize assistant height"
-            title="Drag to resize assistant height"
-            onPointerDown={(event) => startResize('height', event)}
-            className="absolute left-8 right-8 top-0 z-10 h-2 cursor-ns-resize focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          />
-          <button
-            type="button"
-            aria-label="Resize assistant width"
-            title="Drag to resize assistant width"
-            onPointerDown={(event) => startResize('width', event)}
-            className="absolute bottom-8 left-0 top-8 z-10 w-2 cursor-ew-resize focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          />
-          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-gray-200 px-4 py-3">
-            <div className="min-w-0">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                Assistant
-              </h2>
-              <p className="mt-1 text-pretty text-sm text-gray-500">{subtitle}</p>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
+          <span className="absolute left-1.5 top-1.5 block h-3.5 w-3.5 rounded-tl border-l-2 border-t-2 border-current" />
+        </button>
+        <button
+          type="button"
+          aria-label="Resize assistant height"
+          title="Drag to resize assistant height"
+          onPointerDown={(event) => startResize('height', event)}
+          className="absolute left-8 right-8 top-0 z-10 h-2 cursor-ns-resize focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        />
+        <button
+          type="button"
+          aria-label="Resize assistant width"
+          title="Drag to resize assistant width"
+          onPointerDown={(event) => startResize('width', event)}
+          className="absolute bottom-8 left-0 top-8 z-10 w-2 cursor-ew-resize focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        />
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-gray-200 px-4 py-3">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+              Assistant
+            </h2>
+            <p className="mt-1 text-pretty text-sm text-gray-500">{subtitle}</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {onToggleHelperMode && (
               <button
                 type="button"
-                onClick={onToggle}
-                className="shrink-0 rounded-lg p-2 text-gray-500 transition-[background-color,color,scale] duration-150 ease-out hover:bg-gray-100 hover:text-gray-900 active:scale-[0.96]"
-                aria-label="Minimize assistant"
+                onClick={onToggleHelperMode}
+                aria-pressed={helperMode}
+                title="When on, the assistant decides routine points itself and records them as assumptions"
+                className={`shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium transition-[background-color,color,scale] duration-150 ease-out active:scale-[0.96] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 ${
+                  helperMode
+                    ? 'bg-blue-600 text-white hover:bg-blue-700'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900'
+                }`}
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                  className="h-5 w-5"
-                  aria-hidden
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                    clipRule="evenodd"
-                  />
-                </svg>
+                Auto-decide
               </button>
-            </div>
+            )}
+            <button
+              type="button"
+              onClick={onToggle}
+              className="shrink-0 rounded-lg p-2 text-gray-500 transition-[background-color,color,scale] duration-150 ease-out hover:bg-gray-100 hover:text-gray-900 active:scale-[0.96]"
+              aria-label="Minimize assistant"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                className="h-5 w-5"
+                aria-hidden
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </button>
           </div>
+        </div>
 
-          <ChatMessageList
-            messages={messages}
-            isLoading={isLoading}
-            streamingContent={streamingContent}
-            toolActivity={toolActivity}
-            toolCalls={toolCalls}
+        <ChatMessageList
+          messages={messages}
+          isLoading={isLoading}
+          streamingContent={streamingContent}
+          toolActivity={toolActivity}
+          toolCalls={toolCalls}
+          onSend={onSend}
+          examplePrompts={examplePrompts}
+        />
+
+        {error && <ChatErrorNotice message={error} onRetry={onRetry} onDismiss={onDismissError} />}
+
+        <div className="shrink-0 border-t border-gray-200 p-4">
+          <ChatInput
             onSend={onSend}
-            examplePrompts={examplePrompts}
+            onAttachFile={onAttachFile}
+            onStop={onStop}
+            isLoading={isLoading}
+            autoFocus={isOpen}
           />
-
-          <div className="shrink-0 border-t border-gray-200 p-4">
-            <ChatInput
-              onSend={onSend}
-              onAttachFile={onAttachFile}
-              isLoading={isLoading}
-              autoFocus
-            />
-          </div>
-        </section>
-      )}
+        </div>
+      </section>
 
       <button
         type="button"

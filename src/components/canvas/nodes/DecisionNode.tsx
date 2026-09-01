@@ -7,14 +7,16 @@ import {
   FLOW_DETAIL_HANDLE_COLOR,
   FLOW_DETAIL_HANDLE_POSITION,
 } from '@/components/canvas/nodes/flow-detail-handles'
+import { NodeChangeHighlight } from '@/components/canvas/nodes/NodeChangeHighlight'
 import { NodeTooltip } from '@/components/canvas/nodes/NodeTooltip'
 
 type DecisionNodeData = {
   label: string
+  recentlyChanged?: boolean
 }
 
 export default function DecisionNode({ data }: NodeProps) {
-  const { label } = data as DecisionNodeData
+  const { label, recentlyChanged } = data as DecisionNodeData
 
   return (
     <div className="group relative h-44 w-44">
@@ -29,7 +31,11 @@ export default function DecisionNode({ data }: NodeProps) {
       <div
         aria-hidden
         className="pointer-events-none absolute left-1/2 top-1/2 h-[124.45px] w-[124.45px] -translate-x-1/2 -translate-y-1/2 rotate-45 border-2 border-amber-400 bg-amber-50 shadow-sm transition-shadow group-hover:shadow-md group-hover:border-amber-500"
-      />
+      >
+        {/* Nested inside the rotated face so the change ring traces the diamond
+            rather than the square bounding box. */}
+        <NodeChangeHighlight active={Boolean(recentlyChanged)} />
+      </div>
 
       <Handle
         type="target"

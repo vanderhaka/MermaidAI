@@ -13,6 +13,7 @@ import {
   updateNode,
   removeNode,
   addEdge,
+  updateEdge,
   removeEdge,
   getGraphForModule,
 } from '@/lib/services/graph-service'
@@ -23,13 +24,16 @@ import {
   listOpenQuestions,
 } from '@/lib/services/open-question-service'
 import type { ToolResult } from '@/lib/services/llm-client'
-import type { FlowEdge, FlowNode } from '@/types/graph'
+import type { FlowEdge, FlowNode, OpenQuestion } from '@/types/graph'
 import type { PromptMode } from '@/lib/services/prompt-builder'
 import { validateFlowGraph, type FlowGraphIssue } from '@/lib/canvas/graph-invariants'
 import { isClickOnlySelectedQuestionPrompt } from '@/lib/services/selected-open-question'
 
 const DEFAULT_MODULE_COLOR = '#111827'
 const DEFAULT_NODE_COLOR = '#2563eb'
+const MAX_SCOPE_BATCH_NODES = 40
+const MAX_SCOPE_BATCH_EDGES = 80
+const MAX_SCOPE_BATCH_QUESTIONS = 20
 
 /** Normalized comparison key so reworded whitespace/punctuation variants of the same question match. */
 function normalizeQuestionKey(question: string): string {
@@ -204,6 +208,21 @@ const createEdgeTool: Anthropic.Tool = {
   },
 }
 
+const updateEdgeTool: Anthropic.Tool = {
+  name: 'update_edge',
+  description:
+    "Update an existing edge's label or condition — use this to relabel decision branches instead of delete_edge + create_edge.",
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      edgeId: { type: 'string', description: 'ID of the edge to update' },
+      label: { type: 'string', description: 'New label for the edge (e.g. "Yes", "No")' },
+      condition: { type: 'string', description: 'New condition for the edge' },
+    },
+    required: ['edgeId'],
+  },
+}
+
 const insertNodeBetweenTool: Anthropic.Tool = {
   name: 'insert_node_between',
   description:
@@ -268,6 +287,74 @@ const lookupDocsTool: Anthropic.Tool = {
       },
     },
     required: ['library', 'topic'],
+  },
+}
+
+const captureScopeFlowTool: Anthropic.Tool = {
+  name: 'capture_scope_flow',
+  description:
+    'Create a complete Quick Capture draft in one dependency-safe batch. New nodes use local keys, so edges and question markers can reference them without waiting for server-generated IDs. Prefer one call per user message.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      moduleId: {
+        type: 'string',
+        description: 'ID of the scope module that receives every node and edge in this batch',
+      },
+      nodes: {
+        type: 'array',
+        description: 'All new flow nodes for this input, each with a unique local key',
+        items: {
+          type: 'object',
+          properties: {
+            key: {
+              type: 'string',
+              description: 'Short unique local key used by edges and questions in this call',
+            },
+            label: { type: 'string', description: 'Short 3-6 word canvas label' },
+            nodeType: {
+              type: 'string',
+              enum: ['process', 'decision', 'start', 'end'],
+              description: 'Flow node type. Questions belong in the questions array.',
+            },
+          },
+          required: ['key', 'label', 'nodeType'],
+        },
+      },
+      edges: {
+        type: 'array',
+        description:
+          'All new flow edges. source and target may be local node keys from this call or exact existing node IDs.',
+        items: {
+          type: 'object',
+          properties: {
+            source: { type: 'string', description: 'Local key or existing source node ID' },
+            target: { type: 'string', description: 'Local key or existing target node ID' },
+            label: { type: 'string', description: 'Optional edge label' },
+            condition: { type: 'string', description: 'Optional branch condition' },
+          },
+          required: ['source', 'target'],
+        },
+      },
+      questions: {
+        type: 'array',
+        description: 'All gaps or ambiguities detected in this input',
+        items: {
+          type: 'object',
+          properties: {
+            section: { type: 'string', description: 'Logical section for the question' },
+            question: { type: 'string', description: 'The unresolved question' },
+            relatedNode: {
+              type: 'string',
+              description:
+                'Optional local node key or exact existing node ID to attach the marker to',
+            },
+          },
+          required: ['section', 'question'],
+        },
+      },
+    },
+    required: ['moduleId', 'nodes', 'edges', 'questions'],
   },
 }
 
@@ -369,7 +456,7 @@ const promoteProjectTool: Anthropic.Tool = {
   },
 }
 
-export { addOpenQuestionsTool, resolveOpenQuestionTool, writePrdTool }
+export { captureScopeFlowTool, addOpenQuestionsTool, resolveOpenQuestionTool, writePrdTool }
 
 // ---------------------------------------------------------------------------
 // Tool sets per mode
@@ -388,6 +475,7 @@ const NODE_EDGE_TOOLS = [
   updateNodeTool,
   deleteNodeTool,
   createEdgeTool,
+  updateEdgeTool,
   deleteEdgeTool,
   lookupDocsTool,
   writePrdTool,
@@ -401,15 +489,18 @@ const ALL_TOOLS = [
   updateNodeTool,
   deleteNodeTool,
   createEdgeTool,
+  updateEdgeTool,
   deleteEdgeTool,
   lookupDocsTool,
   writePrdTool,
 ]
 const SCOPE_TOOLS = [
+  captureScopeFlowTool,
   createNodeTool,
   updateNodeTool,
   deleteNodeTool,
   createEdgeTool,
+  updateEdgeTool,
   deleteEdgeTool,
   insertNodeBetweenTool,
   addOpenQuestionsTool,
@@ -426,6 +517,7 @@ const FLOWCHART_TOOLS = [
   updateNodeTool,
   deleteNodeTool,
   createEdgeTool,
+  updateEdgeTool,
   deleteEdgeTool,
   insertNodeBetweenTool,
   writePrdTool,
@@ -435,6 +527,7 @@ const BRAINSTORM_TOOLS = [
   updateNodeTool,
   deleteNodeTool,
   createEdgeTool,
+  updateEdgeTool,
   deleteEdgeTool,
   insertNodeBetweenTool,
   writePrdTool,
@@ -479,6 +572,42 @@ function ok(content: string, data?: Record<string, unknown>): ToolResult {
 
 function fail(message: string): ToolResult {
   return { content: message, isError: true }
+}
+
+/** Long node lists blow the tool-result budget — the model only needs enough to re-aim. */
+const MAX_LISTED_NODES = 30
+
+/**
+ * Failure path only: a hallucinated node id is the most common model mistake, and a raw
+ * foreign-key error gives it nothing to correct with. Hand back the real node list instead.
+ */
+async function failWithExistingNodes(error: string, moduleId: string): Promise<ToolResult> {
+  const graph = await getGraphForModule(moduleId)
+  if (!graph.success) return fail(error)
+
+  const listed = graph.data.nodes
+    .slice(0, MAX_LISTED_NODES)
+    .map((node) => `"${node.label}" (id: ${node.id})`)
+    .join(', ')
+  const extra =
+    graph.data.nodes.length > MAX_LISTED_NODES
+      ? `, +${graph.data.nodes.length - MAX_LISTED_NODES} more`
+      : ''
+
+  return fail(`${error}. Existing nodes: ${listed || 'none'}${extra}`)
+}
+
+/** One-line, self-repair oriented failure text for a wrong or invented id. */
+function failNotFound(
+  kind: 'Node' | 'Edge',
+  id: string,
+  action: string,
+  error: string,
+): ToolResult {
+  const list = kind === 'Node' ? 'Current nodes' : 'Current edges'
+  return fail(
+    `${kind} ${id} not found or ${action} failed: ${error}. Use the exact ${kind.toLowerCase()} id from the ${list} list or from earlier tool results — never invent ids.`,
+  )
 }
 
 function formatGraphIssue(issue: FlowGraphIssue): string {
@@ -591,7 +720,7 @@ export function createToolExecutor(projectId: string, options: ToolExecutorOptio
         case 'delete_module': {
           const result = await deleteModule(input.moduleId as string)
           if (!result.success) return fail(result.error)
-          return ok(`Deleted module ${input.moduleId}`)
+          return ok(`Deleted module ${input.moduleId}`, { deletedModuleId: input.moduleId })
         }
 
         case 'connect_modules': {
@@ -638,6 +767,265 @@ export function createToolExecutor(projectId: string, options: ToolExecutorOptio
           })
         }
 
+        case 'capture_scope_flow': {
+          const moduleId = typeof input.moduleId === 'string' ? input.moduleId.trim() : ''
+          const rawNodes = input.nodes
+          const rawEdges = input.edges
+          const rawQuestions = input.questions
+
+          if (!moduleId) return fail('capture_scope_flow requires a moduleId.')
+          if (
+            !Array.isArray(rawNodes) ||
+            !Array.isArray(rawEdges) ||
+            !Array.isArray(rawQuestions)
+          ) {
+            return fail('capture_scope_flow requires nodes, edges, and questions arrays.')
+          }
+          if (
+            rawNodes.length > MAX_SCOPE_BATCH_NODES ||
+            rawEdges.length > MAX_SCOPE_BATCH_EDGES ||
+            rawQuestions.length > MAX_SCOPE_BATCH_QUESTIONS
+          ) {
+            return fail(
+              `Scope batch is too large. Maximum: ${MAX_SCOPE_BATCH_NODES} nodes, ${MAX_SCOPE_BATCH_EDGES} edges, and ${MAX_SCOPE_BATCH_QUESTIONS} questions.`,
+            )
+          }
+          if (rawNodes.length === 0 && rawQuestions.length === 0) {
+            return fail('Scope batch must contain at least one node or question.')
+          }
+
+          type ScopeNodeDraft = {
+            key: string
+            label: string
+            nodeType: Extract<FlowNode['node_type'], 'process' | 'decision' | 'start' | 'end'>
+          }
+          type ScopeEdgeDraft = {
+            source: string
+            target: string
+            label?: string
+            condition?: string
+          }
+          type ScopeQuestionDraft = {
+            section: string
+            question: string
+            relatedNode?: string
+          }
+
+          const allowedNodeTypes = new Set<FlowNode['node_type']>([
+            'process',
+            'decision',
+            'start',
+            'end',
+          ])
+          const nodeDrafts: ScopeNodeDraft[] = []
+          const localKeys = new Set<string>()
+          for (const [index, item] of rawNodes.entries()) {
+            if (!item || typeof item !== 'object' || Array.isArray(item)) {
+              return fail(`nodes[${index}] must be an object.`)
+            }
+            const draft = item as Record<string, unknown>
+            const key = typeof draft.key === 'string' ? draft.key.trim() : ''
+            const label = typeof draft.label === 'string' ? draft.label.trim() : ''
+            const nodeType = draft.nodeType
+            if (!key || key.length > 80) {
+              return fail(`nodes[${index}].key must be 1-80 characters.`)
+            }
+            if (localKeys.has(key)) return fail(`Duplicate local node key "${key}".`)
+            if (!label || label.length > 200) {
+              return fail(`nodes[${index}].label must be 1-200 characters.`)
+            }
+            if (
+              typeof nodeType !== 'string' ||
+              !allowedNodeTypes.has(nodeType as FlowNode['node_type'])
+            ) {
+              return fail(`nodes[${index}].nodeType must be process, decision, start, or end.`)
+            }
+            localKeys.add(key)
+            nodeDrafts.push({
+              key,
+              label,
+              nodeType: nodeType as ScopeNodeDraft['nodeType'],
+            })
+          }
+
+          const edgeDrafts: ScopeEdgeDraft[] = []
+          for (const [index, item] of rawEdges.entries()) {
+            if (!item || typeof item !== 'object' || Array.isArray(item)) {
+              return fail(`edges[${index}] must be an object.`)
+            }
+            const draft = item as Record<string, unknown>
+            const source = typeof draft.source === 'string' ? draft.source.trim() : ''
+            const target = typeof draft.target === 'string' ? draft.target.trim() : ''
+            if (!source || !target) {
+              return fail(`edges[${index}] requires non-empty source and target references.`)
+            }
+            edgeDrafts.push({
+              source,
+              target,
+              ...(typeof draft.label === 'string' && draft.label.trim()
+                ? { label: draft.label.trim() }
+                : {}),
+              ...(typeof draft.condition === 'string' && draft.condition.trim()
+                ? { condition: draft.condition.trim() }
+                : {}),
+            })
+          }
+
+          const questionDrafts: ScopeQuestionDraft[] = []
+          for (const [index, item] of rawQuestions.entries()) {
+            if (!item || typeof item !== 'object' || Array.isArray(item)) {
+              return fail(`questions[${index}] must be an object.`)
+            }
+            const draft = item as Record<string, unknown>
+            const section = typeof draft.section === 'string' ? draft.section.trim() : ''
+            const question = typeof draft.question === 'string' ? draft.question.trim() : ''
+            const relatedNode =
+              typeof draft.relatedNode === 'string' ? draft.relatedNode.trim() : ''
+            if (!section || section.length > 100) {
+              return fail(`questions[${index}].section must be 1-100 characters.`)
+            }
+            if (!question || question.length > 500) {
+              return fail(`questions[${index}].question must be 1-500 characters.`)
+            }
+            questionDrafts.push({
+              section,
+              question,
+              ...(relatedNode ? { relatedNode } : {}),
+            })
+          }
+
+          const nodes: FlowNode[] = []
+          const edges: FlowEdge[] = []
+          const questions: OpenQuestion[] = []
+          const errors: string[] = []
+          const createdByKey = new Map<string, FlowNode>()
+
+          for (const draft of nodeDrafts) {
+            const result = await addNode({
+              module_id: moduleId,
+              label: draft.label,
+              node_type: draft.nodeType,
+              pseudocode: '',
+              position: { x: 0, y: 0 },
+              color: DEFAULT_NODE_COLOR,
+            })
+            if (!result.success) {
+              errors.push(`Node "${draft.label}": ${result.error}`)
+              continue
+            }
+            createdByKey.set(draft.key, result.data)
+            nodes.push(result.data)
+          }
+
+          if (nodeDrafts.length > 0 && createdByKey.size === 0) {
+            return fail(`All ${nodeDrafts.length} flow nodes failed: ${errors.join('; ')}`)
+          }
+
+          const resolveNodeRef = (reference: string): string | null => {
+            if (localKeys.has(reference)) return createdByKey.get(reference)?.id ?? null
+            return reference
+          }
+
+          for (const draft of edgeDrafts) {
+            const sourceNodeId = resolveNodeRef(draft.source)
+            const targetNodeId = resolveNodeRef(draft.target)
+            if (!sourceNodeId || !targetNodeId) {
+              errors.push(`Edge ${draft.source} → ${draft.target}: a referenced local node failed.`)
+              continue
+            }
+            const result = await addEdge({
+              module_id: moduleId,
+              source_node_id: sourceNodeId,
+              target_node_id: targetNodeId,
+              ...(draft.label ? { label: draft.label } : {}),
+              ...(draft.condition ? { condition: draft.condition } : {}),
+            })
+            if (result.success) edges.push(result.data)
+            else errors.push(`Edge ${draft.source} → ${draft.target}: ${result.error}`)
+          }
+
+          const existingQuestions = await listOpenQuestions(projectId)
+          const seenQuestionKeys = new Set(
+            (existingQuestions.success ? existingQuestions.data : []).map((question) =>
+              normalizeQuestionKey(question.question),
+            ),
+          )
+          let skippedDuplicates = 0
+
+          for (const draft of questionDrafts) {
+            const questionKey = normalizeQuestionKey(draft.question)
+            if (seenQuestionKeys.has(questionKey)) {
+              skippedDuplicates += 1
+              continue
+            }
+            seenQuestionKeys.add(questionKey)
+
+            const label =
+              draft.question.length > 60 ? `${draft.question.slice(0, 57)}...` : draft.question
+            const nodeResult = await addNode({
+              module_id: moduleId,
+              label,
+              node_type: 'question',
+              pseudocode: draft.question,
+              position: { x: 0, y: 0 },
+              color: '#F59E0B',
+            })
+            if (!nodeResult.success) {
+              errors.push(`Question node "${label}": ${nodeResult.error}`)
+              continue
+            }
+
+            const questionResult = await createOpenQuestion({
+              project_id: projectId,
+              node_id: nodeResult.data.id,
+              section: draft.section,
+              question: draft.question,
+            })
+            if (!questionResult.success) {
+              await removeNode(nodeResult.data.id)
+              errors.push(`Question "${label}": ${questionResult.error}`)
+              continue
+            }
+
+            nodes.push(nodeResult.data)
+            questions.push(questionResult.data)
+
+            if (draft.relatedNode) {
+              const sourceNodeId = resolveNodeRef(draft.relatedNode)
+              if (!sourceNodeId) {
+                errors.push(`Question "${label}" was saved, but its related local node failed.`)
+                continue
+              }
+              const edgeResult = await addEdge({
+                module_id: moduleId,
+                source_node_id: sourceNodeId,
+                target_node_id: nodeResult.data.id,
+              })
+              if (edgeResult.success) edges.push(edgeResult.data)
+              else errors.push(`Question edge for "${label}": ${edgeResult.error}`)
+            }
+          }
+
+          if (nodes.length === 0) {
+            if (skippedDuplicates === questionDrafts.length && questionDrafts.length > 0) {
+              return ok(
+                `All ${questionDrafts.length} question(s) already exist — nothing added. Do not re-add them.`,
+                { nodes, edges, questions },
+              )
+            }
+            return fail(`Nothing in the scope batch could be saved: ${errors.join('; ')}`)
+          }
+
+          const warning = errors.length > 0 ? ` ${errors.length} item(s) need repair.` : ''
+          const duplicateNote =
+            skippedDuplicates > 0 ? ` Skipped ${skippedDuplicates} duplicate question(s).` : ''
+          return okWithGraphCheck(
+            `Captured ${createdByKey.size} flow node(s), ${edges.length} edge(s), and ${questions.length} open question(s).${warning}${duplicateNote}`,
+            moduleId,
+            { nodes, edges, questions },
+          )
+        }
+
         case 'create_node': {
           const result = await addNode({
             module_id: input.moduleId as string,
@@ -656,17 +1044,20 @@ export function createToolExecutor(projectId: string, options: ToolExecutorOptio
         }
 
         case 'update_node': {
-          const { nodeId, nodeType, ...fields } = input as {
+          // Pick fields explicitly — a rest-spread would forward any stray key
+          // the model invents straight into the DB update.
+          const { nodeId, nodeType, label, pseudocode } = input as {
             nodeId: string
             nodeType?: string
             label?: string
             pseudocode?: string
           }
           const result = await updateNode(nodeId, {
-            ...fields,
+            ...(label !== undefined ? { label } : {}),
+            ...(pseudocode !== undefined ? { pseudocode } : {}),
             ...(nodeType ? { node_type: nodeType as FlowNode['node_type'] } : {}),
           })
-          if (!result.success) return fail(result.error)
+          if (!result.success) return failNotFound('Node', nodeId, 'update', result.error)
           return okWithGraphCheck(
             `Updated node "${result.data.label}" (id: ${result.data.id})`,
             result.data.module_id,
@@ -677,31 +1068,51 @@ export function createToolExecutor(projectId: string, options: ToolExecutorOptio
         }
 
         case 'delete_node': {
-          const result = await removeNode(input.nodeId as string)
-          if (!result.success) return fail(result.error)
-          return ok(`Deleted node ${input.nodeId}`, { deletedNodeId: input.nodeId })
+          const nodeId = input.nodeId as string
+          const result = await removeNode(nodeId)
+          if (!result.success) return failNotFound('Node', nodeId, 'delete', result.error)
+          return ok(`Deleted node ${nodeId}`, { deletedNodeId: nodeId })
         }
 
         case 'create_edge': {
+          const moduleId = input.moduleId as string
           const result = await addEdge({
-            module_id: input.moduleId as string,
+            module_id: moduleId,
             source_node_id: input.sourceNodeId as string,
             target_node_id: input.targetNodeId as string,
             label: input.label as string | undefined,
             condition: input.condition as string | undefined,
           })
-          if (!result.success) return fail(result.error)
+          if (!result.success) return failWithExistingNodes(result.error, moduleId)
           return okWithGraphCheck(
             `Created edge ${input.sourceNodeId} → ${input.targetNodeId} (id: ${result.data.id})`,
-            input.moduleId as string,
+            moduleId,
             { edge: result.data },
           )
         }
 
+        case 'update_edge': {
+          // Same stray-key guard as update_node.
+          const { edgeId, label, condition } = input as {
+            edgeId: string
+            label?: string
+            condition?: string
+          }
+          const result = await updateEdge(edgeId, {
+            ...(label !== undefined ? { label } : {}),
+            ...(condition !== undefined ? { condition } : {}),
+          })
+          if (!result.success) return failNotFound('Edge', edgeId, 'update', result.error)
+          return okWithGraphCheck(`Updated edge ${result.data.id}`, result.data.module_id, {
+            edge: result.data,
+          })
+        }
+
         case 'delete_edge': {
-          const result = await removeEdge(input.edgeId as string)
-          if (!result.success) return fail(result.error)
-          return ok(`Deleted edge ${input.edgeId}`, { deletedEdgeId: input.edgeId })
+          const edgeId = input.edgeId as string
+          const result = await removeEdge(edgeId)
+          if (!result.success) return failNotFound('Edge', edgeId, 'delete', result.error)
+          return ok(`Deleted edge ${edgeId}`, { deletedEdgeId: edgeId })
         }
 
         case 'insert_node_between': {
@@ -921,7 +1332,7 @@ export function createToolExecutor(projectId: string, options: ToolExecutorOptio
             )
           }
 
-          const result = await resolveOpenQuestion(questionId, resolution)
+          const result = await resolveOpenQuestion(projectId, questionId, resolution)
           if (!result.success) return fail(result.error)
 
           const nodeId = result.data.node_id

@@ -30,6 +30,15 @@ export function isClickOnlySelectedQuestionPrompt(
 function recommendedDefaultForOpenQuestion(question: string): string {
   const normalized = normalizeSelectedQuestionText(question)
 
+  if (
+    (normalized.includes('account') || normalized.includes('sign up')) &&
+    normalized.includes('link')
+  ) {
+    return 'Use secure passwordless links initially, with optional accounts later for repeat users who want saved history.'
+  }
+  if (normalized.includes('remind') || normalized.includes('reminder')) {
+    return 'Send reminders 48 hours before the deadline and again 24 hours before it, then send one overdue alert to the owner.'
+  }
   if (normalized.includes('payment') && normalized.includes('fail')) {
     return 'Show the payment error, keep the cart intact, and let the user retry with a different card or payment method.'
   }

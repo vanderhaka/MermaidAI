@@ -109,14 +109,33 @@ function ToolActivityIndicator({ activity }: { activity: string }) {
   )
 }
 
-function ToolCallsSummary({ calls }: { calls: string[] }) {
+function toolCallCountLabel(count: number): string {
+  // "action", not "canvas update" — the record also includes non-canvas work
+  // such as doc lookups, PRD writes, and mode switches.
+  return `${count} action${count === 1 ? '' : 's'}`
+}
+
+/**
+ * The record of what a turn changed on the canvas. Runs live under the streaming
+ * bubble while the turn is in flight, then sits under the message it produced.
+ */
+function ToolCallsSummary({
+  calls,
+  live = false,
+  activity = null,
+}: {
+  calls: string[]
+  live?: boolean
+  activity?: string | null
+}) {
   const [isOpen, setIsOpen] = useState(false)
 
   if (calls.length === 0) return null
 
-  if (calls.length === 1) {
+  // A finished turn with a single call reads better as the call than as a count.
+  if (!live && calls.length === 1) {
     return (
-      <div className="flex items-center gap-2 px-1 py-1">
+      <div data-testid="tool-calls-summary" className="flex items-center gap-2 px-1 py-1">
         <div className="h-2 w-2 rounded-full bg-purple-400" />
         <span className="text-xs font-medium text-purple-600">{calls[0]}</span>
       </div>
@@ -124,23 +143,34 @@ function ToolCallsSummary({ calls }: { calls: string[] }) {
   }
 
   return (
-    <div className="px-1 py-1">
+    <div data-testid={live ? 'tool-calls-live' : 'tool-calls-summary'} className="px-1 py-1">
       <button
         type="button"
+        aria-expanded={isOpen}
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 text-xs font-medium text-purple-600 hover:text-purple-800"
       >
-        <div className="h-2 w-2 rounded-full bg-purple-400" />
-        <span>{calls.length} tools used</span>
+        {live ? (
+          <span className="flex items-center gap-1" aria-hidden>
+            <span className="thinking-dot h-1.5 w-1.5 rounded-full bg-purple-400" />
+            <span className="thinking-dot h-1.5 w-1.5 rounded-full bg-purple-400" />
+            <span className="thinking-dot h-1.5 w-1.5 rounded-full bg-purple-400" />
+          </span>
+        ) : (
+          <span className="h-2 w-2 rounded-full bg-purple-400" aria-hidden />
+        )}
+        <span>{toolCallCountLabel(calls.length)}</span>
         <svg
           className={`h-3 w-3 transition-transform ${isOpen ? 'rotate-180' : ''}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
+          aria-hidden
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
+      {live && activity && <p className="mt-1 pl-4 text-xs text-purple-500">{activity}…</p>}
       {isOpen && (
         <ul className="mt-1.5 space-y-1 border-l-2 border-purple-200 pl-3">
           {calls.map((call, i) => (
@@ -280,6 +310,11 @@ function MessageBubble({
           )}
         </div>
       )}
+      {message.toolCalls && message.toolCalls.length > 0 && (
+        <div className="mt-2">
+          <ToolCallsSummary calls={message.toolCalls} />
+        </div>
+      )}
     </article>
   )
 }
@@ -314,7 +349,11 @@ export default function ChatMessageList({
     const last = messages[messages.length - 1]
     if (last?.role === 'user') pinnedToBottomRef.current = true
     if (!pinnedToBottomRef.current) return
-    scrollRef.current?.scrollIntoView({ behavior: 'smooth' })
+
+    const frameId = requestAnimationFrame(() => {
+      scrollRef.current?.scrollIntoView({ behavior: streamingContent ? 'auto' : 'smooth' })
+    })
+    return () => cancelAnimationFrame(frameId)
   }, [messages, streamingContent])
 
   const showEmpty = messages.length === 0 && !isLoading
@@ -357,9 +396,11 @@ export default function ChatMessageList({
         }
       : null
 
-  // Show live activity while streaming, or completed summary after
-  const showLiveActivity = isLoading && toolActivity
-  const showCompletedTools = toolCalls.length > 0
+  // While the turn is in flight the record is live; once it lands it belongs to
+  // the message that produced it, so completed turns render from `message.toolCalls`.
+  const showLiveToolCalls = isLoading && toolCalls.length > 0
+  // Before the first call completes there is nothing to count, only a label.
+  const soleActivity = isLoading && !showLiveToolCalls ? toolActivity : null
 
   return (
     <div
@@ -373,11 +414,11 @@ export default function ChatMessageList({
         <MessageBubble key={msg.id} message={msg} onSend={onSend} isLoading={isLoading} />
       ))}
       {isLoading && !streamingContent && !toolActivity && <ThinkingIndicator />}
-      {showCompletedTools && !isLoading && <ToolCallsSummary calls={toolCalls} />}
       {streamingMessage && (
         <MessageBubble message={streamingMessage} onSend={onSend} isLoading={isLoading} />
       )}
-      {showLiveActivity && <ToolActivityIndicator activity={toolActivity} />}
+      {showLiveToolCalls && <ToolCallsSummary calls={toolCalls} live activity={toolActivity} />}
+      {soleActivity && <ToolActivityIndicator activity={soleActivity} />}
       <div ref={scrollRef} data-testid="scroll-anchor" />
     </div>
   )

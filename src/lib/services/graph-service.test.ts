@@ -444,6 +444,62 @@ describe('addEdge', () => {
   })
 })
 
+describe('updateEdge', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFrom.mockReturnValue({
+      select: mockSelect,
+      insert: mockInsert,
+      update: mockUpdate,
+      delete: mockDelete,
+    })
+    mockUpdate.mockReturnValue({ eq: mockEq })
+    mockEq.mockReturnValue({ select: mockSelect, single: mockSingle })
+    mockSelect.mockReturnValue({ eq: mockEq, single: mockSingle })
+  })
+
+  afterEach(() => {
+    vi.resetModules()
+  })
+
+  it('returns the updated edge when given a valid id and partial data', async () => {
+    const updatedRow = {
+      id: 'edge-1',
+      module_id: '550e8400-e29b-41d4-a716-446655440000',
+      source_node_id: '660e8400-e29b-41d4-a716-446655440001',
+      target_node_id: '770e8400-e29b-41d4-a716-446655440002',
+      label: 'Yes',
+      condition: 'payment succeeded',
+      created_at: '2026-01-01T00:00:00Z',
+    }
+
+    mockSingle.mockResolvedValue({ data: updatedRow, error: null })
+
+    const { updateEdge } = await import('@/lib/services/graph-service')
+    const result = await updateEdge('edge-1', { label: 'Yes', condition: 'payment succeeded' })
+
+    expect(result).toEqual({ success: true, data: updatedRow })
+    expect(mockFrom).toHaveBeenCalledWith('flow_edges')
+    expect(mockUpdate).toHaveBeenCalledWith({ label: 'Yes', condition: 'payment succeeded' })
+    expect(mockEq).toHaveBeenCalledWith('id', 'edge-1')
+  })
+
+  it('returns error when edge id does not exist', async () => {
+    mockSingle.mockResolvedValue({
+      data: null,
+      error: { message: 'No rows found' },
+    })
+
+    const { updateEdge } = await import('@/lib/services/graph-service')
+    const result = await updateEdge('nonexistent-id', { label: 'No' })
+
+    expect(result).toEqual({
+      success: false,
+      error: 'No rows found',
+    })
+  })
+})
+
 describe('removeEdge', () => {
   beforeEach(() => {
     vi.clearAllMocks()

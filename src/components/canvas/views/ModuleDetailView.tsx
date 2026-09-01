@@ -73,12 +73,17 @@ const edgeTypes = {
   condition: ConditionEdge,
 }
 
+/** Stable identity so an unset prop does not bust the node memo every render. */
+const NO_CHANGED_NODE_IDS: ReadonlySet<string> = new Set<string>()
+
 type ModuleDetailViewProps = {
   moduleName: string
   /** L1 domain label (e.g. Payments) for hierarchy context */
   domainLabel?: string
   nodes: FlowNode[]
   edges: FlowEdge[]
+  /** Nodes the last assistant turn touched — rendered with a fading change ring. */
+  changedNodeIds?: ReadonlySet<string>
   showFunnelLanes?: boolean
   onBack?: () => void
 }
@@ -107,11 +112,16 @@ function toReactFlowNodes(
   nodes: FlowNode[],
   layoutNodes: Map<string, { id: string; position: { x: number; y: number } }>,
   showFunnelLanes = false,
+  changedNodeIds: ReadonlySet<string> = NO_CHANGED_NODE_IDS,
 ): Node[] {
-  const getNodeData = (node: FlowNode) =>
-    node.node_type === 'question'
-      ? { label: node.label, pseudocode: node.pseudocode, question: node.label }
-      : { label: node.label, pseudocode: node.pseudocode }
+  const getNodeData = (node: FlowNode) => {
+    const base = {
+      label: node.label,
+      pseudocode: node.pseudocode,
+      recentlyChanged: changedNodeIds.has(node.id),
+    }
+    return node.node_type === 'question' ? { ...base, question: node.label } : base
+  }
 
   if (showFunnelLanes) {
     const funnelLayout = buildFunnelLaneLayout(nodes, layoutNodes)
@@ -321,11 +331,13 @@ function ModuleDetailFlow({
   nodes,
   edges,
   layout,
+  changedNodeIds,
   showFunnelLanes = false,
 }: {
   nodes: FlowNode[]
   edges: FlowEdge[]
   layout: FlowDetailLayoutResult
+  changedNodeIds: ReadonlySet<string>
   showFunnelLanes?: boolean
 }) {
   const { fitView } = useReactFlow()
@@ -335,10 +347,10 @@ function ModuleDetailFlow({
     const layoutNodesMap = new Map(layout.nodes.map((n) => [n.id, n]))
     const layoutEdgesMap = new Map(layout.edges.map((e) => [e.id, e.sections]))
     return {
-      rfNodes: toReactFlowNodes(nodes, layoutNodesMap, showFunnelLanes),
+      rfNodes: toReactFlowNodes(nodes, layoutNodesMap, showFunnelLanes, changedNodeIds),
       rfEdges: toReactFlowEdges(nodes, edges, layoutEdgesMap, showFunnelLanes),
     }
-  }, [nodes, edges, layout, showFunnelLanes])
+  }, [nodes, edges, layout, showFunnelLanes, changedNodeIds])
   const flowMeasurementReady = useStore(
     (state) =>
       Boolean(state.domNode) &&
@@ -411,6 +423,7 @@ export default function ModuleDetailView({
   domainLabel,
   nodes,
   edges,
+  changedNodeIds = NO_CHANGED_NODE_IDS,
   showFunnelLanes = false,
   onBack,
 }: ModuleDetailViewProps) {
@@ -487,6 +500,7 @@ export default function ModuleDetailView({
               nodes={nodes}
               edges={edges}
               layout={layout}
+              changedNodeIds={changedNodeIds}
               showFunnelLanes={showFunnelLanes}
             />
           </ReactFlowProvider>

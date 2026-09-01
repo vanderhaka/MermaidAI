@@ -66,4 +66,19 @@ describe('DecisionNode', () => {
     expect(handle).toBeInTheDocument()
     expect(handle).toHaveAttribute('data-position', 'right')
   })
+
+  it('renders no change highlight when the last turn did not touch it', () => {
+    render(<DecisionNode {...defaultProps} />)
+    expect(screen.queryByTestId('node-change-highlight')).not.toBeInTheDocument()
+  })
+
+  // Nested inside the rotated face so the ring traces the diamond rather than
+  // the square bounding box.
+  it('nests the change highlight inside the rotated diamond face', () => {
+    render(<DecisionNode {...defaultProps} data={{ label: 'Is Valid?', recentlyChanged: true }} />)
+
+    const highlight = screen.getByTestId('node-change-highlight')
+    expect(highlight).toBeInTheDocument()
+    expect(highlight.parentElement).toHaveClass('rotate-45')
+  })
 })

@@ -38,6 +38,7 @@ const chatRequestSchema = z.object({
   projectId: z.string().min(1),
   message: z.string().trim().min(1),
   mode: z.enum(CHAT_MODES),
+  helperMode: z.boolean().optional().default(false),
   provider: z.enum(AI_PROVIDERS).optional(),
   context: z.object({
     projectId: z.string(),
@@ -70,6 +71,30 @@ function makeTextStream(text: string): ReadableStream<string> {
       controller.close()
     },
   })
+}
+
+/** A failed insert is logged, never surfaced — persistence must not break the stream. */
+async function persistChatMessage(
+  projectId: string,
+  role: 'user' | 'assistant',
+  content: string,
+): Promise<void> {
+  try {
+    await addChatMessage({ project_id: projectId, role, content })
+  } catch (persistErr) {
+    console.error('Failed to persist chat message', {
+      projectId,
+      role,
+      error: persistErr instanceof Error ? persistErr.message : String(persistErr),
+    })
+  }
+}
+
+/** Tool-only turns produce no text — those are not worth a row. */
+async function persistAssistantText(projectId: string, text: string): Promise<void> {
+  const trimmed = text.trim()
+  if (!trimmed) return
+  await persistChatMessage(projectId, 'assistant', trimmed)
 }
 
 export async function POST(request: Request) {
@@ -109,7 +134,7 @@ export async function POST(request: Request) {
     )
   }
 
-  const { projectId, message, mode, context, history } = parsed.data
+  const { projectId, message, mode, helperMode, context, history } = parsed.data
   const provider = parsed.data.provider ?? defaultProvider()
 
   let llmStream: ReadableStream<string>
@@ -121,6 +146,9 @@ export async function POST(request: Request) {
       activeModuleId: context.activeModuleId,
       resolvingOpenQuestion: context.resolvingOpenQuestion,
     })
+    // A per-request preference, not persisted project state — the loader stays
+    // concerned with what the database knows.
+    promptContext.helperMode = helperMode
 
     const selectedOpenQuestion =
       context.resolvingOpenQuestion &&
@@ -159,6 +187,16 @@ export async function POST(request: Request) {
       llmStream = await callLLMWithTools(systemPrompt, messages, tools, executeTool, {
         provider,
         sessionKey: projectId,
+        ...(mode === 'scope_build'
+          ? {
+              reasoningEffort: 'low' as const,
+              continuationReasoningEffort: 'low' as const,
+            }
+          : {}),
+        // Fires when the client hits Stop or disconnects. Without it the tool
+        // loop keeps running rounds — and writing to the database — for a
+        // turn nobody is listening to.
+        signal: request.signal,
       })
     }
   } catch (err) {
@@ -173,6 +211,12 @@ export async function POST(request: Request) {
       const reader = llmStream.getReader()
       const encoder = new TextEncoder()
 
+      // Start the user turn as soon as the stream opens so a mid-stream failure
+      // cannot lose it. Not awaited here — the first token should not wait on a
+      // database round trip — but awaited before the assistant row so the two
+      // land in order.
+      const userPersisted = persistChatMessage(projectId, 'user', message)
+
       try {
         while (true) {
           const { value, done } = await reader.read()
@@ -185,37 +229,29 @@ export async function POST(request: Request) {
           const { text } = parser.push(value)
           fullText += text
         }
-        // Flush any buffered text from the parser
-        const { text: remaining } = parser.flush()
-        fullText += remaining
-
-        controller.close()
       } catch (err) {
+        // Keep the partial turn: whatever the model explained before the failure
+        // is still the record of what happened on the canvas.
+        fullText += parser.flush().text
+        await userPersisted
+        await persistAssistantText(projectId, fullText)
         controller.error(err)
         return
       }
 
-      // Persist messages after stream completes
-      try {
-        await addChatMessage({
-          project_id: projectId,
-          role: 'user',
-          content: message,
-        })
+      // Flush any buffered text from the parser
+      fullText += parser.flush().text
 
-        if (fullText.trim()) {
-          await addChatMessage({
-            project_id: projectId,
-            role: 'assistant',
-            content: fullText.trim(),
-          })
-        }
-      } catch (persistErr) {
-        console.error('Failed to persist chat messages', {
-          projectId,
-          error: persistErr instanceof Error ? persistErr.message : String(persistErr),
-        })
+      try {
+        controller.close()
+      } catch {
+        // A stopped turn ends here with the client already gone and this
+        // stream cancelled — there is nothing left to close, but the turn
+        // still has to be persisted below.
       }
+
+      await userPersisted
+      await persistAssistantText(projectId, fullText)
     },
   })
 

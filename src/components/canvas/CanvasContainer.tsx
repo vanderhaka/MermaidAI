@@ -1,5 +1,6 @@
 'use client'
 
+import { memo } from 'react'
 import { displayDomain } from '@/lib/module-hierarchy'
 import { useGraphStore } from '@/store/graph-store'
 import ModuleMapView from '@/components/canvas/views/ModuleMapView'
@@ -9,12 +10,13 @@ type CanvasContainerProps = {
   showFunnelLanes?: boolean
 }
 
-export default function CanvasContainer({ showFunnelLanes = false }: CanvasContainerProps) {
+function CanvasContainer({ showFunnelLanes = false }: CanvasContainerProps) {
   const modules = useGraphStore((s) => s.modules)
   const nodes = useGraphStore((s) => s.nodes)
   const edges = useGraphStore((s) => s.edges)
   const connections = useGraphStore((s) => s.connections)
   const activeModuleId = useGraphStore((s) => s.activeModuleId)
+  const lastTurnChangedIds = useGraphStore((s) => s.lastTurnChangedIds)
   const setActiveModuleId = useGraphStore((s) => s.setActiveModuleId)
 
   const activeModule = activeModuleId ? modules.find((m) => m.id === activeModuleId) : null
@@ -29,6 +31,7 @@ export default function CanvasContainer({ showFunnelLanes = false }: CanvasConta
         domainLabel={displayDomain(activeModule.domain)}
         nodes={moduleNodes}
         edges={moduleEdges}
+        changedNodeIds={lastTurnChangedIds}
         showFunnelLanes={showFunnelLanes}
         onBack={() => setActiveModuleId(null)}
       />
@@ -43,3 +46,5 @@ export default function CanvasContainer({ showFunnelLanes = false }: CanvasConta
     />
   )
 }
+
+export default memo(CanvasContainer)

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ChatMessage } from '@/types/chat'
 import ChatMessageList from '@/components/chat/ChatMessageList'
 
@@ -26,6 +26,11 @@ const assistantMsg = makeMessage({
   id: 'msg-2',
   role: 'assistant',
   content: 'Here is a login flow with email and password.',
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 describe('ChatMessageList', () => {
@@ -150,6 +155,146 @@ describe('ChatMessageList', () => {
     })
   })
 
+  describe('tool call visibility', () => {
+    it('renders a live progress block that grows as the turn runs', () => {
+      const { rerender } = render(
+        <ChatMessageList
+          messages={[userMsg]}
+          isLoading={true}
+          streamingContent="Working on it"
+          toolActivity="Created node"
+          toolCalls={['Created node']}
+        />,
+      )
+
+      expect(screen.getByTestId('tool-calls-live')).toHaveTextContent('1 action')
+
+      rerender(
+        <ChatMessageList
+          messages={[userMsg]}
+          isLoading={true}
+          streamingContent="Working on it"
+          toolActivity="Created edge"
+          toolCalls={['Created node', 'Updated node', 'Created edge']}
+        />,
+      )
+
+      const live = screen.getByTestId('tool-calls-live')
+      expect(live).toHaveTextContent('3 actions')
+      expect(live).toHaveTextContent('Created edge')
+    })
+
+    it('expands the live block to the full list so far', async () => {
+      const user = userEvent.setup()
+      render(
+        <ChatMessageList
+          messages={[userMsg]}
+          isLoading={true}
+          streamingContent="Working on it"
+          toolActivity="Created edge"
+          toolCalls={['Created node', 'Created edge']}
+        />,
+      )
+
+      const live = screen.getByTestId('tool-calls-live')
+      const toggle = within(live).getByRole('button')
+      expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      expect(within(live).queryAllByRole('listitem')).toHaveLength(0)
+
+      await user.click(toggle)
+
+      expect(toggle).toHaveAttribute('aria-expanded', 'true')
+      expect(
+        within(live)
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual(['Created node', 'Created edge'])
+    })
+
+    it('falls back to the latest label before the first call completes', () => {
+      render(
+        <ChatMessageList
+          messages={[userMsg]}
+          isLoading={true}
+          streamingContent="Working on it"
+          toolActivity="Creating node"
+          toolCalls={[]}
+        />,
+      )
+
+      expect(screen.queryByTestId('tool-calls-live')).not.toBeInTheDocument()
+      expect(screen.getByText('Creating node…')).toBeInTheDocument()
+    })
+
+    it('renders a collapsed summary under the message that produced it', async () => {
+      const user = userEvent.setup()
+      const msg = makeMessage({
+        id: 'msg-tools',
+        role: 'assistant',
+        content: 'Added the checkout steps.',
+        toolCalls: ['Created node', 'Updated node', 'Created edge'],
+      })
+
+      render(<ChatMessageList messages={[msg]} isLoading={false} />)
+
+      const article = screen.getByRole('article')
+      const summary = within(article).getByTestId('tool-calls-summary')
+      expect(summary).toHaveTextContent('3 actions')
+      expect(within(summary).queryAllByRole('listitem')).toHaveLength(0)
+
+      await user.click(within(summary).getByRole('button'))
+
+      expect(within(summary).getAllByRole('listitem')).toHaveLength(3)
+    })
+
+    it('shows a single call as its own label rather than a count', () => {
+      const msg = makeMessage({
+        id: 'msg-one-tool',
+        role: 'assistant',
+        content: 'Added the step.',
+        toolCalls: ['Created node'],
+      })
+
+      render(<ChatMessageList messages={[msg]} isLoading={false} />)
+
+      expect(screen.getByTestId('tool-calls-summary')).toHaveTextContent('Created node')
+    })
+
+    it('keeps the question and recommendation cards alongside the tool record', () => {
+      const msg = makeMessage({
+        id: 'msg-tools-question',
+        role: 'assistant',
+        content:
+          'Added the coupon step.\n\n**Should an invalid coupon show an error?**\n\nRecommended answer: Show an error and allow a retry.',
+        toolCalls: ['Created node', 'Created edge'],
+      })
+
+      render(<ChatMessageList messages={[msg]} isLoading={false} />)
+
+      expect(screen.getByTestId('assistant-question')).toHaveTextContent(
+        'Should an invalid coupon show an error?',
+      )
+      expect(screen.getByTestId('assistant-recommendation')).toHaveTextContent(
+        'Show an error and allow a retry',
+      )
+      expect(screen.getByTestId('tool-calls-summary')).toHaveTextContent('2 actions')
+    })
+
+    it('no longer renders a global summary once the turn ends', () => {
+      render(
+        <ChatMessageList
+          messages={[userMsg, assistantMsg]}
+          isLoading={false}
+          toolCalls={['Created node', 'Created edge']}
+        />,
+      )
+
+      expect(screen.queryByTestId('tool-calls-summary')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('tool-calls-live')).not.toBeInTheDocument()
+      expect(screen.queryByText(/\d+ actions?\b/i)).not.toBeInTheDocument()
+    })
+  })
+
   describe('accessibility', () => {
     it('uses a log role on the message list container', () => {
       render(<ChatMessageList messages={[userMsg, assistantMsg]} isLoading={false} />)
@@ -179,6 +324,46 @@ describe('ChatMessageList', () => {
     it('has a scroll anchor element at the bottom', () => {
       render(<ChatMessageList messages={[userMsg, assistantMsg]} isLoading={false} />)
       expect(screen.getByTestId('scroll-anchor')).toBeInTheDocument()
+    })
+
+    it('batches streamed chunks into one instant scroll per animation frame', () => {
+      const frameCallbacks = new Map<number, FrameRequestCallback>()
+      let nextFrameId = 0
+      const requestFrame = vi.fn((callback: FrameRequestCallback) => {
+        const id = ++nextFrameId
+        frameCallbacks.set(id, callback)
+        return id
+      })
+      const cancelFrame = vi.fn((id: number) => frameCallbacks.delete(id))
+      const scrollIntoView = vi.fn()
+
+      vi.stubGlobal('requestAnimationFrame', requestFrame)
+      vi.stubGlobal('cancelAnimationFrame', cancelFrame)
+      Object.defineProperty(Element.prototype, 'scrollIntoView', {
+        configurable: true,
+        value: scrollIntoView,
+      })
+
+      const { rerender } = render(
+        <ChatMessageList messages={[userMsg]} isLoading streamingContent="First" />,
+      )
+      rerender(<ChatMessageList messages={[userMsg]} isLoading streamingContent="First chunk" />)
+      rerender(
+        <ChatMessageList
+          messages={[userMsg]}
+          isLoading
+          streamingContent="First chunk, then more"
+        />,
+      )
+
+      expect(scrollIntoView).not.toHaveBeenCalled()
+      expect(frameCallbacks.size).toBe(1)
+
+      const pendingFrame = Array.from(frameCallbacks.values())[0]
+      act(() => pendingFrame(0))
+
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto' })
     })
   })
 

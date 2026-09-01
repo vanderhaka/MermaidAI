@@ -190,6 +190,46 @@ describe('ModuleDetailView', () => {
     })
   })
 
+  it('flags only the changed nodes as recently changed', async () => {
+    render(
+      <ModuleDetailView
+        moduleName="Auth"
+        nodes={sampleNodes}
+        edges={sampleEdges}
+        changedNodeIds={new Set(['n2'])}
+      />,
+    )
+
+    await waitFor(() => {
+      const flow = screen.getByTestId('react-flow')
+      const rfNodes = JSON.parse(flow.getAttribute('data-nodes') ?? '[]')
+      expect(rfNodes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'n2',
+            data: expect.objectContaining({ recentlyChanged: true }),
+          }),
+          expect.objectContaining({
+            id: 'n1',
+            data: expect.objectContaining({ recentlyChanged: false }),
+          }),
+        ]),
+      )
+    })
+  })
+
+  it('marks no node as recently changed when the prop is omitted', async () => {
+    render(<ModuleDetailView moduleName="Auth" nodes={sampleNodes} edges={sampleEdges} />)
+
+    await waitFor(() => {
+      const flow = screen.getByTestId('react-flow')
+      const rfNodes = JSON.parse(flow.getAttribute('data-nodes') ?? '[]')
+      expect(
+        rfNodes.every((node: { data: { recentlyChanged: boolean } }) => !node.data.recentlyChanged),
+      ).toBe(true)
+    })
+  })
+
   it('applies computeFlowDetailLayout to position nodes', async () => {
     const { computeFlowDetailLayout } = (await import('@/lib/canvas/layout')) as unknown as {
       computeFlowDetailLayout: ReturnType<typeof vi.fn>

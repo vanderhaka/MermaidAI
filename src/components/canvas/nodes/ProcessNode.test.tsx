@@ -86,4 +86,32 @@ describe('ProcessNode', () => {
     expect(handle).toBeInTheDocument()
     expect(handle).toHaveAttribute('data-position', 'bottom')
   })
+
+  describe('change highlight', () => {
+    it('is absent on a node the last turn did not touch', () => {
+      render(<ProcessNode {...defaultProps} />)
+      expect(screen.queryByTestId('node-change-highlight')).not.toBeInTheDocument()
+    })
+
+    it('rings a node the last turn changed', () => {
+      render(
+        <ProcessNode {...defaultProps} data={{ ...defaultProps.data, recentlyChanged: true }} />,
+      )
+
+      const highlight = screen.getByTestId('node-change-highlight')
+      expect(highlight).toBeInTheDocument()
+      // The class carries the fade keyframes defined in globals.css.
+      expect(highlight).toHaveClass('node-change-highlight')
+    })
+
+    it('keeps the highlight decorative so it cannot swallow node clicks', () => {
+      render(
+        <ProcessNode {...defaultProps} data={{ ...defaultProps.data, recentlyChanged: true }} />,
+      )
+
+      const highlight = screen.getByTestId('node-change-highlight')
+      expect(highlight).toHaveClass('pointer-events-none')
+      expect(highlight).toHaveAttribute('aria-hidden', 'true')
+    })
+  })
 })

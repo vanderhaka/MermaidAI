@@ -67,6 +67,27 @@ describe('ChatInput', () => {
       expect(input).toHaveValue('')
     })
 
+    it('clears an accepted message immediately while the response is still running', async () => {
+      const user = userEvent.setup()
+      let finishSend: ((accepted: boolean) => void) | undefined
+      const pendingSend = vi.fn(
+        () =>
+          new Promise<boolean>((resolve) => {
+            finishSend = resolve
+          }),
+      )
+      render(<ChatInput onSend={pendingSend} isLoading={false} />)
+
+      const input = screen.getByRole('textbox')
+      await user.type(input, 'Build the first draft')
+      await user.click(screen.getByRole('button', { name: /send/i }))
+
+      expect(pendingSend).toHaveBeenCalledWith('Build the first draft')
+      expect(input).toHaveValue('')
+
+      finishSend?.(true)
+    })
+
     it('does not send empty messages on button click', async () => {
       const user = userEvent.setup()
       render(<ChatInput onSend={onSend} isLoading={false} />)
@@ -269,6 +290,42 @@ describe('ChatInput', () => {
       await waitFor(() => {
         expect(screen.getByRole('textbox')).toHaveValue('Do not lose me')
       })
+    })
+
+    it('replaces the inert Sending button with Stop while a response streams', () => {
+      const onStop = vi.fn()
+      render(<ChatInput onSend={onSend} isLoading={true} onStop={onStop} />)
+
+      expect(screen.getByRole('button', { name: /stop response/i })).toBeEnabled()
+      expect(screen.queryByRole('button', { name: /sending/i })).not.toBeInTheDocument()
+    })
+
+    it('calls onStop when the stop control is clicked', async () => {
+      const user = userEvent.setup()
+      const onStop = vi.fn()
+      render(<ChatInput onSend={onSend} isLoading={true} onStop={onStop} />)
+
+      await user.click(screen.getByRole('button', { name: /stop response/i }))
+
+      expect(onStop).toHaveBeenCalledTimes(1)
+    })
+
+    it('keeps queueing available alongside stop', async () => {
+      const user = userEvent.setup()
+      const onStop = vi.fn()
+      render(<ChatInput onSend={onSend} isLoading={true} onStop={onStop} />)
+
+      await user.type(screen.getByRole('textbox'), 'Note typed mid-stream')
+      await user.click(screen.getByRole('button', { name: /queue/i }))
+
+      expect(screen.getByTestId('queued-messages-pill')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /stop response/i })).toBeInTheDocument()
+      expect(onStop).not.toHaveBeenCalled()
+    })
+
+    it('shows no stop control when idle', () => {
+      render(<ChatInput onSend={onSend} isLoading={false} onStop={vi.fn()} />)
+      expect(screen.queryByRole('button', { name: /stop response/i })).not.toBeInTheDocument()
     })
 
     it('cancelling the queue restores the text to the input', async () => {

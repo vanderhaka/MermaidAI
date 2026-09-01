@@ -8,6 +8,11 @@ type GraphState = {
   connections: ModuleConnection[]
   openQuestions: OpenQuestion[]
   activeModuleId: string | null
+  /**
+   * Ids of nodes the most recent assistant turn created or edited. The canvas
+   * rings these so the user can tell new work apart from what was already there.
+   */
+  lastTurnChangedIds: ReadonlySet<string>
 }
 
 type GraphActions = {
@@ -23,11 +28,14 @@ type GraphActions = {
   addOpenQuestion: (question: OpenQuestion) => void
   updateModule: (id: string, partial: Partial<Module>) => void
   updateNode: (id: string, partial: Partial<FlowNode>) => void
+  updateEdge: (edge: FlowEdge) => void
   resolveOpenQuestion: (id: string, resolution: string) => void
   removeModule: (id: string) => void
   removeNode: (id: string) => void
   removeEdge: (id: string) => void
   setActiveModuleId: (id: string | null) => void
+  beginTurnChanges: () => void
+  markTurnChanged: (ids: string[]) => void
   reset: () => void
 }
 
@@ -38,6 +46,7 @@ const initialState: GraphState = {
   connections: [],
   openQuestions: [],
   activeModuleId: null,
+  lastTurnChangedIds: new Set<string>(),
 }
 
 export const useGraphStore = create<GraphState & GraphActions>()((set) => ({
@@ -67,6 +76,14 @@ export const useGraphStore = create<GraphState & GraphActions>()((set) => ({
       nodes: state.nodes.map((n) => (n.id === id ? { ...n, ...partial } : n)),
     })),
 
+  // Upsert: the assistant can edit an edge the client has not seen yet.
+  updateEdge: (edge) =>
+    set((state) => ({
+      edges: state.edges.some((e) => e.id === edge.id)
+        ? state.edges.map((e) => (e.id === edge.id ? { ...e, ...edge } : e))
+        : [...state.edges, edge],
+    })),
+
   resolveOpenQuestion: (id, resolution) =>
     set((state) => ({
       openQuestions: state.openQuestions.map((q) =>
@@ -83,6 +100,19 @@ export const useGraphStore = create<GraphState & GraphActions>()((set) => ({
   removeEdge: (id) => set((state) => ({ edges: state.edges.filter((e) => e.id !== id) })),
 
   setActiveModuleId: (id) => set({ activeModuleId: id }),
+
+  // A turn starts with a clean slate so the highlight only ever shows the work
+  // of the turn the user is currently watching.
+  beginTurnChanges: () => set({ lastTurnChangedIds: new Set<string>() }),
+
+  // Always a fresh Set: subscribers compare by identity, so mutating in place
+  // would leave the canvas showing a stale highlight.
+  markTurnChanged: (ids) =>
+    set((state) => {
+      const next = new Set(state.lastTurnChangedIds)
+      for (const id of ids) next.add(id)
+      return { lastTurnChangedIds: next }
+    }),
 
   reset: () => set(initialState),
 }))

@@ -35,9 +35,15 @@ export type ToolEventCallback = (
   result: ToolResult,
 ) => void
 
+export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
 export type CallLLMWithToolsOptions = {
   provider?: AIProvider
   onToolResult?: ToolEventCallback
+  /** Codex-only first-round reasoning override for this request. */
+  reasoningEffort?: ReasoningEffort
+  /** Codex-only follow-up tool-round reasoning override for this request. */
+  continuationReasoningEffort?: ReasoningEffort
   /**
    * Stable cache key for the backend's prompt cache (Codex-only; other
    * providers ignore it). Pass a UUID-format string — e.g. the project id —
@@ -45,6 +51,13 @@ export type CallLLMWithToolsOptions = {
    * instead of a fresh one per call.
    */
   sessionKey?: string
+  /**
+   * Fires when the caller stops the turn — the client's Stop button or a
+   * disconnect. Provider loops check it between rounds and before each tool
+   * execution, so the server stops issuing LLM calls and database writes
+   * instead of running to the tool budget with nobody listening.
+   */
+  signal?: AbortSignal
 }
 
 export function stringifyMessageContent(content: Anthropic.MessageParam['content']): string {

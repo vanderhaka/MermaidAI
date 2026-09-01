@@ -7,17 +7,20 @@ import {
   FLOW_DETAIL_HANDLE_COLOR,
   FLOW_DETAIL_HANDLE_POSITION,
 } from '@/components/canvas/nodes/flow-detail-handles'
+import { NodeChangeHighlight } from '@/components/canvas/nodes/NodeChangeHighlight'
 import { NodeTooltip } from '@/components/canvas/nodes/NodeTooltip'
 
 type QuestionNodeData = {
   question: string
+  recentlyChanged?: boolean
 }
 
 export default function QuestionNode({ data }: NodeProps) {
-  const { question } = data as QuestionNodeData
+  const { question, recentlyChanged } = data as QuestionNodeData
 
   return (
     <div className="group relative box-border flex min-h-[60px] w-[300px] flex-col justify-center rounded-lg border-2 border-amber-400 bg-amber-50 px-4 py-2 shadow-sm transition-shadow hover:shadow-md hover:border-amber-500">
+      <NodeChangeHighlight active={Boolean(recentlyChanged)} />
       <NodeTooltip
         type="Open Question"
         description="An unresolved question that needs an answer."

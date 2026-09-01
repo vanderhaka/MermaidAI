@@ -191,15 +191,17 @@ describe('codex-client', () => {
   })
 
   it('streams final_answer deltas as they arrive without repeating them at round end', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      sseResponse([
-        messageAdded('msg-1', 'final_answer'),
-        itemDelta('msg-1', 'Here is '),
-        itemDelta('msg-1', 'the plan.'),
-        messageItem('final_answer', 'Here is the plan.', 'msg-1'),
-        COMPLETED,
-      ]),
-    )
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse([
+          messageAdded('msg-1', 'final_answer'),
+          itemDelta('msg-1', 'Here is '),
+          itemDelta('msg-1', 'the plan.'),
+          messageItem('final_answer', 'Here is the plan.', 'msg-1'),
+          COMPLETED,
+        ]),
+      )
     vi.stubGlobal('fetch', fetchMock)
 
     const { callCodexWithTools } = await import('@/lib/services/codex-client')
@@ -373,6 +375,25 @@ describe('codex-client', () => {
 
     expect(requestBody(fetchMock, 0).reasoning).toEqual({ effort: 'xhigh' })
     expect(requestBody(fetchMock, 1).reasoning).toEqual({ effort: 'high' })
+  })
+
+  it('allows a live planning turn to lower both efforts per request', async () => {
+    const fetchMock = toolThenAnswer()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { callCodexWithTools } = await import('@/lib/services/codex-client')
+    await readStreamToString(
+      await callCodexWithTools(
+        'System prompt',
+        [{ role: 'user', content: 'Capture this quickly' }],
+        [CREATE_NODE_TOOL],
+        vi.fn().mockResolvedValue({ content: 'ok', isError: false }),
+        { reasoningEffort: 'low', continuationReasoningEffort: 'low' },
+      ),
+    )
+
+    expect(requestBody(fetchMock, 0).reasoning).toEqual({ effort: 'low' })
+    expect(requestBody(fetchMock, 1).reasoning).toEqual({ effort: 'low' })
   })
 
   it('falls back to medium when the configured continuation effort is invalid', async () => {
@@ -632,7 +653,8 @@ describe('codex-client', () => {
     const [, firstInit] = fetchMock.mock.calls[0]
     const [, secondInit] = fetchMock.mock.calls[1]
     const firstSessionId = ((firstInit as RequestInit).headers as Record<string, string>).session_id
-    const secondSessionId = ((secondInit as RequestInit).headers as Record<string, string>).session_id
+    const secondSessionId = ((secondInit as RequestInit).headers as Record<string, string>)
+      .session_id
 
     expect(firstSessionId).toMatch(UUID_RE)
     expect(firstSessionId).toBe(secondSessionId)
@@ -840,6 +862,145 @@ describe('codex-client', () => {
     await expect(readStreamToString(stream)).rejects.toThrow(
       'Codex login expired. Run: codex login',
     )
+  })
+
+  // --- Stop propagation ---
+
+  describe('stop signal', () => {
+    it('makes no request at all when the turn is already stopped', async () => {
+      const fetchMock = vi.fn()
+      vi.stubGlobal('fetch', fetchMock)
+      const abort = new AbortController()
+      abort.abort()
+
+      const { callCodexWithTools } = await import('@/lib/services/codex-client')
+      const stream = await callCodexWithTools(
+        'System prompt',
+        [{ role: 'user', content: 'Create a node' }],
+        [CREATE_NODE_TOOL],
+        vi.fn(),
+        { signal: abort.signal },
+      )
+
+      await expect(readStreamToString(stream)).resolves.toBe('')
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it('passes the stop signal to every round request', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(sseResponse([messageItem('final_answer', 'ok'), COMPLETED]))
+      vi.stubGlobal('fetch', fetchMock)
+      const abort = new AbortController()
+
+      const { callCodexWithTools } = await import('@/lib/services/codex-client')
+      await readStreamToString(
+        await callCodexWithTools('System', [{ role: 'user', content: 'Hi' }], [], vi.fn(), {
+          signal: abort.signal,
+        }),
+      )
+
+      const [, init] = fetchMock.mock.calls[0]
+      expect((init as RequestInit).signal).toBe(abort.signal)
+    })
+
+    it('starts no second round once the turn is stopped', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          sseResponse([functionCallItem('call-1', 'create_node', '{"moduleId":"m"}'), COMPLETED]),
+        )
+        // Fresh Response per call: a regression that keeps looping must fail
+        // an assertion, not choke on an already-consumed body.
+        .mockImplementation(() =>
+          Promise.resolve(
+            sseResponse([messageItem('final_answer', 'Should never run.'), COMPLETED]),
+          ),
+        )
+      vi.stubGlobal('fetch', fetchMock)
+
+      const abort = new AbortController()
+      // The user hits Stop while the first tool is running.
+      const executeTool = vi.fn(async () => {
+        abort.abort()
+        return { content: 'ok', isError: false }
+      })
+
+      const { callCodexWithTools } = await import('@/lib/services/codex-client')
+      const text = await readStreamToString(
+        await callCodexWithTools(
+          'System prompt',
+          [{ role: 'user', content: 'Create a node' }],
+          [CREATE_NODE_TOOL],
+          executeTool,
+          { signal: abort.signal },
+        ),
+      )
+
+      // One LLM call, one tool, and no forced-text nudge round.
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(executeTool).toHaveBeenCalledTimes(1)
+      expect(text).not.toContain('Should never run.')
+    })
+
+    it('runs no further tools once the turn is stopped mid-round', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          sseResponse([
+            functionCallItem('call-1', 'create_node', '{"moduleId":"m","label":"First"}'),
+            functionCallItem('call-2', 'create_node', '{"moduleId":"m","label":"Second"}'),
+            COMPLETED,
+          ]),
+        )
+        .mockImplementation(() =>
+          Promise.resolve(
+            sseResponse([messageItem('final_answer', 'Should never run.'), COMPLETED]),
+          ),
+        )
+      vi.stubGlobal('fetch', fetchMock)
+
+      const abort = new AbortController()
+      const executeTool = vi.fn(async () => {
+        abort.abort()
+        return { content: 'ok', isError: false }
+      })
+
+      const { callCodexWithTools } = await import('@/lib/services/codex-client')
+      await readStreamToString(
+        await callCodexWithTools(
+          'System prompt',
+          [{ role: 'user', content: 'Add both nodes' }],
+          [CREATE_NODE_TOOL],
+          executeTool,
+          { signal: abort.signal },
+        ),
+      )
+
+      expect(executeTool).toHaveBeenCalledTimes(1)
+      expect(executeTool).toHaveBeenCalledWith('create_node', { moduleId: 'm', label: 'First' })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('closes cleanly instead of erroring when a round is aborted in flight', async () => {
+      const abort = new AbortController()
+      const fetchMock = vi.fn(() => {
+        abort.abort()
+        return Promise.reject(new DOMException('This operation was aborted', 'AbortError'))
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      const { callCodexWithTools } = await import('@/lib/services/codex-client')
+      const stream = await callCodexWithTools(
+        'System prompt',
+        [{ role: 'user', content: 'Create a node' }],
+        [CREATE_NODE_TOOL],
+        vi.fn(),
+        { signal: abort.signal },
+      )
+
+      await expect(readStreamToString(stream)).resolves.toBe('')
+    })
   })
 
   it('converts assistant history into output_text items', async () => {

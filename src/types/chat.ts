@@ -138,6 +138,11 @@ export type ChatMessage = {
   content: string
   operations: GraphOperation[]
   createdAt: string
+  /**
+   * Canvas tools this turn ran, in order. Populated client-side for the current
+   * session only — it is never persisted, so messages loaded from history omit it.
+   */
+  toolCalls?: string[]
 }
 
 export type ChatContext = {

@@ -5,6 +5,11 @@ import userEvent from '@testing-library/user-event'
 import CanvasContainer from '@/components/canvas/CanvasContainer'
 import type { Module, FlowNode, FlowEdge } from '@/types/graph'
 
+const childViewSpies = vi.hoisted(() => ({
+  moduleMap: vi.fn(),
+  moduleDetail: vi.fn(),
+}))
+
 // --- Mock graph store ---
 const mockStore = {
   modules: [] as Module[],
@@ -26,16 +31,19 @@ vi.mock('@/components/canvas/views/ModuleMapView', () => ({
   }: {
     modules: Module[]
     onModuleClick?: (id: string) => void
-  }) => (
-    <div data-testid="module-map-view">
-      <span data-testid="module-count">{modules.length}</span>
-      {modules.map((m) => (
-        <button key={m.id} data-testid={`module-${m.id}`} onClick={() => onModuleClick?.(m.id)}>
-          {m.name}
-        </button>
-      ))}
-    </div>
-  ),
+  }) => {
+    childViewSpies.moduleMap()
+    return (
+      <div data-testid="module-map-view">
+        <span data-testid="module-count">{modules.length}</span>
+        {modules.map((m) => (
+          <button key={m.id} data-testid={`module-${m.id}`} onClick={() => onModuleClick?.(m.id)}>
+            {m.name}
+          </button>
+        ))}
+      </div>
+    )
+  },
 }))
 
 vi.mock('@/components/canvas/views/ModuleDetailView', () => ({
@@ -51,17 +59,20 @@ vi.mock('@/components/canvas/views/ModuleDetailView', () => ({
     edges: FlowEdge[]
     showFunnelLanes?: boolean
     onBack?: () => void
-  }) => (
-    <div data-testid="module-detail-view">
-      <span data-testid="module-name">{moduleName}</span>
-      <span data-testid="node-count">{nodes.length}</span>
-      <span data-testid="edge-count">{edges.length}</span>
-      <span data-testid="show-funnel-lanes">{String(Boolean(showFunnelLanes))}</span>
-      <button data-testid="back-button" onClick={onBack}>
-        Back
-      </button>
-    </div>
-  ),
+  }) => {
+    childViewSpies.moduleDetail()
+    return (
+      <div data-testid="module-detail-view">
+        <span data-testid="module-name">{moduleName}</span>
+        <span data-testid="node-count">{nodes.length}</span>
+        <span data-testid="edge-count">{edges.length}</span>
+        <span data-testid="show-funnel-lanes">{String(Boolean(showFunnelLanes))}</span>
+        <button data-testid="back-button" onClick={onBack}>
+          Back
+        </button>
+      </div>
+    )
+  },
 }))
 
 // --- Test data ---
@@ -117,6 +128,8 @@ beforeEach(() => {
   mockStore.edges = []
   mockStore.activeModuleId = null
   mockStore.setActiveModuleId.mockClear()
+  childViewSpies.moduleMap.mockClear()
+  childViewSpies.moduleDetail.mockClear()
 })
 
 describe('CanvasContainer', () => {
@@ -135,6 +148,16 @@ describe('CanvasContainer', () => {
       ]
       render(<CanvasContainer />)
       expect(screen.getByTestId('module-count')).toHaveTextContent('2')
+    })
+
+    it('does not repaint the canvas when its parent rerenders with the same configuration', () => {
+      mockStore.modules = [makeModule()]
+      const { rerender } = render(<CanvasContainer />)
+      expect(childViewSpies.moduleMap).toHaveBeenCalledTimes(1)
+
+      rerender(<CanvasContainer />)
+
+      expect(childViewSpies.moduleMap).toHaveBeenCalledTimes(1)
     })
   })
 

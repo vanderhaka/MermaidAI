@@ -11,9 +11,10 @@ import { InlineProjectName } from '@/components/dashboard/InlineProjectName'
 import PrdPreviewPanel from '@/components/dashboard/PrdPreviewPanel'
 import { SavedIndicator } from '@/components/dashboard/SavedIndicator'
 import { applyScopeToolEvent } from '@/components/dashboard/tool-event-applier'
+import { useChatStream } from '@/hooks/useChatStream'
 import { getProjectModeConfig } from '@/lib/project-modes'
+import { queueScopeHandoff } from '@/lib/scope-handoff'
 import { updateProject } from '@/lib/services/project-service'
-import { createStreamParser } from '@/lib/stream-parser'
 import { useGraphStore } from '@/store/graph-store'
 import type { ChatMessage } from '@/types/chat'
 import type {
@@ -25,41 +26,10 @@ import type {
   Project,
 } from '@/types/graph'
 
-const TOOL_LABELS: Record<string, string> = {
-  create_node: 'Creating node',
-  update_node: 'Updating node',
-  delete_node: 'Removing node',
-  create_edge: 'Connecting nodes',
-  delete_edge: 'Removing connection',
-  insert_node_between: 'Inserting step',
-  create_module: 'Creating module',
-  update_module: 'Updating module',
-  delete_module: 'Removing module',
-  connect_modules: 'Connecting modules',
-  add_open_questions: 'Flagging questions',
-  resolve_open_question: 'Resolving question',
-  lookup_docs: 'Looking up docs',
-  write_prd: 'Writing PRD',
-  promote_project: 'Switching to Full Design',
-}
-
-const GRAPH_MUTATION_TOOLS = new Set([
-  'create_node',
-  'update_node',
-  'delete_node',
-  'create_edge',
-  'delete_edge',
-  'insert_node_between',
-  'add_open_questions',
-  'resolve_open_question',
-  'create_module',
-  'update_module',
-  'delete_module',
-  'connect_modules',
-])
+type ResolvingQuestion = Pick<OpenQuestion, 'id' | 'section' | 'question'>
 
 type SendOptions = {
-  resolvingOpenQuestion?: Pick<OpenQuestion, 'id' | 'section' | 'question'>
+  resolvingOpenQuestion?: ResolvingQuestion
 }
 
 function normalizeResolvePromptText(value: string): string {
@@ -76,10 +46,6 @@ function isOpenQuestionSelectionPrompt(
       `Resolve this open question from ${question.section}: "${question.question}"`,
     )
   )
-}
-
-function formatToolName(tool: string): string {
-  return TOOL_LABELS[tool] ?? tool.replace(/_/g, ' ')
 }
 
 type ScopeWorkspaceProps = {
@@ -105,32 +71,16 @@ export function ScopeWorkspace({
   const router = useRouter()
   const [isPromoting, startPromote] = useTransition()
   const [confirmingPromote, setConfirmingPromote] = useState(false)
-  const [isSending, setIsSending] = useState(false)
-  const [streamingContent, setStreamingContent] = useState('')
-  const [toolActivity, setToolActivity] = useState<string | null>(null)
-  const [currentToolCalls, setCurrentToolCalls] = useState<string[]>([])
+  // Promote failures stay in page flow; chat failures belong inside the panel,
+  // which is fixed and can cover anything under it.
   const [error, setError] = useState<string | null>(null)
-  const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    if (initialMessages.length > 0) return initialMessages
-    return [
-      {
-        id: 'welcome',
-        role: 'assistant' as const,
-        content: modeConfig.welcomeMessage ?? '',
-        operations: [],
-        createdAt: new Date().toISOString(),
-      },
-    ]
-  })
   const [assistantOpen, setAssistantOpen] = useState(initialMessages.length === 0)
   const [isPeeking, setIsPeeking] = useState(false)
   const [prdOpen, setPrdOpen] = useState(false)
   const [pendingRefresh, setPendingRefresh] = useState(false)
   const [saveCounter, setSaveCounter] = useState(0)
-  const [activeResolutionQuestion, setActiveResolutionQuestion] = useState<Pick<
-    OpenQuestion,
-    'id' | 'section' | 'question'
-  > | null>(null)
+  const [activeResolutionQuestion, setActiveResolutionQuestion] =
+    useState<ResolvingQuestion | null>(null)
 
   const modules = useGraphStore((state) => state.modules)
   const openQuestions = useGraphStore((state) => state.openQuestions)
@@ -169,13 +119,6 @@ export function ScopeWorkspace({
     setActiveModuleId,
   ])
 
-  useEffect(() => {
-    if (initialMessages.length === 0) return
-
-    const timeout = window.setTimeout(() => setMessages(initialMessages), 0)
-    return () => window.clearTimeout(timeout)
-  }, [initialMessages])
-
   // Hold Option/Alt to temporarily peek at the canvas behind the chat
   useEffect(() => {
     function handleKeyDown(e: globalThis.KeyboardEvent) {
@@ -195,162 +138,76 @@ export function ScopeWorkspace({
     }
   }, [assistantOpen, isPeeking])
 
-  function addToolCall(label: string) {
-    setToolActivity(label)
-    setCurrentToolCalls((prev) => [...prev, label])
+  /** The question this turn is answering, whether picked now or still active. */
+  function resolveQuestion(options: SendOptions | undefined): ResolvingQuestion | undefined {
+    return options?.resolvingOpenQuestion ?? activeResolutionQuestion ?? undefined
   }
 
-  function handleToolEvent(tool: string, data: Record<string, unknown>) {
-    applyScopeToolEvent(tool, data, {
-      activeResolutionQuestionId: activeResolutionQuestion?.id,
-      clearActiveResolutionQuestion: () => setActiveResolutionQuestion(null),
-      markPendingRefresh: () => setPendingRefresh(true),
-      recordToolCall: addToolCall,
-    })
-  }
-
-  async function handleSend(message: string, options: SendOptions = {}): Promise<boolean> {
-    const resolvingOpenQuestion =
-      options.resolvingOpenQuestion ?? activeResolutionQuestion ?? undefined
-    const isOnlySelectingQuestion =
-      resolvingOpenQuestion && isOpenQuestionSelectionPrompt(message, resolvingOpenQuestion)
-
-    const optimisticUserMessage: ChatMessage = {
-      id: `local-user-${crypto.randomUUID()}`,
-      role: 'user',
-      content: message,
-      operations: [],
-      createdAt: new Date().toISOString(),
-    }
-
-    setMessages((current) => [...current, optimisticUserMessage])
-    setIsSending(true)
-    setStreamingContent('')
-    setToolActivity(null)
-    setCurrentToolCalls([])
-    setError(null)
-
-    let streamStarted = false
-    let completedSuccessfully = false
-    let graphChangedDuringSend = false
-    let refreshAfterSend = false
-
-    try {
-      const activeModuleId = modules[0]?.id ?? null
-
+  const chat = useChatStream<SendOptions>({
+    projectId: project.id,
+    initialMessages,
+    emptyStateMessages: () => [
+      {
+        id: 'welcome',
+        role: 'assistant' as const,
+        content: modeConfig.welcomeMessage ?? '',
+        operations: [],
+        createdAt: new Date().toISOString(),
+      },
+    ],
+    // The welcome line is ours, not something the model ever said.
+    isLocalOnlyMessage: (entry) => entry.id === 'welcome',
+    fallbackErrorMessage: 'Something went wrong',
+    buildTurnRequest: (message, options) => {
       const chatMode = modeConfig.chatMode ?? 'scope_build'
+      const resolvingOpenQuestion = resolveQuestion(options)
 
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      return {
+        mode: chatMode,
+        context: {
           projectId: project.id,
-          message,
+          projectName: project.name,
+          activeModuleId: modules[0]?.id ?? null,
           mode: chatMode,
-          context: {
-            projectId: project.id,
-            projectName: project.name,
-            activeModuleId,
-            mode: chatMode,
-            modules: modules.map((m) => ({ id: m.id, name: m.name })),
-            ...(resolvingOpenQuestion ? { resolvingOpenQuestion } : {}),
-          },
-          history: messages
-            .filter((entry) => entry.id !== 'welcome')
-            .map((entry) => ({
-              role: entry.role,
-              content: entry.content,
-            })),
-        }),
+          modules: modules.map((m) => ({ id: m.id, name: m.name })),
+          ...(resolvingOpenQuestion ? { resolvingOpenQuestion } : {}),
+        },
+      }
+    },
+    applyToolEvent: (tool, data, recordToolCall) => {
+      applyScopeToolEvent(tool, data, {
+        activeResolutionQuestionId: activeResolutionQuestion?.id,
+        clearActiveResolutionQuestion: () => setActiveResolutionQuestion(null),
+        markPendingRefresh: () => setPendingRefresh(true),
+        recordToolCall,
       })
-
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null)
-        throw new Error(payload?.error ?? 'Failed to send chat message')
-      }
-
-      const reader = response.body?.getReader()
-      if (!reader) {
-        throw new Error('Assistant response stream was unavailable')
-      }
-      streamStarted = true
-
-      const decoder = new TextDecoder()
-      const parser = createStreamParser()
-      let assistantText = ''
-
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) break
-
-        const chunk = decoder.decode(value, { stream: true })
-        const { text, events } = parser.push(chunk)
-
-        assistantText += text
-        setStreamingContent(assistantText)
-
-        for (const event of events) {
-          if (event.status === 'start') {
-            setToolActivity(formatToolName(event.tool))
-          } else if (event.data) {
-            if (GRAPH_MUTATION_TOOLS.has(event.tool)) {
-              graphChangedDuringSend = true
-            }
-            if (event.tool === 'promote_project') {
-              refreshAfterSend = true
-            }
-            handleToolEvent(event.tool, event.data)
-          }
+    },
+    onTurnEnd: ({ message, extra, completedSuccessfully, graphChanged, appliedTools }) => {
+      if (completedSuccessfully) {
+        setSaveCounter((n) => n + 1)
+        const resolvingOpenQuestion = resolveQuestion(extra)
+        // Picking the question is not answering it — keep it active for the reply.
+        if (
+          resolvingOpenQuestion &&
+          !isOpenQuestionSelectionPrompt(message, resolvingOpenQuestion)
+        ) {
+          setActiveResolutionQuestion(null)
         }
       }
-
-      // Flush remaining
-      const { text: remaining } = parser.flush()
-      assistantText += remaining
-      setStreamingContent(assistantText)
-
-      if (assistantText.trim()) {
-        setMessages((current) => [
-          ...current,
-          {
-            id: `local-assistant-${crypto.randomUUID()}`,
-            role: 'assistant',
-            content: assistantText.trim(),
-            operations: [],
-            createdAt: new Date().toISOString(),
-          },
-        ])
-      }
-      setSaveCounter((n) => n + 1)
-      if (resolvingOpenQuestion && !isOnlySelectingQuestion) {
-        setActiveResolutionQuestion(null)
-      }
-      completedSuccessfully = true
-      return true
-    } catch (err) {
-      if (!streamStarted) {
-        setMessages((current) => current.filter((entry) => entry.id !== optimisticUserMessage.id))
-      }
-      setError(err instanceof Error ? err.message : 'Something went wrong')
-      return false
-    } finally {
-      setIsSending(false)
-      setStreamingContent('')
-      setToolActivity(null)
       if (
         pendingRefresh ||
-        refreshAfterSend ||
-        (graphChangedDuringSend && !completedSuccessfully)
+        appliedTools.includes('promote_project') ||
+        (graphChanged && !completedSuccessfully)
       ) {
         setPendingRefresh(false)
         router.refresh()
       }
-    }
-  }
+    },
+  })
 
   async function handleAttachFile(file: File, note: string): Promise<boolean> {
-    setIsSending(true)
-    setError(null)
+    chat.setSending(true)
+    chat.setChatError(null)
 
     try {
       const formData = new FormData()
@@ -380,10 +237,12 @@ export function ScopeWorkspace({
 
       const fullContent = `📎 ${filename}\n\n${noteSection}-----BEGIN SCOPE DOCUMENT-----\n${text}${truncationNote}\n-----END SCOPE DOCUMENT-----`
 
-      return await handleSend(fullContent)
+      return await chat.sendMessage(fullContent)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong')
-      setIsSending(false)
+      // Nothing was sent, so there is no message worth retrying.
+      chat.clearRetry()
+      chat.setChatError(err instanceof Error ? err.message : 'Something went wrong')
+      chat.setSending(false)
       return false
     }
   }
@@ -393,6 +252,7 @@ export function ScopeWorkspace({
       startPromote(async () => {
         const result = await updateProject(project.id, { mode: 'architecture' })
         if (result.success) {
+          queueScopeHandoff(project.id)
           router.refresh()
         } else {
           setConfirmingPromote(false)
@@ -514,7 +374,9 @@ export function ScopeWorkspace({
           </div>
           <OpenQuestionsPanel
             questions={openQuestions}
+            isBusy={chat.isSending || isPromoting}
             onResolve={(question) => {
+              if (chat.isSending || isPromoting) return
               const selectedQuestion = {
                 id: question.id,
                 section: question.section,
@@ -522,7 +384,7 @@ export function ScopeWorkspace({
               }
               setActiveResolutionQuestion(selectedQuestion)
               setAssistantOpen(true)
-              void handleSend(
+              void chat.sendMessage(
                 `Resolve this open question from ${question.section}: "${question.question}"`,
                 {
                   resolvingOpenQuestion: selectedQuestion,
@@ -534,21 +396,30 @@ export function ScopeWorkspace({
       </div>
 
       {error && (
-        <div className="border-t border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+        <div
+          role="alert"
+          className="border-t border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700"
+        >
           {error}
         </div>
       )}
 
       <FloatingChat
-        messages={messages}
-        isLoading={isSending}
-        streamingContent={streamingContent}
-        toolActivity={toolActivity}
-        toolCalls={currentToolCalls}
-        onSend={handleSend}
+        messages={chat.messages}
+        isLoading={chat.isSending}
+        streamingContent={chat.streamingContent}
+        toolActivity={chat.toolActivity}
+        toolCalls={chat.toolCalls}
+        onSend={chat.sendMessage}
         onAttachFile={handleAttachFile}
+        onStop={chat.stop}
+        error={chat.chatError}
+        onRetry={chat.retry}
+        onDismissError={() => chat.setChatError(null)}
         isOpen={assistantOpen}
         onToggle={() => setAssistantOpen((prev) => !prev)}
+        helperMode={chat.helperMode}
+        onToggleHelperMode={chat.toggleHelperMode}
         subtitle={modeConfig.chatSubtitle}
         isPeeking={isPeeking}
         examplePrompts={modeConfig.examplePrompts}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { OpenQuestion } from '@/types/graph'
 
 const SKIP_CONFIRM_KEY = 'question-resolve-skip-confirm'
@@ -8,12 +8,18 @@ const SKIP_CONFIRM_KEY = 'question-resolve-skip-confirm'
 interface OpenQuestionsPanelProps {
   questions: OpenQuestion[]
   onResolve?: (question: OpenQuestion) => void
+  isBusy?: boolean
 }
 
-export default function OpenQuestionsPanel({ questions, onResolve }: OpenQuestionsPanelProps) {
+export default function OpenQuestionsPanel({
+  questions,
+  onResolve,
+  isBusy = false,
+}: OpenQuestionsPanelProps) {
   const openCount = useMemo(() => questions.filter((q) => q.status === 'open').length, [questions])
 
-  const [isOpen, setIsOpen] = useState(true)
+  const [isOpen, setIsOpen] = useState(openCount > 0)
+  const previousOpenCountRef = useRef(openCount)
   const [pendingQuestion, setPendingQuestion] = useState<OpenQuestion | null>(null)
   const [skipConfirm, setSkipConfirm] = useState(false)
 
@@ -29,8 +35,19 @@ export default function OpenQuestionsPanel({ questions, onResolve }: OpenQuestio
     return map
   }, [openOnly])
 
+  useEffect(() => {
+    const previousOpenCount = previousOpenCountRef.current
+    previousOpenCountRef.current = openCount
+
+    if (previousOpenCount === 0 && openCount > 0) {
+      setIsOpen(true)
+    } else if (previousOpenCount > 0 && openCount === 0) {
+      setIsOpen(false)
+    }
+  }, [openCount])
+
   function handleQuestionClick(question: OpenQuestion) {
-    if (!onResolve) return
+    if (!onResolve || isBusy) return
     const shouldSkip = localStorage.getItem(SKIP_CONFIRM_KEY) === '1'
     if (shouldSkip) {
       onResolve(question)
@@ -95,8 +112,13 @@ export default function OpenQuestionsPanel({ questions, onResolve }: OpenQuestio
                             <button
                               type="button"
                               onClick={() => handleQuestionClick(q)}
-                              className="flex w-full items-start gap-2 rounded-lg px-1.5 py-1 text-left text-sm transition hover:bg-amber-50"
-                              title="Click to resolve with AI"
+                              disabled={isBusy}
+                              className="flex w-full items-start gap-2 rounded-lg px-1.5 py-1 text-left text-sm transition hover:bg-amber-50 disabled:cursor-wait disabled:opacity-50 disabled:hover:bg-transparent"
+                              title={
+                                isBusy
+                                  ? 'Wait for the current assistant response to finish'
+                                  : 'Click to resolve with AI'
+                              }
                             >
                               <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-amber-400 text-[10px] font-bold text-white">
                                 ?
@@ -157,7 +179,8 @@ export default function OpenQuestionsPanel({ questions, onResolve }: OpenQuestio
               <button
                 type="button"
                 onClick={handleConfirm}
-                className="rounded-lg bg-black px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800"
+                disabled={isBusy}
+                className="rounded-lg bg-black px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-wait disabled:opacity-50"
               >
                 Resolve
               </button>

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import OpenQuestionsPanel from '@/components/canvas/OpenQuestionsPanel'
@@ -65,16 +65,43 @@ describe('OpenQuestionsPanel', () => {
     expect(screen.queryByText(/AUD only/)).not.toBeInTheDocument()
   })
 
-  it('shows empty state when no questions', () => {
+  it('stays collapsed when there are no open questions', () => {
     render(<OpenQuestionsPanel questions={[]} />)
-    expect(screen.getByText(/no open questions/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /open questions/i })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
+    expect(screen.queryByText(/no open questions/i)).not.toBeInTheDocument()
   })
 
-  it('does not show count badge when all questions are resolved', () => {
+  it('stays collapsed and hides the badge when all questions are resolved', () => {
     const resolved = [makeQ({ id: 'oq-1', status: 'resolved', resolution: 'Done' })]
     render(<OpenQuestionsPanel questions={resolved} />)
     expect(screen.queryByTestId('open-count')).not.toBeInTheDocument()
-    expect(screen.getByText(/no open questions/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /open questions/i })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
+    expect(screen.queryByText(/no open questions/i)).not.toBeInTheDocument()
+  })
+
+  it('opens when the first question arrives and closes when the last one resolves', async () => {
+    const { rerender } = render(<OpenQuestionsPanel questions={[]} />)
+    const toggle = screen.getByRole('button', { name: /open questions/i })
+
+    rerender(<OpenQuestionsPanel questions={[makeQ()]} />)
+    await waitFor(() => {
+      expect(toggle).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByText('What OAuth providers?')).toBeInTheDocument()
+    })
+
+    rerender(
+      <OpenQuestionsPanel questions={[makeQ({ status: 'resolved', resolution: 'Google only' })]} />,
+    )
+    await waitFor(() => {
+      expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      expect(screen.queryByText('What OAuth providers?')).not.toBeInTheDocument()
+    })
   })
 
   it('can collapse and expand', async () => {
@@ -91,6 +118,19 @@ describe('OpenQuestionsPanel', () => {
     // Expand
     await user.click(screen.getByText('Open Questions'))
     expect(screen.getByText('OAuth providers?')).toBeInTheDocument()
+  })
+
+  it('disables question resolution while the assistant is already working', async () => {
+    const user = userEvent.setup()
+    const onResolve = vi.fn()
+    render(<OpenQuestionsPanel questions={questions} onResolve={onResolve} isBusy />)
+
+    const question = screen.getByRole('button', { name: /oauth providers/i })
+    expect(question).toBeDisabled()
+    await user.click(question)
+
+    expect(onResolve).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog', { name: /resolve question/i })).not.toBeInTheDocument()
   })
 
   it('resolves the selected open question by structured identity, not text alone', async () => {

@@ -5,6 +5,7 @@ import { buildBrainstormPrompt } from '@/lib/services/prompt-builder-brainstorm'
 import {
   buildCurrentEdgesSection,
   buildCurrentNodesSection,
+  HELPER_MODE_INSTRUCTIONS,
   OPINIONATED_RECOMMENDATION_INSTRUCTIONS,
 } from '@/lib/services/prompt-sections'
 
@@ -30,6 +31,12 @@ export type PromptContext = {
   /** Flow captured during scope mode — passed to module_map for handover context */
   scopeNodes?: FlowNode[]
   scopeEdges?: FlowEdge[]
+  /**
+   * "Auto-decide" in the UI. When on, the assistant settles routine decision
+   * points itself against the industry default and records them as assumptions
+   * instead of spending a question on them.
+   */
+  helperMode?: boolean
 }
 
 function buildModuleNotesPromptSection(
@@ -110,6 +117,7 @@ Your role in discovery mode is to have a friendly, guided conversation to unders
 - Start broad ("What does this app do?") and gradually get more specific.
 - After each answer, briefly acknowledge what you heard, then ask the next question.
 - Write in short, natural sentences. Avoid heavy markdown formatting — no big headers, no deeply nested bullet lists. Keep it conversational.
+${context.helperMode ? HELPER_MODE_INSTRUCTIONS : ''}
 
 ## Topics to Explore (one at a time, in natural order)
 
@@ -217,6 +225,7 @@ You are in **module map mode** — the user can see this. Focus on module-level 
 - Ask ONE question at a time when you need clarification. Never list multiple questions.
 - Write in short, natural sentences. Avoid heavy markdown — no big headers or deeply nested bullets.
 - Be concise. Say what you're doing and why in a sentence or two, not a wall of text.
+${context.helperMode ? HELPER_MODE_INSTRUCTIONS : ''}
 ${scopeHandover}
 ${
   hasScope
@@ -275,6 +284,7 @@ You are in **module detail mode** — the user is drilling into this specific mo
 - Write in short, natural sentences. Avoid heavy markdown — no big headers or deeply nested bullets.
 - Be concise. Say what you're doing and why in a sentence or two, not a wall of text.
 ${OPINIONATED_RECOMMENDATION_INSTRUCTIONS}
+${context.helperMode ? HELPER_MODE_INSTRUCTIONS : ''}
 
 ## Current Module: ${moduleName}
 
@@ -307,6 +317,7 @@ ${buildCurrentEdgesSection(context.edges)}
 - When the user describes a branch or condition: create a \`decision\` node with conditional edges.
 - When this is the first input for the module: start with a \`start\` node, then the described flow steps.
 - Connect new nodes to existing ones — extend the flow, don't create disconnected islands.
+- To relabel or recondition an existing edge, use \`update_edge\` — never delete and recreate an edge just to change its label.
 - Include pseudocode on process nodes with a \`// file: <path>\` comment at the top.
 - After building flow nodes, also call \`write_prd\` to document the requirements.
 
@@ -314,7 +325,7 @@ ${buildCurrentEdgesSection(context.edges)}
 
 ## Node Types
 
-Available node types: \`process\`, \`decision\`, \`entry\`, \`exit\`, \`start\`, \`end\`, \`question\`
+Available node types: \`process\`, \`decision\`, \`entry\`, \`exit\`, \`start\`, \`end\`
 
 - **process** — a step that performs work (can contain pseudocode)
 - **decision** — a branching point with conditional edges
@@ -322,7 +333,6 @@ Available node types: \`process\`, \`decision\`, \`entry\`, \`exit\`, \`start\`,
 - **exit** — an exit point from this module to another module
 - **start** — the beginning of a flow
 - **end** — the termination of a flow
-- **question** — an open question or gap to resolve
 
 ## When to Use lookup_docs
 
@@ -400,6 +410,7 @@ Use this module ID for ALL tool calls (\`create_node\`, \`add_open_questions\`, 
 - **Stay silent until the canvas work is done.** Any text you write between tool calls is shown to the client verbatim — including notes-to-self like "let me rewire this" or "trying again with the correct ID". Make ALL tool calls first with no accompanying text, then write your single response (one short acknowledgment + one question) after the final tool call.
 - Never narrate internal repair work ("let me rewire this", "I need to reconnect the flow", "let me fix this"). Describe outcomes only, in client-facing language.
 - Ask questions the conversation hasn't already answered or implied. If something is safely inferable (e.g. the actors in a two-sided marketplace the client just described), state it as a fact you've recorded rather than asking a generic checklist question about it.
+${context.helperMode ? HELPER_MODE_INSTRUCTIONS : ''}
 
 ## Scope Coverage Map
 
@@ -424,15 +435,18 @@ ${OPINIONATED_RECOMMENDATION_INSTRUCTIONS}
 
 **Every user message should result in new nodes and edges on the canvas AND open questions for any gaps detected.** Both are equally important.
 
+- For each user message, prefer exactly **one tool call** to \`capture_scope_flow\` containing every new flow node, edge, and open question for that input. Give each new flow node a short unique \`local key\`; edge and question references may use those local keys or exact IDs from the current canvas. This lets the complete draft land without waiting for server-generated IDs.
+- Use the individual node, edge, and question tools only to repair or deliberately change an existing graph after the batch.
 - When the user describes a feature, process, or step: create \`process\` nodes and connect them with edges immediately.
 - When the user describes a decision point or conditional logic: create a \`decision\` node with branching edges.
 - When this is the first input: start with a \`start\` node, then the described flow steps.
 - Connect new nodes to existing ones — look at the current canvas state below and extend the flow, don't create disconnected islands.
 - If a node/edge tool result includes \`Graph check:\`, repair those issues with follow-up edge/node edits before writing the final chat response. Do not leave unreachable process nodes, one-sided decisions, or contradictory failure branches unresolved.
 - When inserting a step between existing steps, use \`insert_node_between\` — it removes the stale direct edge and wires previous → inserted → next in one call. Never create a disconnected island for the inserted step.
+- To relabel or recondition an existing edge, use \`update_edge\` — never delete and recreate an edge just to change its label.
 - A negative decision outcome should choose either a terminal failure path or a recovery/retry path. Do not send the same negative outcome to both an end node and a retry/error-recovery node.
 - Keep labels short and descriptive (3-6 words). No pseudocode in scope mode — just capture the flow shape.
-- After creating flow nodes, call \`add_open_questions\` once with ALL gaps detected in this input. Every ambiguity, missing detail, or unstated assumption should be a question. If you detect 5 gaps, include all 5 in one call.
+- Put ALL gaps detected in this input in the \`questions\` field of the same \`capture_scope_flow\` call. Every ambiguity, missing detail, or unstated assumption should be a question. If you detect 5 gaps, include all 5. Use \`add_open_questions\` only for a question-only follow-up or repair.
 
 ## Current Canvas
 
@@ -442,7 +456,7 @@ ${buildCurrentEdgesSection(context.edges)}
 
 ## Open Questions
 
-- When the client's description has gaps or ambiguities, batch all detected questions into a single \`add_open_questions\` call. Include every gap — err on the side of over-capturing. Missing scope is far worse than too many questions.
+- When the client's description has gaps or ambiguities, include every gap in the \`capture_scope_flow\` batch. For a question-only follow-up, batch all detected questions into a single \`add_open_questions\` call. Err on the side of over-capturing — missing scope is far worse than too many questions.
 - **One canonical question per topic — no duplicates.** Before calling \`add_open_questions\`, re-read the "Current Open Questions" list below. If a topic is already covered by ANY existing question — open or resolved, even with different wording — do NOT add another. Example: if "What insurance is needed for damage?" exists, do not add "What legal responsibilities need to be covered?". Duplicates pollute the client's gap list.
 - When calling \`resolve_open_question\`, copy the question id EXACTLY as shown in the "(id: ...)" part of the list below. Never invent, shorten, or reformat ids. If you cannot find a matching id, ask the question again instead of guessing.
 - **Resolve in the same turn the answer arrives.** When you asked a question (or the user volunteers information) and their message answers an open question from the list below, call \`resolve_open_question\` for it in THIS response — before asking your next question. An answered question left open is a stale gap the client will be re-asked about.
@@ -518,6 +532,7 @@ Use this module ID for ALL \`create_node\`, \`update_node\`, \`create_edge\`, an
 - If the request is too vague to draw anything useful, ask one short clarifying question.
 - Ask about funnel intent when it helps: audience, entry source, offer, conversion action, follow-up, drop-off reason, and success metric.
 ${OPINIONATED_RECOMMENDATION_INSTRUCTIONS}
+${context.helperMode ? HELPER_MODE_INSTRUCTIONS : ''}
 
 ## Building the Flow — CRITICAL
 
@@ -530,6 +545,7 @@ Every response where the user describes a funnel, journey, process, offer, custo
 - Label branch edges in audience-friendly funnel language such as "Yes", "No", "Not ready", "Needs follow-up", "Qualified", or "Dropped off".
 - Prefer one readable main conversion path plus the most important nurture/drop-off paths. Do not overcomplicate the diagram.
 - When inserting a step between existing steps, use \`insert_node_between\` — it removes the stale direct edge and wires previous → inserted → next in one call.
+- To relabel or recondition an existing edge, use \`update_edge\` — never delete and recreate an edge just to change its label.
 - Connect new nodes to the existing canvas state below. Do not leave disconnected islands unless the user asks for separate flows.
 - Do not create open-question nodes in this mode. If a gap matters, ask one follow-up in the chat instead.
 - Do not include pseudocode in flowchart mode.

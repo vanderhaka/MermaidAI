@@ -90,9 +90,11 @@ function buildRequest(
   auth: CodexAuth,
   sessionId: string,
   body: Record<string, unknown>,
+  signal?: AbortSignal,
 ): RequestInit {
   return {
     method: 'POST',
+    signal,
     headers: {
       Authorization: `Bearer ${auth.accessToken}`,
       'chatgpt-account-id': auth.accountId,
@@ -109,8 +111,12 @@ function buildRequest(
 async function postCodexRound(
   sessionId: string,
   body: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<ReadableStream<Uint8Array>> {
-  let response = await fetch(CODEX_RESPONSES_URL, buildRequest(await getCodexAuth(), sessionId, body))
+  let response = await fetch(
+    CODEX_RESPONSES_URL,
+    buildRequest(await getCodexAuth(), sessionId, body, signal),
+  )
 
   if (response.status === 401) {
     // The token can lapse between the expiry check and the request landing —
@@ -118,7 +124,7 @@ async function postCodexRound(
     await response.body?.cancel().catch(() => {})
     response = await fetch(
       CODEX_RESPONSES_URL,
-      buildRequest(await forceRefreshCodexAuth(), sessionId, body),
+      buildRequest(await forceRefreshCodexAuth(), sessionId, body, signal),
     )
   }
 
@@ -160,11 +166,11 @@ export async function callCodexWithTools(
 ): Promise<ReadableStream<string>> {
   const model = process.env.CODEX_MODEL?.trim() || DEFAULT_CODEX_MODEL
   const baseEffort = resolveReasoningEffort(
-    process.env.CODEX_REASONING_EFFORT,
+    options.reasoningEffort ?? process.env.CODEX_REASONING_EFFORT,
     DEFAULT_REASONING_EFFORT,
   )
   const continuationEffort = resolveReasoningEffort(
-    process.env.CODEX_CONTINUATION_EFFORT,
+    options.continuationReasoningEffort ?? process.env.CODEX_CONTINUATION_EFFORT,
     DEFAULT_CONTINUATION_EFFORT,
   )
   const instructions = `${systemPrompt}\n\n${BATCHING_INSTRUCTIONS}`
@@ -183,6 +189,9 @@ export async function callCodexWithTools(
 
       try {
         for (let round = 0; round <= MAX_CODEX_TOOL_ROUNDS; round++) {
+          // The turn was stopped — no new round, and no wrap-up nudge either.
+          if (options.signal?.aborted) break
+
           if (round === MAX_CODEX_TOOL_ROUNDS && !forcedTextRound) {
             // Tool budget exhausted — wrap up with a text-only round instead
             // of erroring out mid-build.
@@ -190,24 +199,30 @@ export async function callCodexWithTools(
             forcedTextRound = true
           }
 
-          const body = await postCodexRound(sessionId, {
-            model,
-            instructions,
-            input,
-            tools: codexTools,
-            tool_choice: forcedTextRound ? 'none' : 'auto',
-            // Independent calls batch into one round; BATCHING_INSTRUCTIONS
-            // keeps id-dependent ones sequential, and the loop below still
-            // executes whatever arrives in emission order.
-            parallel_tool_calls: true,
-            // Continuation rounds inherit the echoed reasoning, so they mostly
-            // emit the next call; planning (round 0) and the user-facing
-            // wrap-up round keep full depth.
-            reasoning: { effort: round === 0 || forcedTextRound ? baseEffort : continuationEffort },
-            service_tier: serviceTier,
-            store: false,
-            stream: true,
-          })
+          const body = await postCodexRound(
+            sessionId,
+            {
+              model,
+              instructions,
+              input,
+              tools: codexTools,
+              tool_choice: forcedTextRound ? 'none' : 'auto',
+              // Independent calls batch into one round; BATCHING_INSTRUCTIONS
+              // keeps id-dependent ones sequential, and the loop below still
+              // executes whatever arrives in emission order.
+              parallel_tool_calls: true,
+              // Continuation rounds inherit the echoed reasoning, so they mostly
+              // emit the next call; planning (round 0) and the user-facing
+              // wrap-up round keep full depth.
+              reasoning: {
+                effort: round === 0 || forcedTextRound ? baseEffort : continuationEffort,
+              },
+              service_tier: serviceTier,
+              store: false,
+              stream: true,
+            },
+            options.signal,
+          )
 
           const result = await readCodexRound(body, {
             onFinalDelta: (delta) => controller.enqueue(delta),
@@ -245,6 +260,12 @@ export async function callCodexWithTools(
           // A batched round yields several calls; run them one at a time in
           // emission order so the canvas mutations stay deterministic.
           for (const call of result.toolCalls) {
+            // Stop before starting another tool. A tool already running is
+            // left to finish — they are short writes, and killing one midway
+            // would leave the canvas half-built. The round's remaining work is
+            // abandoned; the loop exits at the top of the next iteration.
+            if (options.signal?.aborted) break
+
             const { input: toolInput, failed } = parseToolArguments(call.arguments)
 
             controller.enqueue(
@@ -281,6 +302,12 @@ export async function callCodexWithTools(
         // than surface an error mid-conversation.
         controller.close()
       } catch (err) {
+        // A round aborted in flight throws — that is the stop landing, not a
+        // failure worth showing the user.
+        if (options.signal?.aborted) {
+          controller.close()
+          return
+        }
         controller.error(new Error(sanitizeError(err)))
       }
     },

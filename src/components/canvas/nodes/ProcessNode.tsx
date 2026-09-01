@@ -8,19 +8,22 @@ import {
   FLOW_DETAIL_HANDLE_COLOR,
   FLOW_DETAIL_HANDLE_POSITION,
 } from '@/components/canvas/nodes/flow-detail-handles'
+import { NodeChangeHighlight } from '@/components/canvas/nodes/NodeChangeHighlight'
 import { NodeTooltip } from '@/components/canvas/nodes/NodeTooltip'
 
 type ProcessNodeData = {
   label: string
   pseudocode?: string
+  recentlyChanged?: boolean
 }
 
 export default function ProcessNode({ data }: NodeProps) {
-  const { label, pseudocode } = data as ProcessNodeData
+  const { label, pseudocode, recentlyChanged } = data as ProcessNodeData
   const [expanded, setExpanded] = useState(false)
 
   return (
     <div className="group relative box-border flex min-h-[60px] w-[300px] flex-col justify-center rounded-lg border border-blue-300 bg-white px-4 py-3 shadow-sm transition-shadow hover:shadow-md hover:border-blue-400">
+      <NodeChangeHighlight active={Boolean(recentlyChanged)} />
       <NodeTooltip type="Process Node" description="A step or action in the workflow." />
       <Handle
         type="target"

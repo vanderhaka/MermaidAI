@@ -12,7 +12,16 @@ import {
 interface ChatInputProps {
   onSend: (message: string) => void | Promise<boolean | void>
   isLoading: boolean
+  /**
+   * Focuses the textarea on mount and whenever this flips back to true — the
+   * chat panel stays mounted when hidden, so remount can't do it for us.
+   */
   autoFocus?: boolean
+  /**
+   * Cancels the in-flight response. When provided, a Stop control replaces the
+   * inert "Sending" button while a response streams.
+   */
+  onStop?: () => void
   /**
    * Optional handler for file attachments. When provided, a paperclip button
    * is rendered next to Send. If a file is attached at submit time, this
@@ -39,6 +48,7 @@ export default function ChatInput({
   onSend,
   isLoading,
   autoFocus,
+  onStop,
   onAttachFile,
   acceptedFileTypes = DEFAULT_ACCEPT,
 }: ChatInputProps) {
@@ -46,6 +56,11 @@ export default function ChatInput({
   const [queued, setQueued] = useState<string[]>([])
   const [attachedFile, setAttachedFile] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    if (autoFocus) textareaRef.current?.focus()
+  }, [autoFocus])
 
   // Flush queued messages once the in-flight response finishes. Messages typed
   // during a stream must never be dropped — scope mode is used live on calls.
@@ -83,9 +98,14 @@ export default function ChatInput({
       setMessage('')
       return
     }
-    const didSend = await onSend(trimmed)
-    if (didSend === false) return
+    // The message has been accepted for delivery, so free the composer now.
+    // Waiting for the full assistant turn leaves the submitted prompt looking
+    // unsent and makes an accidental duplicate queue much too easy.
     setMessage('')
+    const didSend = await onSend(trimmed)
+    if (didSend === false) {
+      setMessage((current) => (current ? `${trimmed}\n\n${current}` : trimmed))
+    }
   }
 
   function cancelQueued() {
@@ -118,6 +138,10 @@ export default function ChatInput({
 
   const hasText = message.trim().length > 0
   const canSend = attachedFile ? !isLoading : hasText
+  const showStop = isLoading && Boolean(onStop)
+  // Stop takes over the button slot only when there is nothing to queue, so
+  // clicking Queue mid-stream keeps working.
+  const showSubmit = !showStop || hasText || Boolean(attachedFile)
 
   return (
     <form onSubmit={handleSubmit} aria-label="Chat input">
@@ -238,6 +262,7 @@ export default function ChatInput({
 
         <textarea
           id="chat-message"
+          ref={textareaRef}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -248,35 +273,65 @@ export default function ChatInput({
                 ? 'Add a note (optional) and press Send'
                 : 'Describe what you want to build...'
           }
-          autoFocus={autoFocus}
           rows={1}
           className="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400 disabled:placeholder:text-gray-400"
         />
-        <button
-          type="submit"
-          disabled={!canSend}
-          className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-300"
-        >
-          {isLoading && (
+        {showStop && (
+          <button
+            type="button"
+            onClick={onStop}
+            aria-label="Stop response"
+            title="Stop the assistant"
+            className={`flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 transition hover:border-gray-400 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 ${
+              showSubmit ? 'h-9 w-9 justify-center' : 'px-4 py-2'
+            }`}
+          >
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              className="h-3.5 w-3.5 animate-spin"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className="h-3.5 w-3.5"
               aria-hidden
             >
-              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.25" />
-              <path
-                d="M12 2a10 10 0 0110 10"
-                stroke="currentColor"
-                strokeWidth="3"
-                strokeLinecap="round"
-                fill="none"
-              />
+              <rect x="5" y="5" width="10" height="10" rx="1.5" />
             </svg>
-          )}
-          {isLoading ? (hasText ? 'Queue' : 'Sending') : 'Send'}
-        </button>
+            {!showSubmit && 'Stop'}
+          </button>
+        )}
+        {showSubmit && (
+          <button
+            type="submit"
+            disabled={!canSend}
+            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-300"
+          >
+            {isLoading && (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                className="h-3.5 w-3.5 animate-spin"
+                aria-hidden
+              >
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                  opacity="0.25"
+                />
+                <path
+                  d="M12 2a10 10 0 0110 10"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  fill="none"
+                />
+              </svg>
+            )}
+            {isLoading ? (hasText ? 'Queue' : 'Sending') : 'Send'}
+          </button>
+        )}
       </div>
     </form>
   )

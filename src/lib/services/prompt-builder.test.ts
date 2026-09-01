@@ -251,12 +251,18 @@ describe('buildSystemPrompt', () => {
       expect(prompt).toContain('exit')
       expect(prompt).toContain('start')
       expect(prompt).toContain('end')
-      expect(prompt).toContain('question')
     })
 
-    it('lists question as an available node type with description', () => {
+    it('does not offer question as a node type — this mode cannot create them', () => {
       const prompt = buildSystemPrompt(mode, detailContext)
-      expect(prompt).toContain('**question**')
+      expect(prompt).not.toContain('**question**')
+      expect(prompt).not.toContain('`question`')
+    })
+
+    it('points at update_edge for relabelling instead of delete + recreate', () => {
+      const prompt = buildSystemPrompt(mode, detailContext)
+      expect(prompt).toContain('update_edge')
+      expect(prompt).toContain('never delete and recreate an edge')
     })
 
     it('does not contain operations delimiters', () => {
@@ -353,9 +359,22 @@ describe('buildSystemPrompt', () => {
       expect(prompt).toContain('contradictory failure branches')
     })
 
+    it('points at update_edge for relabelling instead of delete + recreate', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toContain('update_edge')
+      expect(prompt).toContain('never delete and recreate an edge')
+    })
+
     it('references add_open_questions tool', () => {
       const prompt = buildSystemPrompt(mode, baseContext)
       expect(prompt).toContain('add_open_questions')
+    })
+
+    it('prefers one dependency-safe scope batch over node-by-node tool rounds', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toContain('capture_scope_flow')
+      expect(prompt).toContain('one tool call')
+      expect(prompt).toContain('local key')
     })
 
     it('references resolve_open_question tool', () => {
@@ -493,6 +512,21 @@ describe('buildSystemPrompt', () => {
       const prompt = buildSystemPrompt(mode, baseContext)
       expect(prompt.toLowerCase()).toContain('never ask the user for a module id')
     })
+
+    it('tells the AI to decide and record routine points when auto-decide is on', () => {
+      const prompt = buildSystemPrompt(mode, { ...baseContext, helperMode: true })
+      expect(prompt).toContain('Auto-Decide Mode')
+      expect(prompt).toContain('do not create an open question for it')
+      expect(prompt).toContain('Assumed: <the decision in plain language>')
+      expect(prompt).toContain('"## Assumed defaults" heading')
+    })
+
+    it('omits the auto-decide section when the flag is off or absent', () => {
+      expect(buildSystemPrompt(mode, { ...baseContext, helperMode: false })).not.toContain(
+        'Auto-Decide Mode',
+      )
+      expect(buildSystemPrompt(mode, baseContext)).not.toContain('Auto-Decide Mode')
+    })
   })
 
   describe('flowchart_build mode', () => {
@@ -540,6 +574,12 @@ describe('buildSystemPrompt', () => {
       const prompt = buildSystemPrompt(mode, baseContext)
       expect(prompt.toLowerCase()).toContain('do not create open-question nodes')
       expect(prompt).not.toContain('add_open_questions')
+    })
+
+    it('points at update_edge for relabelling instead of delete + recreate', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toContain('update_edge')
+      expect(prompt).toContain('never delete and recreate an edge')
     })
 
     it('does not reference tools that are unavailable in flowchart mode', () => {
@@ -651,6 +691,12 @@ describe('buildSystemPrompt', () => {
       expect(prompt).toContain('insert_node_between')
     })
 
+    it('points at update_edge for relabelling instead of delete + recreate', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+      expect(prompt).toContain('update_edge')
+      expect(prompt).toContain('never delete and recreate an edge')
+    })
+
     it('instructs the AI to disambiguate fuzzy node references instead of guessing', () => {
       const prompt = buildSystemPrompt(mode, baseContext)
       expect(prompt).toContain('Never guess between distinct matches')
@@ -735,6 +781,45 @@ describe('buildSystemPrompt', () => {
       })
       expect(prompt).toContain('mod-brainstorm-123')
       expect(prompt).toContain('Never ask the user for a module ID')
+    })
+
+    it('tells the AI to decide and record routine points when auto-decide is on', () => {
+      const prompt = buildSystemPrompt(mode, { ...baseContext, helperMode: true })
+      expect(prompt).toContain('Auto-Decide Mode')
+      expect(prompt).toContain('Assumed: <the decision in plain language>')
+      expect(prompt).toContain('"## Assumed defaults" heading')
+    })
+
+    it('omits the auto-decide section when the flag is off or absent', () => {
+      expect(buildSystemPrompt(mode, { ...baseContext, helperMode: false })).not.toContain(
+        'Auto-Decide Mode',
+      )
+      expect(buildSystemPrompt(mode, baseContext)).not.toContain('Auto-Decide Mode')
+    })
+  })
+
+  describe('auto-decide mode', () => {
+    const modes: PromptMode[] = [
+      'discovery',
+      'module_map',
+      'module_detail',
+      'scope_build',
+      'flowchart_build',
+      'brainstorm_build',
+    ]
+
+    it.each(modes)('%s carries the section only when helper mode is on', (mode) => {
+      expect(buildSystemPrompt(mode, { ...baseContext, helperMode: true })).toContain(
+        'Auto-Decide Mode',
+      )
+      expect(buildSystemPrompt(mode, baseContext)).not.toContain('Auto-Decide Mode')
+    })
+
+    it('reserves questions for the points the client has to own', () => {
+      const prompt = buildSystemPrompt('scope_build', { ...baseContext, helperMode: true })
+      expect(prompt).toContain('money and payment timing')
+      expect(prompt).toContain('legal or liability exposure')
+      expect(prompt).toContain('treat it as material and ask')
     })
   })
 })

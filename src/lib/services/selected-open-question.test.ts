@@ -44,4 +44,25 @@ describe('selected open question helpers', () => {
       'Let users edit quantities and remove items until payment is submitted',
     )
   })
+
+  it('answers supplier access choices with a concrete low-friction default', () => {
+    expect(
+      buildSelectedOpenQuestionHelpResponse({
+        id: 'oq-supplier-access',
+        section: 'Supplier Access',
+        question:
+          'Should suppliers use accounts, or receive secure quote links without signing up?',
+      }),
+    ).toContain('Use secure passwordless links initially')
+  })
+
+  it('gives reminder questions an actionable default schedule', () => {
+    expect(
+      buildSelectedOpenQuestionHelpResponse({
+        id: 'oq-reminders',
+        section: 'Notifications',
+        question: 'When should staff be reminded about missing supplier quotes?',
+      }),
+    ).toContain('48 hours before the deadline')
+  })
 })

@@ -47,6 +47,32 @@ body {
   animation-delay: 0.4s;
 }
 
+/* Rings nodes the last assistant turn touched. The fade runs itself out and
+   lands fully transparent, so the canvas settles back to rest without a JS timer. */
+@keyframes node-change-fade {
+  0%,
+  40% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.node-change-highlight {
+  box-shadow:
+    0 0 0 2px rgb(59 130 246 / 0.85),
+    0 0 12px 3px rgb(59 130 246 / 0.35);
+  animation: node-change-fade 2.5s ease-out forwards;
+}
+
+/* Reduced motion keeps the ring, drops the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .node-change-highlight {
+    animation: none;
+  }
+}
+
 /* React Flow paints nodes above the default edge stack; lift edge labels (e.g. tooltips) above nodes */
 .react-flow .react-flow__edgelabel-renderer {
   z-index: 1000;

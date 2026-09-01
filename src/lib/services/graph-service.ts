@@ -197,6 +197,26 @@ export async function addEdge(input: Record<string, unknown>): Promise<ServiceRe
   return { success: true, data: mapRowToEdge(data) }
 }
 
+export async function updateEdge(
+  id: string,
+  data: Partial<Pick<FlowEdge, 'label' | 'condition'>>,
+): Promise<ServiceResult<FlowEdge>> {
+  const supabase = await createClient()
+
+  const { data: updated, error } = await supabase
+    .from('flow_edges')
+    .update(data)
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  return { success: true, data: mapRowToEdge(updated) }
+}
+
 export async function removeEdge(id: string): Promise<ServiceResult<null>> {
   const supabase = await createClient()
 

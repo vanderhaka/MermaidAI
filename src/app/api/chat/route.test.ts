@@ -102,6 +102,46 @@ function makeStream(chunks: string[]): ReadableStream<string> {
   })
 }
 
+/**
+ * Delivers `chunks` one read at a time, then fails — models the provider
+ * dropping mid-turn. Erroring inside `start` would discard the queued chunks.
+ */
+function makeFailingStream(chunks: string[], error: Error): ReadableStream<string> {
+  let index = 0
+  return new ReadableStream<string>({
+    pull(controller) {
+      if (index < chunks.length) {
+        controller.enqueue(chunks[index])
+        index += 1
+        return
+      }
+      controller.error(error)
+    },
+  })
+}
+
+/**
+ * A provider stream the test drives by hand — models a tool loop that keeps
+ * running after the client has already walked away.
+ */
+function makeManualStream(): {
+  stream: ReadableStream<string>
+  push: (chunk: string) => void
+  close: () => void
+} {
+  let controller!: ReadableStreamDefaultController<string>
+  const stream = new ReadableStream<string>({
+    start(c) {
+      controller = c
+    },
+  })
+  return {
+    stream,
+    push: (chunk) => controller.enqueue(chunk),
+    close: () => controller.close(),
+  }
+}
+
 function validBody() {
   return {
     projectId: 'proj-1',
@@ -128,6 +168,23 @@ async function readStreamToString(response: Response): Promise<string> {
     result += decoder.decode(value, { stream: true })
   }
   return result
+}
+
+/** Drains a stream that is expected to error, swallowing the rejection. */
+async function drainFailingStream(response: Response): Promise<void> {
+  const reader = response.body!.getReader()
+  try {
+    while (true) {
+      const { done } = await reader.read()
+      if (done) break
+    }
+  } catch {
+    // Expected — the route surfaces the mid-stream failure to the client.
+  }
+}
+
+function persistedRoles(): string[] {
+  return mockAddChatMessage.mock.calls.map((call) => (call[0] as { role: string }).role)
 }
 
 // --- Tests ---
@@ -538,6 +595,39 @@ describe('POST /api/chat', () => {
     )
   })
 
+  // --- Auto-decide (helper mode) ---
+
+  it('carries the auto-decide flag all the way into the system prompt', async () => {
+    const actualPromptBuilder = await vi.importActual<
+      typeof import('@/lib/services/prompt-builder')
+    >('@/lib/services/prompt-builder')
+    mockBuildSystemPrompt.mockImplementationOnce(actualPromptBuilder.buildSystemPrompt)
+
+    const { POST } = await import('@/app/api/chat/route')
+    await POST(makeRequest({ ...validBody(), helperMode: true }))
+
+    const [systemPrompt] = mockCallLLMWithTools.mock.calls[0] as [string]
+    expect(systemPrompt).toContain('Auto-Decide Mode')
+  })
+
+  it('accepts requests that omit helperMode and leaves auto-decide off', async () => {
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest(validBody()))
+
+    expect(response.status).toBe(200)
+    expect(mockBuildSystemPrompt).toHaveBeenCalledWith(
+      'discovery',
+      expect.objectContaining({ helperMode: false }),
+    )
+  })
+
+  it('rejects a non-boolean helperMode with 400', async () => {
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest({ ...validBody(), helperMode: 'yes' }))
+
+    expect(response.status).toBe(400)
+  })
+
   // --- Tool wiring ---
 
   it('passes tools for the current mode to callLLMWithTools', async () => {
@@ -553,7 +643,7 @@ describe('POST /api/chat', () => {
       expect.any(Array),
       tools,
       mockExecutor,
-      { provider: 'codex', sessionKey: 'proj-1' },
+      { provider: 'codex', sessionKey: 'proj-1', signal: expect.any(AbortSignal) },
     )
   })
 
@@ -566,7 +656,7 @@ describe('POST /api/chat', () => {
       expect.any(Array),
       expect.any(Array),
       mockExecutor,
-      { provider: 'anthropic', sessionKey: 'proj-1' },
+      { provider: 'anthropic', sessionKey: 'proj-1', signal: expect.any(AbortSignal) },
     )
   })
 
@@ -581,7 +671,7 @@ describe('POST /api/chat', () => {
       expect.any(Array),
       expect.any(Array),
       mockExecutor,
-      { provider: 'anthropic', sessionKey: 'proj-1' },
+      { provider: 'anthropic', sessionKey: 'proj-1', signal: expect.any(AbortSignal) },
     )
   })
 
@@ -596,7 +686,7 @@ describe('POST /api/chat', () => {
       expect.any(Array),
       expect.any(Array),
       mockExecutor,
-      { provider: 'codex', sessionKey: 'proj-1' },
+      { provider: 'codex', sessionKey: 'proj-1', signal: expect.any(AbortSignal) },
     )
   })
 
@@ -654,7 +744,7 @@ describe('POST /api/chat', () => {
       ]),
       expect.any(Array),
       expect.any(Function),
-      { provider: 'codex', sessionKey: 'proj-1' },
+      { provider: 'codex', sessionKey: 'proj-1', signal: expect.any(AbortSignal) },
     )
   })
 
@@ -710,6 +800,113 @@ describe('POST /api/chat', () => {
         content: 'AI reply',
       }),
     )
+  })
+
+  it('persists each message exactly once on the success path', async () => {
+    mockCallLLMWithTools.mockResolvedValue(makeStream(['AI ', 'reply']))
+
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest(validBody()))
+    await readStreamToString(response)
+    await new Promise((r) => setTimeout(r, 50))
+
+    expect(persistedRoles()).toEqual(['user', 'assistant'])
+  })
+
+  it('persists the user message when the LLM stream fails mid-way', async () => {
+    mockCallLLMWithTools.mockResolvedValue(
+      makeFailingStream(['Partial '], new Error('provider dropped')),
+    )
+
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest(validBody()))
+    await drainFailingStream(response)
+    await new Promise((r) => setTimeout(r, 50))
+
+    expect(mockAddChatMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        project_id: 'proj-1',
+        role: 'user',
+        content: 'Create an auth module',
+      }),
+    )
+  })
+
+  it('persists the partial assistant text when the LLM stream fails mid-way', async () => {
+    mockCallLLMWithTools.mockResolvedValue(
+      makeFailingStream(['Building the ', 'auth flow'], new Error('provider dropped')),
+    )
+
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest(validBody()))
+    await drainFailingStream(response)
+    await new Promise((r) => setTimeout(r, 50))
+
+    expect(mockAddChatMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        project_id: 'proj-1',
+        role: 'assistant',
+        content: 'Building the auth flow',
+      }),
+    )
+    expect(persistedRoles()).toEqual(['user', 'assistant'])
+  })
+
+  // --- Stop propagation ---
+
+  it("passes the request's abort signal into the LLM tool loop", async () => {
+    const { POST } = await import('@/app/api/chat/route')
+    const request = makeRequest(validBody())
+
+    await POST(request)
+
+    const [, , , , options] = mockCallLLMWithTools.mock.calls[0] as [
+      unknown,
+      unknown,
+      unknown,
+      unknown,
+      { signal?: AbortSignal },
+    ]
+    expect(options.signal).toBe(request.signal)
+  })
+
+  it('persists the turn exactly once when the client stops mid-stream', async () => {
+    const provider = makeManualStream()
+    mockCallLLMWithTools.mockResolvedValue(provider.stream)
+
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest(validBody()))
+
+    provider.push('Building the ')
+    const reader = response.body!.getReader()
+    await reader.read()
+
+    // Stop: the client cancels the response, then the server loop notices the
+    // abort and ends the turn cleanly instead of erroring.
+    await reader.cancel()
+    provider.close()
+
+    await new Promise((r) => setTimeout(r, 50))
+
+    expect(persistedRoles()).toEqual(['user', 'assistant'])
+    expect(mockAddChatMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        project_id: 'proj-1',
+        role: 'assistant',
+        content: 'Building the',
+      }),
+    )
+  })
+
+  it('persists only the user message when the stream fails before any text', async () => {
+    mockCallLLMWithTools.mockResolvedValue(makeFailingStream([], new Error('provider dropped')))
+
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest(validBody()))
+    await drainFailingStream(response)
+    await new Promise((r) => setTimeout(r, 50))
+
+    expect(persistedRoles()).toEqual(['user'])
   })
 
   // --- Error handling ---
@@ -836,6 +1033,13 @@ describe('POST /api/chat', () => {
     }
     const response = await POST(makeRequest(body))
     expect(response.status).toBe(200)
+    const options = mockCallLLMWithTools.mock.calls.at(-1)?.[4]
+    expect(options).toEqual(
+      expect.objectContaining({
+        reasoningEffort: 'low',
+        continuationReasoningEffort: 'low',
+      }),
+    )
   })
 
   it('accepts flowchart_build as a valid mode', async () => {
