@@ -403,6 +403,51 @@ describe('llm-client', () => {
       )
     })
 
+    it('ends the Anthropic loop after committed tool data when terminal text is supplied', async () => {
+      const toolRound = createMockStream()
+      toolRound.finalMessage.mockResolvedValue({
+        stop_reason: 'tool_use',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call-architecture',
+            name: 'capture_architecture_map',
+            input: { objective: 'Salon' },
+          },
+        ],
+      })
+      const continuationRound = createMockStream()
+      continuationRound.finalMessage.mockImplementation(async () => {
+        continuationRound.emit('text', 'Provider continuation must not run.')
+        return { stop_reason: 'end_turn', content: [] }
+      })
+      let streamCall = 0
+      mockStreamFn.mockImplementation(() => (streamCall++ === 0 ? toolRound : continuationRound))
+
+      const terminalText = 'Built a provisional Architecture with 6 capabilities.'
+      const { TOOL_EVENT_DELIMITER, callLLMWithTools } = await import('@/lib/services/llm-client')
+      const text = await readStreamToString(
+        await callLLMWithTools(
+          'System prompt',
+          [{ role: 'user', content: 'Plan the salon' }],
+          [],
+          vi.fn().mockResolvedValue({
+            content: 'Committed Architecture',
+            isError: false,
+            data: { metadata: { change_summary: { capabilitiesCreated: 6 } } },
+            terminalText,
+          }),
+          { provider: 'anthropic' },
+        ),
+      )
+
+      expect(mockStreamFn).toHaveBeenCalledTimes(1)
+      expect(text.indexOf(`${TOOL_EVENT_DELIMITER}`)).toBeLessThan(text.indexOf(terminalText))
+      expect(text).toContain('"change_summary"')
+      expect(text).toContain(terminalText)
+      expect(text).not.toContain('Provider continuation must not run.')
+    })
+
     it('parses Cerebras tool calls, executes them, and continues with tool results', async () => {
       process.env.CEREBRAS_API_KEY = 'csk-test-key'
       const fetchMock = vi
@@ -502,6 +547,38 @@ describe('llm-client', () => {
         tool_call_id: 'call-1',
         content: 'Created node "Collect order"',
       })
+    })
+
+    it('ends the Cerebras loop after committed tool data when terminal text is supplied', async () => {
+      process.env.CEREBRAS_API_KEY = 'csk-test-key'
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(cerebrasToolCallResponse([{ id: 'call-1', label: 'Architecture' }]))
+        .mockResolvedValueOnce(cerebrasTextResponse('Provider continuation must not run.'))
+      vi.stubGlobal('fetch', fetchMock)
+
+      const terminalText = 'Built a provisional Architecture with 6 capabilities.'
+      const { TOOL_EVENT_DELIMITER, callLLMWithTools } = await import('@/lib/services/llm-client')
+      const text = await readStreamToString(
+        await callLLMWithTools(
+          'System prompt',
+          [{ role: 'user', content: 'Plan the salon' }],
+          [],
+          vi.fn().mockResolvedValue({
+            content: 'Committed Architecture',
+            isError: false,
+            data: { metadata: { change_summary: { capabilitiesCreated: 6 } } },
+            terminalText,
+          }),
+          { provider: 'cerebras' },
+        ),
+      )
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(text.indexOf(`${TOOL_EVENT_DELIMITER}`)).toBeLessThan(text.indexOf(terminalText))
+      expect(text).toContain('"change_summary"')
+      expect(text).toContain(terminalText)
+      expect(text).not.toContain('Provider continuation must not run.')
     })
 
     it('falls back to Anthropic when a follow-up Cerebras tool round is rate limited', async () => {

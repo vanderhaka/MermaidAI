@@ -1,3 +1,5 @@
+import type { PlanningArtifactKind } from '@/types/planning'
+
 export type ChatRole = 'user' | 'assistant' | 'system'
 
 export const AI_PROVIDERS = ['cerebras', 'anthropic', 'codex'] as const
@@ -143,6 +145,65 @@ export type ChatMessage = {
    * session only — it is never persisted, so messages loaded from history omit it.
    */
   toolCalls?: string[]
+  turnId?: string | null
+  messageKey?: string | null
+  planningStage?: PlanningArtifactKind | null
+  artifactId?: string | null
+  artifactVersionId?: string | null
+  changeSetId?: string | null
+  metadata?: Record<string, unknown> | null
+}
+
+export type ChatPlanningLink = {
+  stage: PlanningArtifactKind
+  artifactId: string
+  artifactVersionId: string
+  expectedRevision: number
+}
+
+/**
+ * Durable logical identity for one user turn. Retry keeps every field except
+ * assistantMessageKey: each streamed assistant attempt is its own immutable row.
+ */
+export type ChatTurnIdentity = {
+  turnId: string
+  userMessageKey: string
+  assistantMessageKey: string
+  changeSetId: string
+  expectedRevision: number
+  operationIds: string[]
+  planningStage: PlanningArtifactKind | null
+  artifactId: string | null
+  artifactVersionId: string | null
+}
+
+export const CHAT_TURN_OPERATION_LIMIT = 64
+export const CHAT_TOOL_RECEIPT_KEY = '__chatTurnReceipt'
+
+export type ChatToolReceiptStatus = 'committed' | 'failed' | 'legacy_direct'
+
+export type ChatToolReceipt = {
+  turnId: string
+  changeSetId: string
+  operationId: string
+  sequence: number
+  status: ChatToolReceiptStatus
+  expectedRevision: number
+  committedRevision?: number
+  artifactVersionId?: string | null
+}
+
+export type ArchitectureChangeSummary = {
+  created: number
+  updated: number
+  deleted: number
+  assumed: number
+  resolved: number
+  capabilitiesCreated: number
+  connectionsCreated: number
+  assumptionsRecorded: number
+  questionsRecorded: number
+  provisional: true
 }
 
 export type ChatContext = {
@@ -163,4 +224,11 @@ export type CreateChatMessageInput = {
   project_id: string
   role: ChatRole
   content: string
+  turn_id?: string | null
+  message_key?: string | null
+  planning_stage?: PlanningArtifactKind | null
+  artifact_id?: string | null
+  artifact_version_id?: string | null
+  change_set_id?: string | null
+  metadata?: Record<string, unknown> | null
 }

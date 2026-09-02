@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+import { TOOL_EVENT_DELIMITER } from '@/lib/services/llm-shared'
+
 // --- Mocks ---
 
 // Mock server-only (it throws at import time in non-server contexts)
@@ -36,6 +38,25 @@ vi.mock('@/lib/services/llm-tools', () => ({
 const mockAddChatMessage = vi.fn()
 vi.mock('@/lib/services/chat-message-service', () => ({
   addChatMessage: (...args: unknown[]) => mockAddChatMessage(...args),
+}))
+
+const mockFinalizeChatChangeSet = vi.fn()
+const mockGetCommittedChatChangeSetForRetry = vi.fn()
+vi.mock('@/lib/services/change-set-service', () => ({
+  finalizeChatChangeSet: (...args: unknown[]) => mockFinalizeChatChangeSet(...args),
+  getCommittedChatChangeSetForRetry: (...args: unknown[]) =>
+    mockGetCommittedChatChangeSetForRetry(...args),
+}))
+
+const mockGetPlanningState = vi.fn()
+vi.mock('@/lib/services/planning-state-service', () => ({
+  getPlanningState: (...args: unknown[]) => mockGetPlanningState(...args),
+}))
+
+const mockGetActivePlanningArtifactVersion = vi.fn()
+vi.mock('@/lib/services/planning-artifact-service', () => ({
+  getActivePlanningArtifactVersion: (...args: unknown[]) =>
+    mockGetActivePlanningArtifactVersion(...args),
 }))
 
 const mockListModulesByProject = vi.fn()
@@ -158,6 +179,25 @@ function validBody() {
   }
 }
 
+const turnIdentity = {
+  turnId: '11111111-1111-4111-8111-111111111111',
+  userMessageKey: '22222222-2222-4222-8222-222222222222',
+  assistantMessageKey: '33333333-3333-4333-8333-333333333333',
+  changeSetId: '44444444-4444-4444-8444-444444444444',
+  expectedRevision: 7,
+  operationIds: ['55555555-5555-4555-8555-555555555555', '66666666-6666-4666-8666-666666666666'],
+  planningStage: 'architecture' as const,
+  artifactId: '77777777-7777-4777-8777-777777777777',
+  artifactVersionId: '88888888-8888-4888-8888-888888888888',
+}
+
+function validPlanningBody() {
+  return {
+    ...validBody(),
+    turn: turnIdentity,
+  }
+}
+
 async function readStreamToString(response: Response): Promise<string> {
   const reader = response.body!.getReader()
   const decoder = new TextDecoder()
@@ -238,6 +278,45 @@ describe('POST /api/chat', () => {
       },
     })
 
+    mockFinalizeChatChangeSet.mockResolvedValue({ success: true, data: { state: 'completed' } })
+    mockGetCommittedChatChangeSetForRetry.mockResolvedValue({ success: true, data: null })
+    mockGetPlanningState.mockResolvedValue({
+      success: true,
+      data: {
+        project_id: 'proj-1',
+        stage: 'architecture',
+        readiness_state: 'draft',
+        auto_decide_enabled: true,
+        write_safety_revision: 7,
+        active_architecture_artifact_id: turnIdentity.artifactId,
+        active_work_plan_artifact_id: null,
+        active_execution_handoff_artifact_id: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    })
+    mockGetActivePlanningArtifactVersion.mockResolvedValue({
+      success: true,
+      data: {
+        id: turnIdentity.artifactVersionId,
+        artifact_id: turnIdentity.artifactId,
+        project_id: 'proj-1',
+        artifact_kind: 'architecture',
+        version: 1,
+        content_state: 'draft',
+        content: null,
+        content_hash: 'draft',
+        request_key: null,
+        request_hash: null,
+        readiness_report: null,
+        rendered_markdown: null,
+        provenance: {},
+        source_version_id: null,
+        secondary_source_version_id: null,
+        created_at: '2026-01-01T00:00:00Z',
+      },
+    })
+
     mockLoadModuleNotesForChat.mockResolvedValue({ source: 'none' as const, markdown: null })
 
     // Default: open questions return empty
@@ -293,6 +372,201 @@ describe('POST /api/chat', () => {
 
     const json = await response.json()
     expect(json).toHaveProperty('error')
+  })
+
+  it('rejects conflicting top-level and context project or mode identity', async () => {
+    const { POST } = await import('@/app/api/chat/route')
+
+    const wrongProject = await POST(
+      makeRequest({
+        ...validBody(),
+        context: { ...validBody().context, projectId: 'another-project' },
+      }),
+    )
+    const wrongMode = await POST(
+      makeRequest({
+        ...validBody(),
+        context: { ...validBody().context, mode: 'module_map' },
+      }),
+    )
+
+    expect(wrongProject.status).toBe(400)
+    expect(wrongMode.status).toBe(400)
+    expect(mockCallLLMWithTools).not.toHaveBeenCalled()
+  })
+
+  it('rejects a stale planning revision before asking the model to mutate anything', async () => {
+    mockGetPlanningState.mockResolvedValue({
+      success: true,
+      data: {
+        project_id: 'proj-1',
+        stage: 'architecture',
+        write_safety_revision: 8,
+        active_architecture_artifact_id: turnIdentity.artifactId,
+      },
+    })
+
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest(validPlanningBody()))
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: 'Planning state changed. Refresh and retry.' })
+    expect(mockCallLLMWithTools).not.toHaveBeenCalled()
+  })
+
+  it('recovers the exact committed turn when its response was lost, without relaxing stale protection', async () => {
+    const committedArtifactVersionId = '99999999-9999-4999-8999-999999999999'
+    const changeSummary = {
+      capabilitiesCreated: 6,
+      connectionsCreated: 5,
+      assumptionsRecorded: 2,
+      questionsRecorded: 1,
+      provisional: true as const,
+    }
+    mockGetPlanningState.mockResolvedValue({
+      success: true,
+      data: {
+        project_id: 'proj-1',
+        stage: 'architecture',
+        write_safety_revision: 8,
+        active_architecture_artifact_id: turnIdentity.artifactId,
+      },
+    })
+    mockGetActivePlanningArtifactVersion.mockResolvedValue({
+      success: true,
+      data: {
+        id: committedArtifactVersionId,
+        artifact_id: turnIdentity.artifactId,
+      },
+    })
+    mockGetCommittedChatChangeSetForRetry.mockResolvedValue({
+      success: true,
+      data: {
+        id: turnIdentity.changeSetId,
+        committedRevision: 8,
+        artifactVersionId: committedArtifactVersionId,
+        changeSummary,
+        completedAssistant: null,
+      },
+    })
+
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest(validPlanningBody()))
+    const responseText = await readStreamToString(response)
+
+    expect(response.status).toBe(200)
+    expect(responseText).toContain('Recovered the committed Architecture change')
+    expect(responseText).toContain(`"change_summary":${JSON.stringify(changeSummary)}`)
+    expect(mockCallLLMWithTools).not.toHaveBeenCalled()
+    expect(mockGetCommittedChatChangeSetForRetry).toHaveBeenCalledWith({
+      projectId: 'proj-1',
+      turnId: turnIdentity.turnId,
+      changeSetId: turnIdentity.changeSetId,
+      expectedRevision: 7,
+    })
+    expect(mockFinalizeChatChangeSet).toHaveBeenCalledWith(
+      expect.objectContaining({ state: 'completed' }),
+    )
+    expect(mockAddChatMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: 'assistant',
+        artifact_version_id: committedArtifactVersionId,
+        change_set_id: turnIdentity.changeSetId,
+        metadata: expect.objectContaining({
+          turn_status: 'completed',
+          change_summary: expect.objectContaining(changeSummary),
+        }),
+      }),
+    )
+  })
+
+  it('streams an existing completed assistant without creating a second durable assistant', async () => {
+    const committedArtifactVersionId = '99999999-9999-4999-8999-999999999999'
+    const originalContent = 'Built the provisional Architecture with Customers and Bookings.'
+    const changeSummary = {
+      capabilitiesCreated: 2,
+      connectionsCreated: 1,
+      assumptionsRecorded: 0,
+      questionsRecorded: 0,
+      provisional: true as const,
+    }
+    mockGetPlanningState.mockResolvedValue({
+      success: true,
+      data: {
+        project_id: 'proj-1',
+        stage: 'architecture',
+        write_safety_revision: 8,
+        active_architecture_artifact_id: turnIdentity.artifactId,
+      },
+    })
+    mockGetActivePlanningArtifactVersion.mockResolvedValue({
+      success: true,
+      data: { id: committedArtifactVersionId, artifact_id: turnIdentity.artifactId },
+    })
+    mockGetCommittedChatChangeSetForRetry.mockResolvedValue({
+      success: true,
+      data: {
+        id: turnIdentity.changeSetId,
+        committedRevision: 8,
+        artifactVersionId: committedArtifactVersionId,
+        changeSummary,
+        completedAssistant: {
+          content: originalContent,
+          artifactVersionId: committedArtifactVersionId,
+          metadata: { turn_status: 'completed', change_summary: changeSummary },
+        },
+      },
+    })
+
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest(validPlanningBody()))
+    const responseText = await readStreamToString(response)
+
+    expect(response.status).toBe(200)
+    expect(responseText).toContain(originalContent)
+    expect(responseText).toContain(`"change_summary":${JSON.stringify(changeSummary)}`)
+    expect(mockCallLLMWithTools).not.toHaveBeenCalled()
+    expect(mockAddChatMessage).not.toHaveBeenCalled()
+    expect(mockFinalizeChatChangeSet).not.toHaveBeenCalled()
+  })
+
+  it('rejects an exact committed turn after a later revision has become current', async () => {
+    const committedArtifactVersionId = '99999999-9999-4999-8999-999999999999'
+    mockGetPlanningState.mockResolvedValue({
+      success: true,
+      data: {
+        project_id: 'proj-1',
+        stage: 'architecture',
+        write_safety_revision: 9,
+        active_architecture_artifact_id: turnIdentity.artifactId,
+      },
+    })
+    mockGetActivePlanningArtifactVersion.mockResolvedValue({
+      success: true,
+      data: {
+        id: committedArtifactVersionId,
+        artifact_id: turnIdentity.artifactId,
+      },
+    })
+    mockGetCommittedChatChangeSetForRetry.mockResolvedValue({
+      success: true,
+      data: {
+        id: turnIdentity.changeSetId,
+        committedRevision: 8,
+        artifactVersionId: committedArtifactVersionId,
+        changeSummary: null,
+        completedAssistant: null,
+      },
+    })
+
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest(validPlanningBody()))
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: 'Planning state changed. Refresh and retry.' })
+    expect(mockCallLLMWithTools).not.toHaveBeenCalled()
+    expect(mockFinalizeChatChangeSet).not.toHaveBeenCalled()
+    expect(mockAddChatMessage).not.toHaveBeenCalled()
   })
 
   // --- History role validation ---
@@ -621,6 +895,34 @@ describe('POST /api/chat', () => {
     )
   })
 
+  it('uses persisted Auto-Decide truth for a staged Architecture turn', async () => {
+    mockGetPlanningState.mockResolvedValue({
+      success: true,
+      data: {
+        project_id: 'proj-1',
+        stage: 'architecture',
+        readiness_state: 'draft',
+        auto_decide_enabled: true,
+        write_safety_revision: 7,
+        active_architecture_artifact_id: turnIdentity.artifactId,
+        active_work_plan_artifact_id: null,
+        active_execution_handoff_artifact_id: null,
+        architecture_viewport: { x: 0, y: 0, zoom: 1 },
+        created_at: '2026-09-02T00:00:00.000Z',
+        updated_at: '2026-09-02T00:00:00.000Z',
+      },
+    })
+
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest({ ...validPlanningBody(), helperMode: false }))
+
+    expect(response.status).toBe(200)
+    expect(mockBuildSystemPrompt).toHaveBeenCalledWith(
+      'discovery',
+      expect.objectContaining({ helperMode: true }),
+    )
+  })
+
   it('rejects a non-boolean helperMode with 400', async () => {
     const { POST } = await import('@/app/api/chat/route')
     const response = await POST(makeRequest({ ...validBody(), helperMode: 'yes' }))
@@ -645,6 +947,58 @@ describe('POST /api/chat', () => {
       mockExecutor,
       { provider: 'codex', sessionKey: 'proj-1', signal: expect.any(AbortSignal) },
     )
+  })
+
+  it('uses low reasoning effort for an empty Architecture module map', async () => {
+    const body = {
+      ...validBody(),
+      mode: 'module_map',
+      context: { ...validBody().context, mode: 'module_map' },
+    }
+
+    const { POST } = await import('@/app/api/chat/route')
+    await POST(makeRequest(body))
+
+    expect(mockCallLLMWithTools.mock.calls.at(-1)?.[4]).toEqual(
+      expect.objectContaining({
+        reasoningEffort: 'low',
+        continuationReasoningEffort: 'low',
+      }),
+    )
+  })
+
+  it('leaves an existing Architecture module map on the configured provider effort', async () => {
+    mockListModulesByProject.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          id: 'module-1',
+          project_id: 'proj-1',
+          domain: null,
+          name: 'Bookings',
+          description: 'Coordinates bookings',
+          prd_content: '',
+          position: { x: 0, y: 0 },
+          color: '#111827',
+          entry_points: [],
+          exit_points: [],
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+    })
+    const body = {
+      ...validBody(),
+      mode: 'module_map',
+      context: { ...validBody().context, mode: 'module_map' },
+    }
+
+    const { POST } = await import('@/app/api/chat/route')
+    await POST(makeRequest(body))
+
+    const options = mockCallLLMWithTools.mock.calls.at(-1)?.[4] as Record<string, unknown>
+    expect(options).not.toHaveProperty('reasoningEffort')
+    expect(options).not.toHaveProperty('continuationReasoningEffort')
   })
 
   it('passes explicit Anthropic provider selection to callLLMWithTools', async () => {
@@ -695,6 +1049,16 @@ describe('POST /api/chat', () => {
     await POST(makeRequest(validBody()))
 
     expect(mockCreateToolExecutor).toHaveBeenCalledWith('proj-1')
+  })
+
+  it('carries the stable turn and ordered operation identities into tool execution', async () => {
+    const { POST } = await import('@/app/api/chat/route')
+    await POST(makeRequest(validPlanningBody()))
+
+    expect(mockCreateToolExecutor).toHaveBeenCalledWith(
+      'proj-1',
+      expect.objectContaining({ authenticatedUserId: 'user-1', turnIdentity }),
+    )
   })
 
   it('passes selected open question guard context to the tool executor', async () => {
@@ -813,6 +1177,162 @@ describe('POST /api/chat', () => {
     expect(persistedRoles()).toEqual(['user', 'assistant'])
   })
 
+  it('persists stage, artifact, message, turn, and committed receipt linkage', async () => {
+    const receipt = {
+      turnId: turnIdentity.turnId,
+      changeSetId: turnIdentity.changeSetId,
+      operationId: turnIdentity.operationIds[0],
+      sequence: 0,
+      status: 'committed',
+      expectedRevision: 7,
+      committedRevision: 8,
+      artifactVersionId: '99999999-9999-4999-8999-999999999999',
+    }
+    const changeSummary = {
+      capabilitiesCreated: 6,
+      connectionsCreated: 5,
+      assumptionsRecorded: 2,
+      questionsRecorded: 1,
+      provisional: true,
+    }
+    mockCallLLMWithTools.mockResolvedValue(
+      makeStream([
+        `${TOOL_EVENT_DELIMITER}${JSON.stringify({
+          tool: 'capture_architecture_map',
+          data: {
+            __chatTurnReceipt: receipt,
+            metadata: { change_summary: changeSummary },
+          },
+        })}\n`,
+        'Architecture captured.',
+      ]),
+    )
+
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest(validPlanningBody()))
+    const streamed = await readStreamToString(response)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(streamed).toContain(`"change_summary":${JSON.stringify(changeSummary)}`)
+
+    expect(mockAddChatMessage).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        role: 'user',
+        turn_id: turnIdentity.turnId,
+        message_key: turnIdentity.userMessageKey,
+        planning_stage: 'architecture',
+        artifact_id: turnIdentity.artifactId,
+        artifact_version_id: turnIdentity.artifactVersionId,
+        change_set_id: turnIdentity.changeSetId,
+      }),
+    )
+    expect(mockAddChatMessage).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        role: 'assistant',
+        message_key: turnIdentity.assistantMessageKey,
+        planning_stage: 'architecture',
+        artifact_id: turnIdentity.artifactId,
+        artifact_version_id: receipt.artifactVersionId,
+        change_set_id: turnIdentity.changeSetId,
+        metadata: expect.objectContaining({
+          turn_status: 'completed',
+          tool_receipts: [receipt],
+          change_summary: expect.objectContaining(changeSummary),
+        }),
+      }),
+    )
+    expect(mockFinalizeChatChangeSet).toHaveBeenCalledWith({
+      projectId: 'proj-1',
+      turnId: turnIdentity.turnId,
+      changeSetId: turnIdentity.changeSetId,
+      state: 'completed',
+    })
+  })
+
+  it('does not persist malformed Architecture change-summary metadata', async () => {
+    const receipt = {
+      turnId: turnIdentity.turnId,
+      changeSetId: turnIdentity.changeSetId,
+      operationId: turnIdentity.operationIds[0],
+      sequence: 0,
+      status: 'committed',
+      expectedRevision: 7,
+      committedRevision: 8,
+      artifactVersionId: turnIdentity.artifactVersionId,
+    }
+    mockCallLLMWithTools.mockResolvedValue(
+      makeStream([
+        `${TOOL_EVENT_DELIMITER}${JSON.stringify({
+          tool: 'capture_architecture_map',
+          data: {
+            __chatTurnReceipt: receipt,
+            metadata: {
+              change_summary: {
+                capabilitiesCreated: 'six',
+                connectionsCreated: 5,
+                assumptionsRecorded: 2,
+                questionsRecorded: 1,
+                provisional: true,
+              },
+            },
+          },
+        })}\n`,
+        'Architecture captured.',
+      ]),
+    )
+
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest(validPlanningBody()))
+    await readStreamToString(response)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    const assistantInput = mockAddChatMessage.mock.calls[1]?.[0] as {
+      metadata?: Record<string, unknown>
+    }
+    expect(assistantInput.metadata).not.toHaveProperty('change_summary')
+  })
+
+  it('logs unsuccessful persistence results and leaves a committed turn partial', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    mockAddChatMessage
+      .mockResolvedValueOnce({ success: false, error: 'insert refused' })
+      .mockResolvedValueOnce({ success: true, data: { id: 'assistant-row' } })
+    const receipt = {
+      turnId: turnIdentity.turnId,
+      changeSetId: turnIdentity.changeSetId,
+      operationId: turnIdentity.operationIds[0],
+      sequence: 0,
+      status: 'committed',
+      expectedRevision: 7,
+      committedRevision: 8,
+      artifactVersionId: turnIdentity.artifactVersionId,
+    }
+    mockCallLLMWithTools.mockResolvedValue(
+      makeStream([
+        `${TOOL_EVENT_DELIMITER}${JSON.stringify({
+          tool: 'capture_architecture_map',
+          data: { __chatTurnReceipt: receipt },
+        })}\n`,
+        'Architecture captured.',
+      ]),
+    )
+
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest(validPlanningBody()))
+    await readStreamToString(response)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      'Failed to persist chat message',
+      expect.objectContaining({ role: 'user', error: 'insert refused' }),
+    )
+    expect(mockFinalizeChatChangeSet).toHaveBeenCalledWith(
+      expect.objectContaining({ state: 'partial' }),
+    )
+  })
+
   it('persists the user message when the LLM stream fails mid-way', async () => {
     mockCallLLMWithTools.mockResolvedValue(
       makeFailingStream(['Partial '], new Error('provider dropped')),
@@ -894,6 +1414,50 @@ describe('POST /api/chat', () => {
         project_id: 'proj-1',
         role: 'assistant',
         content: 'Building the',
+      }),
+    )
+  })
+
+  it('marks an abort after a committed tool receipt partial instead of pretending it finalized', async () => {
+    const provider = makeManualStream()
+    mockCallLLMWithTools.mockResolvedValue(provider.stream)
+    const receipt = {
+      turnId: turnIdentity.turnId,
+      changeSetId: turnIdentity.changeSetId,
+      operationId: turnIdentity.operationIds[0],
+      sequence: 0,
+      status: 'committed',
+      expectedRevision: 7,
+      committedRevision: 8,
+      artifactVersionId: turnIdentity.artifactVersionId,
+    }
+
+    const { POST } = await import('@/app/api/chat/route')
+    const response = await POST(makeRequest(validPlanningBody()))
+    provider.push(
+      `${TOOL_EVENT_DELIMITER}${JSON.stringify({
+        tool: 'capture_architecture_map',
+        data: { __chatTurnReceipt: receipt },
+      })}\nBuilding the map`,
+    )
+    const reader = response.body!.getReader()
+    await reader.read()
+    await reader.cancel()
+    provider.close()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(mockFinalizeChatChangeSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: 'proj-1',
+        turnId: turnIdentity.turnId,
+        changeSetId: turnIdentity.changeSetId,
+        state: 'partial',
+      }),
+    )
+    expect(mockAddChatMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: 'assistant',
+        metadata: expect.objectContaining({ turn_status: 'partial' }),
       }),
     )
   })

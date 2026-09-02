@@ -88,6 +88,8 @@ export type CreateFlowEdgeInput = Pick<
 }
 
 export type OpenQuestionStatus = 'open' | 'resolved'
+export type OpenQuestionReadinessImpact = 'blocking' | 'non_blocking' | 'deferred'
+export type PlanningProvenance = 'user' | 'assistant' | 'system'
 
 export type OpenQuestion = {
   id: string
@@ -97,6 +99,10 @@ export type OpenQuestion = {
   question: string
   status: OpenQuestionStatus
   resolution: string | null
+  artifact_version_id?: string | null
+  planning_decision_id?: string | null
+  readiness_impact?: OpenQuestionReadinessImpact | null
+  provenance?: PlanningProvenance | null
   created_at: string
   resolved_at: string | null
 }

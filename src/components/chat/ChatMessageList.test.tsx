@@ -133,6 +133,64 @@ describe('ChatMessageList', () => {
       expect(screen.getByText("Now I'll connect everything:")).toBeInTheDocument()
       expect(screen.getByText('Done! The flow is ready.')).toBeInTheDocument()
     })
+
+    it('restores a persisted Architecture receipt after reload', () => {
+      const msg = makeMessage({
+        id: 'msg-architecture-receipt',
+        role: 'assistant',
+        content: 'Your first Architecture is ready to review.',
+        changeSetId: '11111111-1111-4111-8111-111111111111',
+        metadata: {
+          change_summary: {
+            capabilitiesCreated: 4,
+            connectionsCreated: 3,
+            assumptionsRecorded: 1,
+            questionsRecorded: 2,
+            provisional: true,
+          },
+        },
+      })
+
+      render(<ChatMessageList messages={[msg]} isLoading={false} />)
+
+      expect(within(screen.getByRole('article')).getByText('Provisional')).toBeInTheDocument()
+      expect(screen.getByTestId('architecture-change-receipt')).toHaveTextContent(
+        'Created 4 capabilities · Connected 3 handoffs · Recorded 1 assumption and 2 questions',
+      )
+    })
+
+    it('continues a partial Architecture turn from the committed current map', async () => {
+      const user = userEvent.setup()
+      const onSend = vi.fn()
+      const msg = makeMessage({
+        id: 'msg-partial-architecture',
+        role: 'assistant',
+        content: 'Updated the booking boundary.\n\n⚠ Response interrupted',
+        changeSetId: '11111111-1111-4111-8111-111111111111',
+        metadata: {
+          turn_status: 'partial',
+          change_summary: {
+            capabilitiesCreated: 0,
+            connectionsCreated: 0,
+            assumptionsRecorded: 0,
+            questionsRecorded: 0,
+            created: 0,
+            updated: 1,
+            deleted: 0,
+            assumed: 0,
+            resolved: 0,
+            provisional: true,
+          },
+        },
+      })
+
+      render(<ChatMessageList messages={[msg]} isLoading={false} onSend={onSend} />)
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+      expect(onSend).toHaveBeenCalledWith(
+        expect.stringMatching(/check the current Architecture.*unfinished part/i),
+      )
+    })
   })
 
   describe('streaming', () => {
@@ -147,6 +205,23 @@ describe('ChatMessageList', () => {
     it('shows a thinking indicator when loading with no streaming content', () => {
       render(<ChatMessageList messages={[userMsg]} isLoading={true} />)
       expect(screen.getByLabelText(/thinking/i)).toBeInTheDocument()
+    })
+
+    it('shows the supplied Architecture activity instead of a generic thinking state', () => {
+      render(
+        <ChatMessageList
+          messages={[userMsg]}
+          isLoading={true}
+          pendingActivity="Reading your brief and finding actors"
+        />,
+      )
+
+      expect(screen.getByTestId('architecture-turn-activity')).toHaveTextContent(
+        'Reading your brief and finding actors…',
+      )
+      expect(screen.getAllByRole('log')).toHaveLength(1)
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+      expect(screen.queryByLabelText(/thinking/i)).not.toBeInTheDocument()
     })
 
     it('does not show thinking indicator when streaming content arrives', () => {

@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { renderToString } from 'react-dom/server'
 import ChatInput from '@/components/chat/ChatInput'
 
 describe('ChatInput', () => {
@@ -9,6 +10,7 @@ describe('ChatInput', () => {
 
   beforeEach(() => {
     onSend = vi.fn<(message: string) => void>()
+    window.sessionStorage.clear()
   })
 
   describe('rendering', () => {
@@ -118,6 +120,107 @@ describe('ChatInput', () => {
 
       expect(failingSend).toHaveBeenCalledWith('Retry me')
       expect(input).toHaveValue('Retry me')
+    })
+
+    it('restores a stage draft after navigation and clears it after an accepted send', async () => {
+      const user = userEvent.setup()
+      const draftStorageKey = 'planning-draft:project:work-plan'
+      const first = render(
+        <ChatInput onSend={onSend} isLoading={false} draftStorageKey={draftStorageKey} />,
+      )
+
+      await user.type(screen.getByRole('textbox'), 'Preserve this refinement')
+      await waitFor(() => {
+        expect(window.sessionStorage.getItem(draftStorageKey)).toBe('Preserve this refinement')
+      })
+      first.unmount()
+
+      render(<ChatInput onSend={onSend} isLoading={false} draftStorageKey={draftStorageKey} />)
+      await waitFor(() => {
+        expect(screen.getByRole('textbox')).toHaveValue('Preserve this refinement')
+      })
+
+      await user.click(screen.getByRole('button', { name: /send/i }))
+      await waitFor(() => {
+        expect(window.sessionStorage.getItem(draftStorageKey)).toBeNull()
+      })
+    })
+
+    it('keeps the server and first client render empty before restoring a stored draft', async () => {
+      const draftStorageKey = 'planning-draft:project:architecture'
+      window.sessionStorage.setItem(draftStorageKey, 'Restore only after hydration')
+
+      const serverHtml = renderToString(
+        <ChatInput onSend={onSend} isLoading={false} draftStorageKey={draftStorageKey} />,
+      )
+      expect(serverHtml).not.toContain('Restore only after hydration')
+
+      render(<ChatInput onSend={onSend} isLoading={false} draftStorageKey={draftStorageKey} />)
+      await waitFor(() => {
+        expect(screen.getByRole('textbox')).toHaveValue('Restore only after hydration')
+      })
+    })
+
+    it('puts a rejected stage draft back into durable session storage', async () => {
+      const user = userEvent.setup()
+      const draftStorageKey = 'planning-draft:project:work-plan'
+      const failingSend = vi.fn().mockResolvedValue(false)
+      render(<ChatInput onSend={failingSend} isLoading={false} draftStorageKey={draftStorageKey} />)
+
+      await user.type(screen.getByRole('textbox'), 'Retry after refresh')
+      await user.click(screen.getByRole('button', { name: /send/i }))
+
+      await waitFor(() => {
+        expect(window.sessionStorage.getItem(draftStorageKey)).toBe('Retry after refresh')
+      })
+    })
+
+    it('clears a restored draft after an external retry succeeds', async () => {
+      const draftStorageKey = 'planning-draft:project:work-plan'
+      window.sessionStorage.setItem(draftStorageKey, 'Already retried')
+      const { rerender } = render(
+        <ChatInput
+          onSend={onSend}
+          isLoading={false}
+          draftStorageKey={draftStorageKey}
+          resetSignal={0}
+          resetValue="Already retried"
+        />,
+      )
+      await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('Already retried'))
+
+      rerender(
+        <ChatInput
+          onSend={onSend}
+          isLoading={false}
+          draftStorageKey={draftStorageKey}
+          resetSignal={1}
+          resetValue="Already retried"
+        />,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByRole('textbox')).toHaveValue('')
+        expect(window.sessionStorage.getItem(draftStorageKey)).toBeNull()
+      })
+    })
+
+    it('preserves a newer draft and queued messages when clearing a retried draft', async () => {
+      const user = userEvent.setup()
+      const { rerender } = render(
+        <ChatInput onSend={onSend} isLoading resetSignal={0} resetValue="Original failed draft" />,
+      )
+
+      await user.type(screen.getByRole('textbox'), 'Next instruction')
+      await user.click(screen.getByRole('button', { name: /queue/i }))
+      await user.type(screen.getByRole('textbox'), 'New unsent draft')
+
+      rerender(
+        <ChatInput onSend={onSend} isLoading resetSignal={1} resetValue="Original failed draft" />,
+      )
+
+      expect(screen.getByRole('textbox')).toHaveValue('New unsent draft')
+      expect(screen.getByTestId('queued-messages-pill')).toHaveTextContent('1 message queued')
     })
   })
 

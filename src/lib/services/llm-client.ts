@@ -6,6 +6,7 @@ import {
   TOOL_BUDGET_NUDGE,
   TOOL_EVENT_DELIMITER,
   sanitizeError,
+  successfulToolTerminalText,
   stringifyMessageContent,
 } from '@/lib/services/llm-shared'
 import type {
@@ -598,6 +599,13 @@ async function callAnthropicWithTools(
               )
             }
 
+            const terminalText = options.signal?.aborted ? null : successfulToolTerminalText(result)
+            if (terminalText) {
+              controller.enqueue(terminalText)
+              controller.close()
+              return
+            }
+
             toolResults.push({
               type: 'tool_result',
               tool_use_id: toolBlock.id,
@@ -804,6 +812,13 @@ async function callCerebrasWithTools(
               controller.enqueue(
                 `${TOOL_EVENT_DELIMITER}${JSON.stringify({ tool: toolName, data: result.data })}\n`,
               )
+            }
+
+            const terminalText = options.signal?.aborted ? null : successfulToolTerminalText(result)
+            if (terminalText) {
+              controller.enqueue(terminalText)
+              controller.close()
+              return
             }
 
             currentMessages.push({

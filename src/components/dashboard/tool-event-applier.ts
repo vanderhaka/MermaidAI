@@ -1,4 +1,6 @@
 import { useGraphStore } from '@/store/graph-store'
+import { readChatToolReceipt } from '@/lib/chat-turn'
+import type { ChatToolReceipt } from '@/types/chat'
 import type { FlowEdge, FlowNode, Module, ModuleConnection, OpenQuestion } from '@/types/graph'
 
 type ToolEventOptions = {
@@ -26,11 +28,19 @@ export const GRAPH_MUTATION_TOOLS = new Set([
   'insert_node_between',
   'add_open_questions',
   'resolve_open_question',
+  'capture_architecture_map',
+  'refine_architecture_map',
+  'refine_architecture_flow',
   'create_module',
   'update_module',
   'delete_module',
   'connect_modules',
 ])
+
+/** Keep receipt parsing independent from applying compatibility graph payloads. */
+export function readToolEventReceipt(data: Record<string, unknown>): ChatToolReceipt | null {
+  return readChatToolReceipt(data)
+}
 
 function applyOpenQuestionPayload(data: Record<string, unknown>): number {
   const nodes = data.nodes as FlowNode[] | undefined
@@ -241,6 +251,85 @@ export function applyProjectToolEvent(
   const store = useGraphStore.getState()
 
   switch (tool) {
+    case 'capture_architecture_map': {
+      const receipt = readToolEventReceipt(data)
+      if (receipt?.status !== 'committed') break
+
+      const modules = data.modules as Module[] | undefined
+      const connections = data.connections as ModuleConnection[] | undefined
+      const nodes = data.nodes as FlowNode[] | undefined
+      const questions = data.questions as OpenQuestion[] | undefined
+      const hasCommittedRows =
+        (modules?.length ?? 0) > 0 ||
+        (connections?.length ?? 0) > 0 ||
+        (nodes?.length ?? 0) > 0 ||
+        (questions?.length ?? 0) > 0
+      if (!hasCommittedRows) break
+
+      for (const capabilityModule of modules ?? []) store.addModule(capabilityModule)
+      for (const connection of connections ?? []) store.addConnection(connection)
+      for (const node of nodes ?? []) store.addNode(node)
+      for (const question of questions ?? []) store.addOpenQuestion(question)
+      if (nodes?.length) store.markTurnChanged(nodes.map((node) => node.id))
+
+      const moduleCount = modules?.length ?? 0
+      const connectionCount = connections?.length ?? 0
+      options.recordToolCall(
+        `Built Architecture: ${moduleCount} ${moduleCount === 1 ? 'capability' : 'capabilities'}, ${connectionCount} ${connectionCount === 1 ? 'connection' : 'connections'}`,
+      )
+      break
+    }
+    case 'refine_architecture_map': {
+      const receipt = readToolEventReceipt(data)
+      if (receipt?.status !== 'committed') break
+      const createdModules = (data.createdModules as Module[] | undefined) ?? []
+      const updatedModules = (data.updatedModules as Module[] | undefined) ?? []
+      const deletedModuleIds = (data.deletedModuleIds as string[] | undefined) ?? []
+      const createdConnections = (data.createdConnections as ModuleConnection[] | undefined) ?? []
+      const deletedConnectionIds = (data.deletedConnectionIds as string[] | undefined) ?? []
+
+      for (const moduleId of deletedModuleIds) store.removeModule(moduleId)
+      for (const architectureModule of createdModules) store.addModule(architectureModule)
+      for (const architectureModule of updatedModules) {
+        store.updateModule(architectureModule.id, architectureModule)
+      }
+      store.setConnections([
+        ...store.connections.filter(
+          (connection) =>
+            !deletedConnectionIds.includes(connection.id) &&
+            !deletedModuleIds.includes(connection.source_module_id) &&
+            !deletedModuleIds.includes(connection.target_module_id),
+        ),
+        ...createdConnections,
+      ])
+      options.recordToolCall('Updated Architecture atomically')
+      break
+    }
+    case 'refine_architecture_flow': {
+      const receipt = readToolEventReceipt(data)
+      if (receipt?.status !== 'committed') break
+      const createdNodes = (data.createdNodes as FlowNode[] | undefined) ?? []
+      const updatedNodes = (data.updatedNodes as FlowNode[] | undefined) ?? []
+      const deletedNodeIds = (data.deletedNodeIds as string[] | undefined) ?? []
+      const createdEdges = (data.createdEdges as FlowEdge[] | undefined) ?? []
+      const updatedEdges = (data.updatedEdges as FlowEdge[] | undefined) ?? []
+      const deletedEdgeIds = (data.deletedEdgeIds as string[] | undefined) ?? []
+
+      for (const edgeId of deletedEdgeIds) store.removeEdge(edgeId)
+      for (const nodeId of deletedNodeIds) store.removeNode(nodeId)
+      for (const node of createdNodes) store.addNode(node)
+      for (const node of updatedNodes) store.updateNode(node.id, node)
+      for (const edge of createdEdges) store.addEdge(edge)
+      for (const edge of updatedEdges) store.updateEdge(edge)
+      if (createdNodes.length || updatedNodes.length) {
+        store.markTurnChanged([
+          ...createdNodes.map((node) => node.id),
+          ...updatedNodes.map((node) => node.id),
+        ])
+      }
+      options.recordToolCall('Updated Architecture flow atomically')
+      break
+    }
     case 'create_module': {
       const mod = data.module as Module | undefined
       if (mod) {

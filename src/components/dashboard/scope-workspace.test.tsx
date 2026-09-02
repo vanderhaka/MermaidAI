@@ -4,20 +4,23 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ScopeWorkspace } from '@/components/dashboard/scope-workspace'
+import { useScopeArchitectureHandoff } from '@/hooks/useScopeArchitectureHandoff'
 import { TOOL_EVENT_DELIMITER } from '@/lib/services/llm-shared'
-import { updateProject } from '@/lib/services/project-service'
 import { useGraphStore } from '@/store/graph-store'
 import type { ChatMessage } from '@/types/chat'
 import type { FlowEdge, Module, OpenQuestion, ProjectMode } from '@/types/graph'
 
 const mockRefresh = vi.fn()
+const mockHandoffRun = vi.fn()
+const mockHandoffRetry = vi.fn()
+const mockDismissHandoffError = vi.fn()
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: mockRefresh }),
 }))
 
-vi.mock('@/lib/services/project-service', () => ({
-  updateProject: vi.fn(),
+vi.mock('@/hooks/useScopeArchitectureHandoff', () => ({
+  useScopeArchitectureHandoff: vi.fn(),
 }))
 
 vi.mock('@/components/canvas/CanvasContainer', () => ({
@@ -332,33 +335,55 @@ describe('ScopeWorkspace chat mode routing', () => {
     useGraphStore.getState().reset()
     window.localStorage.clear()
     window.sessionStorage.clear()
+    vi.mocked(useScopeArchitectureHandoff).mockReturnValue({
+      status: 'idle',
+      error: null,
+      isRunning: false,
+      isChecking: false,
+      run: mockHandoffRun,
+      retry: mockHandoffRetry,
+      dismissError: mockDismissHandoffError,
+    })
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(successfulStreamResponse()))
   })
 
-  it('queues the captured scope for automatic module mapping after a confirmed switch', async () => {
+  it('starts the durable Architecture handoff only after confirmation', async () => {
     const user = userEvent.setup()
-    vi.mocked(updateProject).mockResolvedValue({
-      success: true,
-      data: {
-        id: 'proj-1',
-        user_id: 'user-1',
-        name: 'Client Call',
-        description: null,
-        mode: 'architecture',
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-01T00:00:00Z',
-      },
-    })
     renderWorkspace('scope', makeModule({ id: 'mod-scope', name: 'Scope' }))
 
-    await user.click(screen.getByRole('button', { name: /switch to full design/i }))
-    await user.click(screen.getByRole('button', { name: /confirm switch/i }))
+    await user.click(screen.getByRole('button', { name: /build architecture/i }))
+    expect(mockHandoffRun).not.toHaveBeenCalled()
+    expect(
+      screen.getByText(/nothing switches until the architecture is safely saved/i),
+    ).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: /build architecture/i }))
 
     await waitFor(() => {
-      expect(updateProject).toHaveBeenCalledWith('proj-1', { mode: 'architecture' })
-      expect(window.sessionStorage.getItem('mermaid:scope-handoff:proj-1')).toBe('pending')
-      expect(mockRefresh).toHaveBeenCalledTimes(1)
+      expect(mockHandoffRun).toHaveBeenCalledTimes(1)
     })
+    expect(window.sessionStorage.getItem('mermaid:scope-handoff:proj-1')).toBeNull()
+    expect(mockRefresh).not.toHaveBeenCalled()
+  })
+
+  it('makes a failed handoff visibly safe and retryable', async () => {
+    vi.mocked(useScopeArchitectureHandoff).mockReturnValue({
+      status: 'failed',
+      error: 'Architecture generation failed.',
+      isRunning: false,
+      isChecking: false,
+      run: mockHandoffRun,
+      retry: mockHandoffRetry,
+      dismissError: mockDismissHandoffError,
+    })
+    const user = userEvent.setup()
+    renderWorkspace('scope', makeModule({ id: 'mod-scope', name: 'Scope' }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Architecture generation failed. Your Quick Capture is still intact.',
+    )
+    await user.click(screen.getByRole('button', { name: /retry safely/i }))
+    expect(mockHandoffRetry).toHaveBeenCalledTimes(1)
   })
 
   it('sends flowchart chat with flowchart_build mode and the single canvas module id', async () => {

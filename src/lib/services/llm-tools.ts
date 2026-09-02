@@ -24,10 +24,20 @@ import {
   listOpenQuestions,
 } from '@/lib/services/open-question-service'
 import type { ToolResult } from '@/lib/services/llm-client'
-import type { FlowEdge, FlowNode, OpenQuestion } from '@/types/graph'
+import { readChatToolReceipt } from '@/lib/chat-turn'
+import {
+  CHAT_TOOL_RECEIPT_KEY,
+  type ArchitectureChangeSummary,
+  type ChatToolReceipt,
+  type ChatTurnIdentity,
+} from '@/types/chat'
+import type { FlowEdge, FlowNode, Module, ModuleConnection, OpenQuestion } from '@/types/graph'
 import type { PromptMode } from '@/lib/services/prompt-builder'
 import { validateFlowGraph, type FlowGraphIssue } from '@/lib/canvas/graph-invariants'
 import { isClickOnlySelectedQuestionPrompt } from '@/lib/services/selected-open-question'
+import { captureArchitectureMap } from '@/lib/services/architecture-service'
+import { applyArchitectureRefinement } from '@/lib/services/architecture-refinement-service'
+import { summarizeArchitectureOperations } from '@/lib/planning/architecture-change-summary'
 
 const DEFAULT_MODULE_COLOR = '#111827'
 const DEFAULT_NODE_COLOR = '#2563eb'
@@ -47,6 +57,409 @@ function normalizeQuestionKey(question: string): string {
 // ---------------------------------------------------------------------------
 // Tool definitions
 // ---------------------------------------------------------------------------
+
+const captureArchitectureMapTool: Anthropic.Tool = {
+  name: 'capture_architecture_map',
+  description:
+    'Atomically create the complete provisional high-level Architecture for a project with no modules. Use local keys to submit every initial capability, connection, important flow, known assumption, and material question in one call. Never use this to replace or rebuild an existing map; use granular tools for refinement.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      objective: {
+        type: 'string',
+        description: 'The high-level outcome this system exists to achieve.',
+      },
+      outcomes: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'One or more observable outcomes for the actors.',
+      },
+      actors: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Actors explicitly stated in the brief or safely evident from it.',
+      },
+      modules: {
+        type: 'array',
+        description:
+          'All initial high-level capabilities. Every capability must connect to another unless disconnectedJustification explains an intentional boundary.',
+        items: {
+          type: 'object',
+          properties: {
+            key: { type: 'string', description: 'Unique local key such as bookings or payments.' },
+            name: { type: 'string' },
+            domain: { type: 'string' },
+            purpose: { type: 'string' },
+            responsibilities: { type: 'array', items: { type: 'string' } },
+            boundaries: { type: 'array', items: { type: 'string' } },
+            entryPoints: { type: 'array', items: { type: 'string' } },
+            exitPoints: { type: 'array', items: { type: 'string' } },
+            disconnectedJustification: { type: 'string' },
+          },
+          required: [
+            'key',
+            'name',
+            'purpose',
+            'responsibilities',
+            'boundaries',
+            'entryPoints',
+            'exitPoints',
+          ],
+        },
+      },
+      connections: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            sourceKey: { type: 'string' },
+            targetKey: { type: 'string' },
+            description: { type: 'string' },
+            sourceExitPoint: { type: 'string' },
+            targetEntryPoint: { type: 'string' },
+          },
+          required: [
+            'sourceKey',
+            'targetKey',
+            'description',
+            'sourceExitPoint',
+            'targetEntryPoint',
+          ],
+        },
+      },
+      importantFlows: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            key: { type: 'string' },
+            actor: { type: 'string' },
+            outcome: { type: 'string' },
+            capabilityKeys: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['key', 'actor', 'outcome', 'capabilityKeys'],
+        },
+      },
+      assumptions: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            category: { type: 'string' },
+            statement: { type: 'string' },
+          },
+          required: ['category', 'statement'],
+        },
+      },
+      questions: {
+        type: 'array',
+        description:
+          'Material unknowns worth recording. Ask at most one of them in the response after useful work.',
+        items: {
+          type: 'object',
+          properties: {
+            section: { type: 'string' },
+            question: { type: 'string' },
+            readinessImpact: {
+              type: 'string',
+              enum: ['blocking', 'non_blocking', 'deferred'],
+            },
+            relatedModuleKey: { type: 'string' },
+          },
+          required: ['section', 'question', 'readinessImpact', 'relatedModuleKey'],
+        },
+      },
+    },
+    required: [
+      'objective',
+      'outcomes',
+      'actors',
+      'modules',
+      'connections',
+      'importantFlows',
+      'assumptions',
+      'questions',
+    ],
+  },
+}
+
+const refineArchitectureMapTool: Anthropic.Tool = {
+  name: 'refine_architecture_map',
+  description:
+    'Atomically refine an existing high-level Architecture in one call. It can update the Architecture brief, capabilities, connections, actor flows, exact open questions, and exact planning decisions. New modules and flows use local keys. Never split one user request across repeated mutation tools, and never claim a question or decision changed unless it is included here.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      objective: {
+        type: 'string',
+        description: 'Optional replacement for the high-level Architecture objective.',
+      },
+      outcomes: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Optional complete replacement list of observable outcomes.',
+      },
+      actors: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Optional complete replacement list of named actors.',
+      },
+      importantFlows: {
+        type: 'array',
+        description:
+          'Optional complete replacement list of actor-to-outcome flows. Capability references may be exact existing module IDs or local createModules keys.',
+        items: {
+          type: 'object',
+          properties: {
+            key: { type: 'string' },
+            actor: { type: 'string' },
+            outcome: { type: 'string' },
+            capabilityRefs: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['key', 'actor', 'outcome', 'capabilityRefs'],
+        },
+      },
+      createModules: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            key: { type: 'string', description: 'Unique local key such as notifications.' },
+            name: { type: 'string' },
+            domain: { type: 'string' },
+            description: { type: 'string' },
+            responsibilities: { type: 'array', items: { type: 'string' } },
+            boundaries: { type: 'array', items: { type: 'string' } },
+            entryPoints: { type: 'array', items: { type: 'string' } },
+            exitPoints: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['key', 'name', 'description', 'entryPoints', 'exitPoints'],
+        },
+      },
+      updateModules: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            moduleId: { type: 'string', description: 'Exact existing module ID.' },
+            name: { type: 'string' },
+            domain: { type: 'string' },
+            description: { type: 'string' },
+            responsibilities: { type: 'array', items: { type: 'string' } },
+            boundaries: { type: 'array', items: { type: 'string' } },
+            entryPoints: { type: 'array', items: { type: 'string' } },
+            exitPoints: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['moduleId'],
+        },
+      },
+      deleteModuleIds: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Exact existing module IDs to delete.',
+      },
+      connectModules: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            source: {
+              type: 'string',
+              description: 'Existing module ID or local key from createModules.',
+            },
+            target: {
+              type: 'string',
+              description: 'Existing module ID or local key from createModules.',
+            },
+            sourceExitPoint: { type: 'string' },
+            targetEntryPoint: { type: 'string' },
+          },
+          required: ['source', 'target', 'sourceExitPoint', 'targetEntryPoint'],
+        },
+      },
+      disconnectModules: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            sourceModuleId: { type: 'string', description: 'Exact existing source module ID.' },
+            targetModuleId: { type: 'string', description: 'Exact existing target module ID.' },
+          },
+          required: ['sourceModuleId', 'targetModuleId'],
+        },
+        description: 'Remove every existing connection between each exact source-target pair.',
+      },
+      resolveQuestions: {
+        type: 'array',
+        description:
+          'Resolve exact open-question IDs only when the latest user message supplies or confirms the answer. The answer is recorded as an accepted user decision with chat evidence.',
+        items: {
+          type: 'object',
+          properties: {
+            questionId: { type: 'string', description: 'Exact current open-question ID.' },
+            resolution: { type: 'string' },
+            supersedesDecisionId: {
+              type: 'string',
+              description:
+                'Exact active decision ID replaced by this answer. Supply it when the answer narrows or contradicts an existing assumption.',
+            },
+          },
+          required: ['questionId', 'resolution'],
+        },
+      },
+      decisionActions: {
+        type: 'array',
+        description:
+          'Accept or reject exact proposed decision IDs only when the latest user message explicitly confirms that action.',
+        items: {
+          type: 'object',
+          properties: {
+            decisionId: { type: 'string', description: 'Exact current proposed decision ID.' },
+            action: { type: 'string', enum: ['accept', 'reject'] },
+            reason: { type: 'string' },
+          },
+          required: ['decisionId', 'action', 'reason'],
+        },
+      },
+      decisionReplacements: {
+        type: 'array',
+        description:
+          'Link an already-recorded active decision as the replacement for another active decision. This supersedes the old decision without duplicating the replacement.',
+        items: {
+          type: 'object',
+          properties: {
+            decisionId: {
+              type: 'string',
+              description: 'Exact active decision ID that contains the current rule.',
+            },
+            supersedesDecisionId: {
+              type: 'string',
+              description: 'Exact older active decision ID replaced by the current rule.',
+            },
+            reason: { type: 'string' },
+          },
+          required: ['decisionId', 'supersedesDecisionId', 'reason'],
+        },
+      },
+      recordDecisions: {
+        type: 'array',
+        description:
+          'Record new high-level choices. User choices are accepted only when explicitly stated in the latest user message; assistant choices remain proposed for review.',
+        items: {
+          type: 'object',
+          properties: {
+            key: { type: 'string', description: 'Unique local key for this new decision.' },
+            category: { type: 'string' },
+            statement: { type: 'string' },
+            provenance: { type: 'string', enum: ['user', 'assistant'] },
+            readinessImpact: {
+              type: 'string',
+              enum: ['blocking', 'non_blocking', 'deferred'],
+            },
+            reason: { type: 'string' },
+            supersedesDecisionId: {
+              type: 'string',
+              description:
+                'Exact active decision ID this choice replaces. Omit when it is an additional compatible choice.',
+            },
+          },
+          required: ['key', 'category', 'statement', 'provenance', 'readinessImpact', 'reason'],
+        },
+      },
+    },
+    required: [
+      'createModules',
+      'updateModules',
+      'deleteModuleIds',
+      'connectModules',
+      'disconnectModules',
+      'resolveQuestions',
+      'decisionActions',
+      'decisionReplacements',
+      'recordDecisions',
+    ],
+  },
+}
+
+const refineArchitectureFlowTool: Anthropic.Tool = {
+  name: 'refine_architecture_flow',
+  description:
+    'Atomically refine one existing Architecture module flow in one call. Include every requested node and edge create, update, and delete. New nodes use local keys so new edges can reference them in the same commit.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      moduleId: { type: 'string', description: 'Exact module ID for this flow.' },
+      createNodes: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            key: { type: 'string', description: 'Unique local key such as validate-request.' },
+            label: { type: 'string' },
+            nodeType: {
+              type: 'string',
+              enum: ['process', 'decision', 'entry', 'exit', 'start', 'end'],
+            },
+            pseudocode: { type: 'string' },
+          },
+          required: ['key', 'label', 'nodeType'],
+        },
+      },
+      updateNodes: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            nodeId: { type: 'string' },
+            label: { type: 'string' },
+            nodeType: {
+              type: 'string',
+              enum: ['process', 'decision', 'entry', 'exit', 'start', 'end'],
+            },
+            pseudocode: { type: 'string' },
+          },
+          required: ['nodeId'],
+        },
+      },
+      deleteNodeIds: { type: 'array', items: { type: 'string' } },
+      createEdges: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            source: { type: 'string', description: 'Existing node ID or local createNodes key.' },
+            target: { type: 'string', description: 'Existing node ID or local createNodes key.' },
+            label: { type: 'string' },
+            condition: { type: 'string' },
+          },
+          required: ['source', 'target'],
+        },
+      },
+      updateEdges: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            edgeId: { type: 'string' },
+            label: { type: 'string' },
+            condition: { type: 'string' },
+          },
+          required: ['edgeId'],
+        },
+      },
+      deleteEdgeIds: { type: 'array', items: { type: 'string' } },
+    },
+    required: [
+      'moduleId',
+      'createNodes',
+      'updateNodes',
+      'deleteNodeIds',
+      'createEdges',
+      'updateEdges',
+      'deleteEdgeIds',
+    ],
+  },
+}
 
 const createModuleTool: Anthropic.Tool = {
   name: 'create_module',
@@ -456,13 +869,22 @@ const promoteProjectTool: Anthropic.Tool = {
   },
 }
 
-export { captureScopeFlowTool, addOpenQuestionsTool, resolveOpenQuestionTool, writePrdTool }
+export {
+  captureArchitectureMapTool,
+  refineArchitectureMapTool,
+  refineArchitectureFlowTool,
+  captureScopeFlowTool,
+  addOpenQuestionsTool,
+  resolveOpenQuestionTool,
+  writePrdTool,
+}
 
 // ---------------------------------------------------------------------------
 // Tool sets per mode
 // ---------------------------------------------------------------------------
 
 const MODULE_TOOLS = [
+  captureArchitectureMapTool,
   createModuleTool,
   updateModuleTool,
   deleteModuleTool,
@@ -470,6 +892,7 @@ const MODULE_TOOLS = [
   lookupDocsTool,
   writePrdTool,
 ]
+const STAGED_MODULE_TOOLS = [captureArchitectureMapTool, refineArchitectureMapTool, lookupDocsTool]
 const NODE_EDGE_TOOLS = [
   createNodeTool,
   updateNodeTool,
@@ -480,6 +903,7 @@ const NODE_EDGE_TOOLS = [
   lookupDocsTool,
   writePrdTool,
 ]
+const STAGED_NODE_EDGE_TOOLS = [refineArchitectureFlowTool, lookupDocsTool]
 const ALL_TOOLS = [
   createModuleTool,
   updateModuleTool,
@@ -534,14 +958,17 @@ const BRAINSTORM_TOOLS = [
   promoteProjectTool,
 ]
 
-export function getToolsForMode(mode: PromptMode): Anthropic.Tool[] {
+export function getToolsForMode(
+  mode: PromptMode,
+  options: { stagedArchitecture?: boolean } = {},
+): Anthropic.Tool[] {
   switch (mode) {
     case 'discovery':
       return ALL_TOOLS
     case 'module_map':
-      return MODULE_TOOLS
+      return options.stagedArchitecture ? STAGED_MODULE_TOOLS : MODULE_TOOLS
     case 'module_detail':
-      return NODE_EDGE_TOOLS
+      return options.stagedArchitecture ? STAGED_NODE_EDGE_TOOLS : NODE_EDGE_TOOLS
     case 'scope_build':
       return SCOPE_TOOLS
     case 'flowchart_build':
@@ -557,8 +984,15 @@ export function getToolsForMode(mode: PromptMode): Anthropic.Tool[] {
 
 type ToolInput = Record<string, unknown>
 
+type ToolExecutionContext = {
+  startingSequence: number
+}
+
 export type ToolExecutorOptions = {
+  authenticatedUserId?: string
   latestUserMessage?: string
+  turnIdentity?: ChatTurnIdentity
+  mode?: PromptMode
   resolvingOpenQuestion?: {
     id: string
     section: string
@@ -566,12 +1000,135 @@ export type ToolExecutorOptions = {
   }
 }
 
-function ok(content: string, data?: Record<string, unknown>): ToolResult {
-  return { content, isError: false, data }
+function ok(content: string, data?: Record<string, unknown>, terminalText?: string): ToolResult {
+  return { content, isError: false, data, terminalText }
 }
 
 function fail(message: string): ToolResult {
   return { content: message, isError: true }
+}
+
+function countedNoun(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`
+}
+
+function joinWithAnd(values: readonly string[]): string {
+  if (values.length < 2) return values[0] ?? ''
+  if (values.length === 2) return `${values[0]} and ${values[1]}`
+  return `${values.slice(0, -1).join(', ')}, and ${values.at(-1)}`
+}
+
+function compactCapabilityNames(modules: readonly Pick<Module, 'name'>[]): string {
+  const names = modules.slice(0, 6).map((module) => module.name)
+  const hiddenCount = modules.length - names.length
+  if (hiddenCount > 0) names.push(`${hiddenCount} more`)
+  return joinWithAnd(names)
+}
+
+function architectureTerminalText(
+  summary: ArchitectureChangeSummary,
+  committed: {
+    modules: readonly Pick<Module, 'id' | 'name'>[]
+    connections: readonly Pick<ModuleConnection, 'source_module_id' | 'target_module_id'>[]
+    questions: readonly Pick<OpenQuestion, 'question' | 'readiness_impact'>[]
+  },
+): string {
+  const capabilityNames = compactCapabilityNames(committed.modules)
+  const sentences = [
+    `Built a provisional Architecture with ${countedNoun(summary.capabilitiesCreated, 'capability', 'capabilities')}${capabilityNames ? `: ${capabilityNames}` : ''}.`,
+  ]
+
+  if (summary.connectionsCreated > 0) {
+    sentences.push(
+      `Connected ${countedNoun(summary.connectionsCreated, 'relationship', 'relationships')}.`,
+    )
+  }
+
+  const moduleNames = new Map(committed.modules.map((module) => [module.id, module.name]))
+  const namedFlow = committed.connections
+    .map((connection) => ({
+      source: moduleNames.get(connection.source_module_id),
+      target: moduleNames.get(connection.target_module_id),
+    }))
+    .find((connection) => connection.source && connection.target)
+  if (namedFlow?.source && namedFlow.target) {
+    sentences.push(`Key flow: ${namedFlow.source} → ${namedFlow.target}.`)
+  }
+
+  const recorded = [
+    ...(summary.assumptionsRecorded > 0
+      ? [countedNoun(summary.assumptionsRecorded, 'assumption')]
+      : []),
+    ...(summary.questionsRecorded > 0 ? [countedNoun(summary.questionsRecorded, 'question')] : []),
+  ]
+  if (recorded.length > 0) sentences.push(`Recorded ${joinWithAnd(recorded)}.`)
+
+  sentences.push(
+    'This stays high level; lower-level implementation detail belongs in the Work Plan.',
+  )
+
+  const questionToConfirm =
+    committed.questions.find((question) => question.readiness_impact === 'blocking') ??
+    committed.questions.find((question) => question.readiness_impact === 'non_blocking')
+  if (questionToConfirm) {
+    sentences.push(`One decision to confirm: ${questionToConfirm.question}`)
+  }
+
+  return sentences.join(' ')
+}
+
+function architectureRefinementTerminalText(
+  summary: ArchitectureChangeSummary,
+  committed: Record<string, unknown>,
+  scope: 'map' | 'flow',
+): string {
+  const createdModules = (committed.createdModules as Module[] | undefined) ?? []
+  const createdNodes = (committed.createdNodes as FlowNode[] | undefined) ?? []
+  const updatedModules = (committed.updatedModules as Module[] | undefined) ?? []
+  const updatedNodes = (committed.updatedNodes as FlowNode[] | undefined) ?? []
+  const createdConnections = (committed.createdConnections as ModuleConnection[] | undefined) ?? []
+  const createdEdges = (committed.createdEdges as FlowEdge[] | undefined) ?? []
+  const deletedModuleIds = (committed.deletedModuleIds as string[] | undefined) ?? []
+  const deletedNodeIds = (committed.deletedNodeIds as string[] | undefined) ?? []
+  const deletedConnectionIds = (committed.deletedConnectionIds as string[] | undefined) ?? []
+  const deletedEdgeIds = (committed.deletedEdgeIds as string[] | undefined) ?? []
+  const clauses =
+    scope === 'map'
+      ? [
+          ...(createdModules.length
+            ? [`added ${countedNoun(createdModules.length, 'capability', 'capabilities')}`]
+            : []),
+          ...(updatedModules.length
+            ? [`updated ${countedNoun(updatedModules.length, 'capability', 'capabilities')}`]
+            : []),
+          ...(deletedModuleIds.length
+            ? [`removed ${countedNoun(deletedModuleIds.length, 'capability', 'capabilities')}`]
+            : []),
+          ...(createdConnections.length
+            ? [`connected ${countedNoun(createdConnections.length, 'handoff', 'handoffs')}`]
+            : []),
+          ...(deletedConnectionIds.length
+            ? [`disconnected ${countedNoun(deletedConnectionIds.length, 'handoff', 'handoffs')}`]
+            : []),
+          ...(summary.assumed > 0 ? [`recorded ${countedNoun(summary.assumed, 'decision')}`] : []),
+          ...(summary.resolved > 0
+            ? [`resolved ${countedNoun(summary.resolved, 'question')}`]
+            : []),
+        ]
+      : [
+          ...(createdNodes.length ? [`added ${countedNoun(createdNodes.length, 'step')}`] : []),
+          ...(updatedNodes.length ? [`updated ${countedNoun(updatedNodes.length, 'step')}`] : []),
+          ...(deletedNodeIds.length
+            ? [`removed ${countedNoun(deletedNodeIds.length, 'step')}`]
+            : []),
+          ...(createdEdges.length ? [`connected ${countedNoun(createdEdges.length, 'path')}`] : []),
+          ...(deletedEdgeIds.length
+            ? [`removed ${countedNoun(deletedEdgeIds.length, 'path')}`]
+            : []),
+        ]
+
+  const detail = clauses.length > 0 ? clauses.join(' · ') : `${summary.updated} changes committed`
+  return `Architecture updated: ${detail}. The whole request committed atomically and is ready to review or undo.`
 }
 
 /** Long node lists blow the tool-result budget — the model only needs enough to re-aim. */
@@ -664,10 +1221,128 @@ function isSelectedQuestionPromptWithoutAnswer(
   return isClickOnlySelectedQuestionPrompt(latest, selected)
 }
 
-export function createToolExecutor(projectId: string, options: ToolExecutorOptions = {}) {
-  return async function executeTool(name: string, input: ToolInput): Promise<ToolResult> {
+function createRawToolExecutor(projectId: string, options: ToolExecutorOptions = {}) {
+  return async function executeTool(
+    name: string,
+    input: ToolInput,
+    execution?: ToolExecutionContext,
+  ): Promise<ToolResult> {
     try {
+      if (
+        options.turnIdentity &&
+        execution &&
+        (options.mode === 'module_map' || options.mode === 'module_detail') &&
+        [
+          'refine_architecture_map',
+          'refine_architecture_flow',
+          'create_module',
+          'update_module',
+          'delete_module',
+          'connect_modules',
+          'create_node',
+          'update_node',
+          'delete_node',
+          'create_edge',
+          'update_edge',
+          'delete_edge',
+          'insert_node_between',
+        ].includes(name)
+      ) {
+        const result = await applyArchitectureRefinement({
+          projectId,
+          ...(options.authenticatedUserId !== undefined
+            ? { authenticatedUserId: options.authenticatedUserId }
+            : {}),
+          turnIdentity: options.turnIdentity,
+          startingSequence: execution.startingSequence,
+          toolName: name,
+          input,
+          ...(options.latestUserMessage !== undefined
+            ? { latestUserMessage: options.latestUserMessage }
+            : {}),
+        })
+        if (!result.success) {
+          console.error('Architecture refinement tool failed', {
+            projectId,
+            toolName: name,
+            error: result.error,
+          })
+          return fail(result.error)
+        }
+
+        const { chatReceipt, ...committed } = result.data
+        const changeSummary = summarizeArchitectureOperations(committed.architectureReceipt)
+        const isAtomicRefinement =
+          name === 'refine_architecture_map' || name === 'refine_architecture_flow'
+        return ok(
+          `Committed Architecture refinement: ${name.replaceAll('_', ' ')}.`,
+          {
+            ...committed,
+            ...(changeSummary ? { metadata: { change_summary: changeSummary } } : {}),
+            [CHAT_TOOL_RECEIPT_KEY]: chatReceipt,
+          },
+          isAtomicRefinement && changeSummary
+            ? architectureRefinementTerminalText(
+                changeSummary,
+                committed,
+                name === 'refine_architecture_map' ? 'map' : 'flow',
+              )
+            : undefined,
+        )
+      }
+
+      if (
+        options.turnIdentity &&
+        (options.mode === 'module_map' || options.mode === 'module_detail') &&
+        name === 'write_prd'
+      ) {
+        return fail(
+          'Architecture stays high level. Capture implementation detail in the Work Plan instead of writing a module PRD.',
+        )
+      }
+
       switch (name) {
+        case 'capture_architecture_map': {
+          if (!options.turnIdentity || !execution) {
+            return fail('Architecture capture requires a durable planning turn identity.')
+          }
+          const result = await captureArchitectureMap({
+            projectId,
+            turnIdentity: options.turnIdentity,
+            startingSequence: execution.startingSequence,
+            input,
+          })
+          if (!result.success) return fail(result.error)
+
+          const { chatReceipt, ...committed } = result.data
+          const changeSummary: ArchitectureChangeSummary = {
+            created:
+              committed.modules.length + committed.connections.length + committed.questions.length,
+            updated: 0,
+            deleted: 0,
+            assumed: committed.architectureReceipt.operations.filter(
+              (operation) => operation.type === 'decision.create',
+            ).length,
+            resolved: 0,
+            capabilitiesCreated: committed.modules.length,
+            connectionsCreated: committed.connections.length,
+            assumptionsRecorded: committed.architectureReceipt.operations.filter(
+              (operation) => operation.type === 'decision.create',
+            ).length,
+            questionsRecorded: committed.questions.length,
+            provisional: true,
+          }
+          return ok(
+            `Built a provisional Architecture with ${committed.modules.length} capabilities and ${committed.connections.length} connections.`,
+            {
+              ...committed,
+              metadata: { change_summary: changeSummary },
+              [CHAT_TOOL_RECEIPT_KEY]: chatReceipt,
+            },
+            architectureTerminalText(changeSummary, committed),
+          )
+        }
+
         case 'create_module': {
           const entryPoints = Array.isArray(input.entry_points)
             ? (input.entry_points as string[])
@@ -1349,6 +2024,114 @@ export function createToolExecutor(projectId: string, options: ToolExecutorOptio
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return fail(`Tool "${name}" threw an unexpected error: ${message}`)
+    }
+  }
+}
+
+function receiptMatchesExecution(
+  receipt: ChatToolReceipt,
+  turnIdentity: ChatTurnIdentity,
+  operationId: string,
+  sequence: number,
+): boolean {
+  return (
+    receipt.turnId === turnIdentity.turnId &&
+    receipt.changeSetId === turnIdentity.changeSetId &&
+    receipt.operationId === operationId &&
+    receipt.sequence === sequence &&
+    receipt.expectedRevision === turnIdentity.expectedRevision
+  )
+}
+
+function architectureBatchMatchesExecution(
+  data: Record<string, unknown>,
+  turnIdentity: ChatTurnIdentity,
+  startingSequence: number,
+  operationCount: number,
+): boolean {
+  const rawReceipt = data.architectureReceipt
+  if (!rawReceipt || typeof rawReceipt !== 'object' || Array.isArray(rawReceipt)) return false
+  const receipt = rawReceipt as Record<string, unknown>
+  if (
+    receipt.changeSetId !== turnIdentity.changeSetId ||
+    receipt.expectedRevision !== turnIdentity.expectedRevision
+  ) {
+    return false
+  }
+
+  const operations = receipt.operations
+  if (!Array.isArray(operations) || operations.length !== operationCount) return false
+  return operations.every((operation, index) => {
+    if (!operation || typeof operation !== 'object' || Array.isArray(operation)) return false
+    const committed = operation as Record<string, unknown>
+    return (
+      committed.operationId === turnIdentity.operationIds[startingSequence + index] &&
+      committed.sequence === index
+    )
+  })
+}
+
+/**
+ * Adds deterministic execution identity around the existing compatibility
+ * tools. A future atomic tool may return its own validated committed receipt;
+ * successful direct-mutation tools are explicitly labelled legacy_direct.
+ */
+export function createToolExecutor(projectId: string, options: ToolExecutorOptions = {}) {
+  const executeRawTool = createRawToolExecutor(projectId, options)
+  let nextSequence = 0
+
+  return async function executeTool(name: string, input: ToolInput): Promise<ToolResult> {
+    const turnIdentity = options.turnIdentity
+    if (!turnIdentity) return executeRawTool(name, input)
+
+    const sequence = nextSequence
+    const operationId = turnIdentity.operationIds[sequence]
+    if (!operationId) {
+      return fail(`Tool "${name}" exceeded the durable operation budget for this turn.`)
+    }
+
+    const result = await executeRawTool(name, input, { startingSequence: sequence })
+    const claimedReceipt = result.data ? readChatToolReceipt(result.data) : null
+    const claimedOperationCount = result.data?.consumedOperationCount
+    const hasValidOperationCount =
+      typeof claimedOperationCount === 'number' &&
+      Number.isInteger(claimedOperationCount) &&
+      claimedOperationCount > 0 &&
+      sequence + claimedOperationCount <= turnIdentity.operationIds.length
+    const hasValidCommittedReceipt =
+      claimedReceipt !== null &&
+      !result.isError &&
+      receiptMatchesExecution(claimedReceipt, turnIdentity, operationId, sequence) &&
+      (result.data?.architectureReceipt === undefined ||
+        (hasValidOperationCount &&
+          result.data !== undefined &&
+          architectureBatchMatchesExecution(
+            result.data,
+            turnIdentity,
+            sequence,
+            claimedOperationCount,
+          )))
+    const receipt: ChatToolReceipt = hasValidCommittedReceipt
+      ? claimedReceipt
+      : {
+          turnId: turnIdentity.turnId,
+          changeSetId: turnIdentity.changeSetId,
+          operationId,
+          sequence,
+          status: result.isError || claimedReceipt ? 'failed' : 'legacy_direct',
+          expectedRevision: turnIdentity.expectedRevision,
+        }
+    const consumedOperationCount =
+      hasValidCommittedReceipt && hasValidOperationCount ? claimedOperationCount : 1
+    nextSequence = sequence + consumedOperationCount
+
+    return {
+      ...result,
+      terminalText: hasValidCommittedReceipt ? result.terminalText : undefined,
+      data: {
+        ...(result.data ?? {}),
+        [CHAT_TOOL_RECEIPT_KEY]: receipt,
+      },
     }
   }
 }

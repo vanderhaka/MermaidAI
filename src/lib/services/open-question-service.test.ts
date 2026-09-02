@@ -42,6 +42,10 @@ const questionData = {
   ...validInput,
   status: 'open',
   resolution: null,
+  artifact_version_id: null,
+  planning_decision_id: null,
+  readiness_impact: 'blocking',
+  provenance: 'assistant',
   created_at: '2026-04-08T00:00:00Z',
   resolved_at: null,
 }
@@ -68,7 +72,29 @@ describe('createOpenQuestion', () => {
         question: 'What OAuth providers should we support?',
         status: 'open',
         resolution: null,
+        readiness_impact: 'blocking',
+        provenance: 'assistant',
+        artifact_version_id: null,
+        planning_decision_id: null,
       }),
+    )
+  })
+
+  it('persists an explicit non-blocking classification', async () => {
+    mockSingle.mockResolvedValue({
+      data: { ...questionData, readiness_impact: 'non_blocking' },
+      error: null,
+    })
+
+    const result = await createOpenQuestion({
+      ...validInput,
+      readiness_impact: 'non_blocking',
+      provenance: 'user',
+    })
+
+    expect(result.success).toBe(true)
+    expect(mockInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ readiness_impact: 'non_blocking', provenance: 'user' }),
     )
   })
 

@@ -517,6 +517,81 @@ describe('codex-client', () => {
     })
   })
 
+  it('ends after committed tool data when a successful tool supplies terminal text', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          functionCallItem('call-1', 'capture_architecture_map', '{"objective":"Salon"}'),
+          COMPLETED,
+        ]),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const terminalText = 'Built a provisional Architecture with 6 capabilities.'
+    const executeTool = vi.fn().mockResolvedValue({
+      content: 'Committed Architecture',
+      isError: false,
+      data: { metadata: { change_summary: { capabilitiesCreated: 6 } } },
+      terminalText,
+    })
+
+    const { callCodexWithTools } = await import('@/lib/services/codex-client')
+    const { TOOL_EVENT_DELIMITER } = await import('@/lib/services/llm-shared')
+    const chunks = await readStreamChunks(
+      await callCodexWithTools(
+        'System prompt',
+        [{ role: 'user', content: 'Plan the salon' }],
+        [CREATE_NODE_TOOL],
+        executeTool,
+      ),
+    )
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(chunks).toEqual([
+      `${TOOL_EVENT_DELIMITER}${JSON.stringify({
+        tool: 'capture_architecture_map',
+        status: 'start',
+      })}\n`,
+      `${TOOL_EVENT_DELIMITER}${JSON.stringify({
+        tool: 'capture_architecture_map',
+        data: { metadata: { change_summary: { capabilitiesCreated: 6 } } },
+      })}\n`,
+      terminalText,
+    ])
+  })
+
+  it('does not honor terminal text from a failed tool result', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          functionCallItem('call-1', 'capture_architecture_map', '{"objective":"Salon"}'),
+          COMPLETED,
+        ]),
+      )
+      .mockResolvedValueOnce(sseResponse([messageItem('final_answer', 'Please retry.'), COMPLETED]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { callCodexWithTools } = await import('@/lib/services/codex-client')
+    const text = await readStreamToString(
+      await callCodexWithTools(
+        'System prompt',
+        [{ role: 'user', content: 'Plan the salon' }],
+        [CREATE_NODE_TOOL],
+        vi.fn().mockResolvedValue({
+          content: 'Capture failed',
+          isError: true,
+          terminalText: 'This must not be shown.',
+        }),
+      ),
+    )
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(text).toContain('Please retry.')
+    expect(text).not.toContain('This must not be shown.')
+  })
+
   it('runs two batched function calls sequentially and echoes both call/output pairs', async () => {
     const fetchMock = vi
       .fn()

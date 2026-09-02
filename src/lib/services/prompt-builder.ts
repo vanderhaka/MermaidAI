@@ -13,6 +13,10 @@ export type PromptMode = ChatMode
 
 export type PromptContext = {
   projectName: string
+  /** True only for the versioned Architecture workflow with durable turn receipts. */
+  stagedArchitecture?: boolean
+  /** Exact persisted planning evidence. It is appended unchanged to every mode prompt. */
+  planningTruthSection?: string
   modules?: Module[]
   connections?: ModuleConnection[]
   currentModule?: Module
@@ -206,7 +210,7 @@ ${openQs}
 **Build immediately.** The scope phase already captured the requirements — do NOT re-ask clarifying questions that were already answered. Instead:
 1. Analyze the captured flow above.
 2. Propose a module breakdown (group related nodes into modules).
-3. Create ALL modules and ALL connections in one go without waiting for confirmation.
+3. Build ALL modules and ALL connections in one go without waiting for confirmation. When the Architecture is empty, use one \`capture_architecture_map\` call.
 4. If open questions exist, note them briefly but don't block on them — build what's known.
 
 The user has already gone through discovery during the scope call. Respect that work.`
@@ -215,6 +219,29 @@ The user has already gone through discovery during the scope call. Respect that 
 function buildModuleMapPrompt(context: PromptContext): string {
   const scopeHandover = buildScopeHandoverSection(context)
   const hasScope = scopeHandover.length > 0
+  const hasExistingModules = (context.modules?.length ?? 0) > 0
+
+  const mapGuidance = hasExistingModules
+    ? `## Refine the Existing Architecture
+
+This Architecture already has modules. Never call capture_architecture_map for an existing map; the server will reject wholesale replacement. Preserve what is there and ${
+        context.stagedArchitecture
+          ? 'use exactly one `refine_architecture_map` call containing every requested brief, capability, connection, actor-flow, question, and decision change. Its exact-ID and locally keyed changes commit as one atomic receipt.'
+          : "use granular tools such as `create_module`, `update_module`, `delete_module`, and `connect_modules` for the user's specific refinement."
+      }
+
+Use the existing module IDs below. Do not invent IDs. If a new module is needed, create and connect it before continuing. Walk the map one capability at a time, and only enter internal flow detail when the user opens that module.`
+    : `## Empty Architecture: Build Before Interviewing
+
+Turn a substantive brief into a useful provisional high-level Architecture in the first useful turn. Do not begin with a generic discovery interview and do not wait for confirmation.
+
+- Do not re-ask facts, actors, outcomes, or constraints the user already supplied. In particular, do not ask who uses the product when the brief already names or clearly establishes its actors.
+- Infer routine high-level seams honestly and record uncertainty as assumptions or material questions.
+- Treat each independently governed identity or resource owner as its own high-level capability when it has distinct eligibility, preferences, permissions, availability, or lifecycle rules. Orchestration coordinates these capabilities; it does not absorb their rules. Likewise, keep independently governed scheduling or availability, payments or deposits, and communications separate when they have their own policy, state, delivery, retry, or compliance lifecycle.
+- Use exactly one \`capture_architecture_map\` call to create all initial capabilities, connections, important actor flows, known assumptions, and material question markers atomically. Do not use repeated \`create_module\` or \`connect_modules\` calls for this initial capture.
+- Every capability must connect to the map unless \`disconnectedJustification\` records why it is intentionally separate.
+- After the tool succeeds, briefly explain the provisional map and ask at most one genuinely material follow-up. Do not ask multiple questions.
+- If the input is truly too vague to support an objective, actor outcome, and capability boundary, do not invent a map. Ask one high-value question, make no tool call, and do not claim the Architecture is ready.`
 
   return `You are an AI assistant helping a user design the high-level module architecture for their project "${context.projectName}".
 
@@ -227,42 +254,61 @@ You are in **module map mode** — the user can see this. Focus on module-level 
 - Be concise. Say what you're doing and why in a sentence or two, not a wall of text.
 ${context.helperMode ? HELPER_MODE_INSTRUCTIONS : ''}
 ${scopeHandover}
-${
-  hasScope
-    ? ''
-    : `## Map → Walk → Drill
+${mapGuidance}
 
-You are currently in the **Map/Walk** phase:
-- **Map**: If the module map isn't complete, help the user create and connect all modules first.
-- **Walk**: Once the map is built, guide the user through each module one at a time. For each module, ask about its specific behavior, logic, and 3rd party integrations. Update the module description to capture decisions.
-- When the user is ready to drill into a module's internal flow (nodes, edges, decision logic), tell them to click that module in the sidebar to enter module detail mode.
-- If a new module is needed during the walk, create and connect it before continuing.
-`
-}
 ## Current Modules
 
 ${buildExistingModulesSection(context.modules)}
 
-## Building Modules — CRITICAL
+## Stage Boundary
 
-**When the user describes features, components, or areas of the system, create modules immediately.** Do not just discuss what modules should exist — use \`create_module\` to build them, then \`connect_modules\` to link them.
+Keep Architecture at capability, responsibility, boundary, connection, actor-flow, assumption, and material-blocker level. The later Work Plan owns build sequence, acceptance criteria, verification, likely files and APIs, and other non-blocking implementation detail.
 
-**Important — always connect modules:**
-1. When creating modules, always specify \`entry_points\` and \`exit_points\` that describe how data flows in and out.
-2. After creating modules, use \`connect_modules\` to link them together. Every module should connect to at least one other module.
-3. If existing modules lack connections, proactively suggest connecting them.
+Defer non-blocking lower-level implementation questions until module detail mode.
+Treat that detail as Work Plan or later module-detail work, not a reason to delay the high-level Architecture.
+
+${
+  context.stagedArchitecture && hasExistingModules
+    ? `## Closing Readiness Gaps in Chat
+
+- The exact snapshot, open-question IDs, and decision IDs in Persisted Planning Truth are authoritative.
+- When the user answers an open question, include its exact ID in resolveQuestions and update blockers, outcomes, capability responsibilities, capability boundaries, and important flows wherever they still frame that choice as open. The committed Architecture must read consistently on its own.
+- If that answer or a new user choice narrows or contradicts an active assumption, set supersedesDecisionId to the exact old decision ID. Never accept both the old assumption and its replacement.
+- If the correct replacement is already recorded as another active decision, use decisionReplacements with both exact IDs instead of recording a duplicate.
+- When the user explicitly accepts or rejects a proposed assumption, include its exact ID in decisionActions. Never infer acceptance from silence.
+- Put new user-stated choices in recordDecisions with provenance user. Put assistant defaults there with provenance assistant; they remain proposed for review.
+- Keep uncertainty only in the durable assumptions, decisions, questions, and blockers lists. Do not leave phrases such as open question, unanswered scope, unresolved decision, to be confirmed, or TBD inside the objective, outcomes, capability text, connections, or important flows.
+- To fix actor-flow coverage, send the complete actors and importantFlows replacement lists. Every named actor needs an exact matching flow actor and every flow must reference real capability IDs or new local keys.
+- Objective, outcome, actor, or important-flow edits must travel with the durable question, decision, or capability change that justifies them.
+- Never claim a blocker, actor flow, assumption, or decision changed unless the successful tool receipt committed that exact change.`
+    : ''
+}
 
 ## When to Use lookup_docs
 
-If the project involves a 3rd party service or library (e.g. Stripe, Supabase, Twilio), use the \`lookup_docs\` tool to fetch current documentation from Context7. Use it proactively when creating modules that involve external integrations.
+Use \`lookup_docs\` when a current third-party fact materially changes a high-level boundary. Do not delay a provider-neutral Architecture for lower-level integration research; defer that to Work Plan.
 
-## Writing the PRD
+${
+  hasExistingModules
+    ? context.stagedArchitecture
+      ? `## Staged Tool Boundary
 
-After creating or updating modules, call \`write_prd\` to document the module's purpose, requirements, and business rules. Each call appends to the module's PRD. Write in clear, client-facing language.
+Only \`refine_architecture_map\` and \`lookup_docs\` are available for this staged map refinement. Do not describe or attempt granular module tools, internal flow tools, or \`write_prd\`.`
+      : `## Existing Compatibility Tools
 
-## File Path Instructions
+The granular module tools and legacy \`write_prd\` remain available for targeted refinement. Use \`write_prd\` only when the user is refining an existing module's established detail.`
+    : hasScope
+      ? 'The captured scope is evidence for the atomic map. Respect it instead of restarting discovery.'
+      : ''
+}
 
-When writing pseudocode for module descriptions, always include a \`// file: <path>\` comment at the top of each pseudocode block.`.trim()
+${
+  context.stagedArchitecture
+    ? ''
+    : `## File Path Instructions
+
+When writing pseudocode for module descriptions, always include a \`// file: <path>\` comment at the top of each pseudocode block.`
+}`.trim()
 }
 
 function buildModuleDetailPrompt(context: PromptContext): string {
@@ -273,6 +319,38 @@ function buildModuleDetailPrompt(context: PromptContext): string {
   const connectionSection = mod
     ? buildModuleConnectionsSection(mod, context.modules, context.connections)
     : 'No connection data available.'
+  const stagedFlowGuidance = context.stagedArchitecture
+    ? `
+## Atomic Architecture Refinement
+
+Use exactly one \`refine_architecture_flow\` call containing every requested node and edge change. New nodes use local keys so they can be connected in that same call. Keep this at important-flow level; implementation sequence, file paths, acceptance criteria, and verification belong in the Work Plan. Do not call \`write_prd\` in the staged Architecture workflow.
+`
+    : ''
+  const flowBuildingGuidance = context.stagedArchitecture
+    ? `## Building the Important Flow
+
+When the user describes behavior, translate only the material actor flow into exactly one atomic refinement batch.
+
+- Use a \`process\` node for a meaningful responsibility handoff or outcome step, and a \`decision\` node only for a material branch.
+- Connect new nodes to the existing important flow instead of creating disconnected islands.
+- Include every requested create, update, delete, and connection change in the one \`refine_architecture_flow\` call.
+- Do not include pseudocode, file paths, acceptance criteria, implementation sequence, or low-level internal steps.
+- After the committed receipt, stop. Do not ask a follow-up question in the same response.
+
+If the request is too vague to support even one material actor-flow change, ask one high-value question and make no mutation call.`
+    : `## Building the Flow — CRITICAL
+
+**Every response where the user describes behavior, logic, or steps MUST result in new nodes and edges on the canvas.** Do not just talk about what should happen — build it immediately.
+
+- When the user describes a step: create a \`process\` node and connect it to the previous step with an edge.
+- When the user describes a branch or condition: create a \`decision\` node with conditional edges.
+- When this is the first input for the module: start with a \`start\` node, then the described flow steps.
+- Connect new nodes to existing ones — extend the flow, don't create disconnected islands.
+- To relabel or recondition an existing edge, use \`update_edge\` — never delete and recreate an edge just to change its label.
+- Include pseudocode on process nodes with a \`// file: <path>\` comment at the top.
+- After building flow nodes, also call \`write_prd\` to document the requirements.
+
+**Do NOT just write PRD without building nodes. Do NOT just ask questions without building. Build first, ask one follow-up question after.**`
 
   return `You are an AI assistant helping a user design the internal flow for the "${moduleName}" module in project "${context.projectName}".
 
@@ -285,6 +363,7 @@ You are in **module detail mode** — the user is drilling into this specific mo
 - Be concise. Say what you're doing and why in a sentence or two, not a wall of text.
 ${OPINIONATED_RECOMMENDATION_INSTRUCTIONS}
 ${context.helperMode ? HELPER_MODE_INSTRUCTIONS : ''}
+${stagedFlowGuidance}
 
 ## Current Module: ${moduleName}
 
@@ -305,29 +384,21 @@ Exit points: ${mod?.exit_points?.length ? mod.exit_points.join(', ') : 'none'}
 
 ### Internal Flow
 
-${buildCurrentNodesSection(context.nodes)}
+${buildCurrentNodesSection(
+  context.stagedArchitecture
+    ? context.nodes?.map((node) => ({ ...node, pseudocode: '' }))
+    : context.nodes,
+)}
 
 ${buildCurrentEdgesSection(context.edges)}
 
-## Building the Flow — CRITICAL
-
-**Every response where the user describes behavior, logic, or steps MUST result in new nodes and edges on the canvas.** Do not just talk about what should happen — build it immediately.
-
-- When the user describes a step: create a \`process\` node and connect it to the previous step with an edge.
-- When the user describes a branch or condition: create a \`decision\` node with conditional edges.
-- When this is the first input for the module: start with a \`start\` node, then the described flow steps.
-- Connect new nodes to existing ones — extend the flow, don't create disconnected islands.
-- To relabel or recondition an existing edge, use \`update_edge\` — never delete and recreate an edge just to change its label.
-- Include pseudocode on process nodes with a \`// file: <path>\` comment at the top.
-- After building flow nodes, also call \`write_prd\` to document the requirements.
-
-**Do NOT just write PRD without building nodes. Do NOT just ask questions without building. Build first, ask one follow-up question after.**
+${flowBuildingGuidance}
 
 ## Node Types
 
 Available node types: \`process\`, \`decision\`, \`entry\`, \`exit\`, \`start\`, \`end\`
 
-- **process** — a step that performs work (can contain pseudocode)
+- **process** — a step that performs work${context.stagedArchitecture ? '' : ' (can contain pseudocode)'}
 - **decision** — a branching point with conditional edges
 - **entry** — an entry point into this module from another module
 - **exit** — an exit point from this module to another module
@@ -336,11 +407,19 @@ Available node types: \`process\`, \`decision\`, \`entry\`, \`exit\`, \`start\`,
 
 ## When to Use lookup_docs
 
-If the module involves a 3rd party service or library (e.g. Stripe, Supabase, Twilio), use the \`lookup_docs\` tool to fetch **library** documentation (Context7-backed in this app). Use that for API shapes and SDK patterns. Use the **Authoritative module notes** section above for this project's cross-module contracts — those come from repo markdown, not from Context7.
+${
+  context.stagedArchitecture
+    ? 'Use \`lookup_docs\` only when a current third-party fact materially changes this high-level flow or boundary. Defer API shapes and SDK patterns to the Work Plan.'
+    : "If the module involves a 3rd party service or library (e.g. Stripe, Supabase, Twilio), use the \`lookup_docs\` tool to fetch **library** documentation (Context7-backed in this app). Use that for API shapes and SDK patterns. Use the **Authoritative module notes** section above for this project's cross-module contracts — those come from repo markdown, not from Context7."
+}
 
-## Writing the PRD
+${
+  context.stagedArchitecture
+    ? ''
+    : `## Writing the PRD
 
-After creating or modifying nodes and edges, call \`write_prd\` to document the module's detailed requirements, business rules, and decision logic. Each call appends to the PRD. Write in clear, client-facing language.`.trim()
+After creating or modifying nodes and edges, call \`write_prd\` to document the module's detailed requirements, business rules, and decision logic. Each call appends to the PRD. Write in clear, client-facing language.`
+}`.trim()
 }
 
 function buildOpenQuestionsSection(questions?: PromptContext['openQuestions']): string {
@@ -579,18 +658,27 @@ Keep \`write_prd\` content business-facing. Good sections include:
 }
 
 export function buildSystemPrompt(mode: PromptMode, context: PromptContext): string {
+  let prompt: string
   switch (mode) {
     case 'discovery':
-      return buildDiscoveryPrompt(context)
+      prompt = buildDiscoveryPrompt(context)
+      break
     case 'module_map':
-      return buildModuleMapPrompt(context)
+      prompt = buildModuleMapPrompt(context)
+      break
     case 'module_detail':
-      return buildModuleDetailPrompt(context)
+      prompt = buildModuleDetailPrompt(context)
+      break
     case 'scope_build':
-      return buildScopeBuildPrompt(context)
+      prompt = buildScopeBuildPrompt(context)
+      break
     case 'flowchart_build':
-      return buildFlowchartBuildPrompt(context)
+      prompt = buildFlowchartBuildPrompt(context)
+      break
     case 'brainstorm_build':
-      return buildBrainstormPrompt(context)
+      prompt = buildBrainstormPrompt(context)
+      break
   }
+
+  return context.planningTruthSection ? `${prompt}\n\n${context.planningTruthSection}` : prompt
 }

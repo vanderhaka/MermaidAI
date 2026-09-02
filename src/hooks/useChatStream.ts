@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { GRAPH_MUTATION_TOOLS } from '@/components/dashboard/tool-event-applier'
+import {
+  GRAPH_MUTATION_TOOLS,
+  readToolEventReceipt,
+} from '@/components/dashboard/tool-event-applier'
 import {
   INTERRUPTED_MARKER,
   formatToolName,
@@ -10,7 +13,15 @@ import {
 } from '@/lib/chat-turn'
 import { createStreamParser } from '@/lib/stream-parser'
 import { useGraphStore } from '@/store/graph-store'
-import type { ChatContext, ChatMessage, ChatMode } from '@/types/chat'
+import {
+  CHAT_TURN_OPERATION_LIMIT,
+  type ChatContext,
+  type ChatMessage,
+  type ChatMode,
+  type ChatPlanningLink,
+  type ChatToolReceipt,
+  type ChatTurnIdentity,
+} from '@/types/chat'
 
 /** What the workspace varies about a single request to /api/chat. */
 export type ChatTurnRequest = {
@@ -32,6 +43,15 @@ export type ChatTurnOutcome<TExtra> = {
 export type UseChatStreamOptions<TExtra> = {
   projectId: string
   initialMessages: ChatMessage[]
+  /** Present only for the staged Architecture path; legacy modes stay unchanged. */
+  planningLink?: ChatPlanningLink
+  /** Server-owned Auto-Decide state for staged planning; legacy modes omit it. */
+  initialHelperMode?: boolean
+  /** Persists staged Auto-Decide and returns the revision future turns must use. */
+  persistHelperMode?: (input: {
+    enabled: boolean
+    expectedRevision: number
+  }) => Promise<{ success: true; expectedRevision: number } | { success: false; error: string }>
   /** Seeds the panel when the server has no history yet — e.g. a welcome line. */
   emptyStateMessages?: () => ChatMessage[]
   /** Shown when a turn fails without an error message of its own. */
@@ -42,6 +62,13 @@ export type UseChatStreamOptions<TExtra> = {
     data: Record<string, unknown>,
     recordToolCall: (label: string) => void,
   ) => void
+  /** Optional workspace wording for a tool while it is actively running. */
+  getToolActivityLabel?: (tool: string, phase: 'start' | 'committed') => string | undefined
+  /** Metadata copied to the local assistant row only after this event's receipt is verified. */
+  getCommittedMessageMetadata?: (
+    tool: string,
+    data: Record<string, unknown>,
+  ) => Record<string, unknown> | null
   /** Messages the server never saw, so the model should not read them back. */
   isLocalOnlyMessage?: (entry: ChatMessage) => boolean
   onTurnEnd?: (outcome: ChatTurnOutcome<TExtra>) => void
@@ -56,7 +83,7 @@ export type ChatStream<TExtra> = {
   chatError: string | null
   setChatError: (message: string | null) => void
   helperMode: boolean
-  toggleHelperMode: () => void
+  toggleHelperMode: () => Promise<void>
   sendMessage: (message: string, extra?: TExtra) => Promise<boolean>
   stop: () => void
   /** Undefined until there is a message worth re-sending. */
@@ -71,6 +98,48 @@ type LastSend<TExtra> = {
   message: string
   extra: TExtra | undefined
   userMessageId: string
+  turnIdentity?: ChatTurnIdentity
+}
+
+function createTurnIdentity(planningLink?: ChatPlanningLink): ChatTurnIdentity {
+  const operationIds = new Set<string>()
+  while (operationIds.size < CHAT_TURN_OPERATION_LIMIT) operationIds.add(crypto.randomUUID())
+
+  return {
+    turnId: crypto.randomUUID(),
+    userMessageKey: crypto.randomUUID(),
+    assistantMessageKey: crypto.randomUUID(),
+    changeSetId: crypto.randomUUID(),
+    expectedRevision: planningLink?.expectedRevision ?? 0,
+    operationIds: [...operationIds],
+    planningStage: planningLink?.stage ?? null,
+    artifactId: planningLink?.artifactId ?? null,
+    artifactVersionId: planningLink?.artifactVersionId ?? null,
+  }
+}
+
+function withTurnIdentity(
+  message: ChatMessage,
+  turnIdentity: ChatTurnIdentity | undefined,
+  role: 'user' | 'assistant',
+  committedReceipt?: ChatToolReceipt | null,
+  metadata?: Record<string, unknown> | null,
+): ChatMessage {
+  if (!turnIdentity) return message
+
+  return {
+    ...message,
+    turnId: turnIdentity.turnId,
+    messageKey: role === 'user' ? turnIdentity.userMessageKey : turnIdentity.assistantMessageKey,
+    planningStage: turnIdentity.planningStage,
+    artifactId: turnIdentity.artifactId,
+    artifactVersionId:
+      committedReceipt?.status === 'committed' && committedReceipt.artifactVersionId
+        ? committedReceipt.artifactVersionId
+        : turnIdentity.artifactVersionId,
+    changeSetId: committedReceipt?.status === 'committed' ? turnIdentity.changeSetId : null,
+    ...(metadata ? { metadata } : {}),
+  }
 }
 
 /**
@@ -81,10 +150,15 @@ type LastSend<TExtra> = {
 export function useChatStream<TExtra = void>({
   projectId,
   initialMessages,
+  planningLink,
+  initialHelperMode,
+  persistHelperMode,
   emptyStateMessages,
   fallbackErrorMessage,
   buildTurnRequest,
   applyToolEvent,
+  getToolActivityLabel,
+  getCommittedMessageMetadata,
   isLocalOnlyMessage,
   onTurnEnd,
 }: UseChatStreamOptions<TExtra>): ChatStream<TExtra> {
@@ -96,9 +170,7 @@ export function useChatStream<TExtra = void>({
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
     initialMessages.length > 0 ? initialMessages : (emptyStateMessages?.() ?? initialMessages),
   )
-  // On by default; the stored preference is read after mount so the server and
-  // first client render agree.
-  const [helperMode, setHelperMode] = useState(true)
+  const [helperMode, setHelperMode] = useState(initialHelperMode ?? true)
   const [lastSend, setLastSend] = useState<LastSend<TExtra> | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
   const turnInFlightRef = useRef(false)
@@ -108,6 +180,9 @@ export function useChatStream<TExtra = void>({
   // Mirrors `currentToolCalls` so the send closure can read the turn's calls at
   // commit time — the state value it captured is a render behind.
   const turnToolCallsRef = useRef<string[]>([])
+  const planningLinkRef = useRef(planningLink)
+  const helperModeRef = useRef(initialHelperMode ?? true)
+  const helperModeUpdateRef = useRef<Promise<void> | null>(null)
 
   const hasEmptyStateMessages = Boolean(emptyStateMessages)
 
@@ -127,17 +202,73 @@ export function useChatStream<TExtra = void>({
   // Restored after mount, never during render: the server has no localStorage,
   // so reading it inline would make the first client render disagree with it.
   useEffect(() => {
+    if (initialHelperMode !== undefined) {
+      helperModeRef.current = initialHelperMode
+      setHelperMode(initialHelperMode)
+      return
+    }
+
     const restoreStoredPreference = window.setTimeout(() => {
       const stored = readAutoDecidePreference(projectId)
-      if (stored !== null) setHelperMode(stored)
+      if (stored !== null) {
+        helperModeRef.current = stored
+        setHelperMode(stored)
+      }
     }, 0)
     return () => window.clearTimeout(restoreStoredPreference)
-  }, [projectId])
+  }, [initialHelperMode, projectId])
 
-  function toggleHelperMode() {
-    const next = !helperMode
+  useEffect(() => {
+    planningLinkRef.current = planningLink
+  }, [planningLink])
+
+  async function toggleHelperMode(): Promise<void> {
+    if (helperModeUpdateRef.current) return helperModeUpdateRef.current
+
+    const previous = helperModeRef.current
+    const next = !previous
+    helperModeRef.current = next
     setHelperMode(next)
-    writeAutoDecidePreference(projectId, next)
+
+    if (!persistHelperMode) {
+      writeAutoDecidePreference(projectId, next)
+      return
+    }
+
+    const expectedRevision = planningLinkRef.current?.expectedRevision
+    if (expectedRevision === undefined) {
+      helperModeRef.current = previous
+      setHelperMode(previous)
+      setChatError('Auto-Decide could not be saved because planning state is unavailable.')
+      return
+    }
+
+    const update = (async () => {
+      try {
+        const result = await persistHelperMode({ enabled: next, expectedRevision })
+        if (!result.success) {
+          helperModeRef.current = previous
+          setHelperMode(previous)
+          setChatError(result.error)
+          return
+        }
+
+        if (planningLinkRef.current) {
+          planningLinkRef.current = {
+            ...planningLinkRef.current,
+            expectedRevision: result.expectedRevision,
+          }
+        }
+      } catch {
+        helperModeRef.current = previous
+        setHelperMode(previous)
+        setChatError('Auto-Decide could not be saved. Try again.')
+      }
+    })()
+    helperModeUpdateRef.current = update
+    await update.finally(() => {
+      if (helperModeUpdateRef.current === update) helperModeUpdateRef.current = null
+    })
   }
 
   function addToolCall(label: string) {
@@ -147,16 +278,29 @@ export function useChatStream<TExtra = void>({
   }
 
   /** Whatever the assistant said before the turn broke is still worth keeping. */
-  function commitPartialAssistantText(text: string) {
+  function commitPartialAssistantText(
+    text: string,
+    turnIdentity: ChatTurnIdentity | undefined,
+    committedReceipt: ChatToolReceipt | null,
+    committedMessageMetadata: Record<string, unknown> | null,
+  ) {
     const trimmed = text.trim()
     if (!trimmed) return
 
     setMessages((current) => [
       ...current,
-      makeLocalMessage(
+      withTurnIdentity(
+        makeLocalMessage(
+          'assistant',
+          `${trimmed}\n\n${INTERRUPTED_MARKER}`,
+          turnToolCallsRef.current,
+        ),
+        turnIdentity,
         'assistant',
-        `${trimmed}\n\n${INTERRUPTED_MARKER}`,
-        turnToolCallsRef.current,
+        committedReceipt,
+        turnIdentity && committedReceipt
+          ? { ...(committedMessageMetadata ?? {}), turn_status: 'partial' }
+          : committedMessageMetadata,
       ),
     ])
   }
@@ -169,17 +313,34 @@ export function useChatStream<TExtra = void>({
     if (!lastSend) return
     setChatError(null)
     setMessages((current) => current.filter((entry) => entry.id !== lastSend.userMessageId))
-    void sendMessage(lastSend.message, lastSend.extra)
+    const retryIdentity = lastSend.turnIdentity
+      ? { ...lastSend.turnIdentity, assistantMessageKey: crypto.randomUUID() }
+      : undefined
+    void sendMessageWithIdentity(lastSend.message, lastSend.extra, retryIdentity)
   }
 
   async function sendMessage(message: string, extra?: TExtra): Promise<boolean> {
+    return sendMessageWithIdentity(message, extra)
+  }
+
+  async function sendMessageWithIdentity(
+    message: string,
+    extra: TExtra | undefined,
+    retryIdentity?: ChatTurnIdentity,
+  ): Promise<boolean> {
+    if (helperModeUpdateRef.current) await helperModeUpdateRef.current
     if (turnInFlightRef.current) return false
     turnInFlightRef.current = true
 
-    const optimisticUserMessage = makeLocalMessage('user', message)
+    const turnIdentity = retryIdentity ?? createTurnIdentity(planningLinkRef.current)
+    const optimisticUserMessage = withTurnIdentity(
+      makeLocalMessage('user', message),
+      turnIdentity,
+      'user',
+    )
 
     setMessages((current) => [...current, optimisticUserMessage])
-    setLastSend({ message, extra, userMessageId: optimisticUserMessage.id })
+    setLastSend({ message, extra, userMessageId: optimisticUserMessage.id, turnIdentity })
     setIsSending(true)
     isSendingRef.current = true
     setStreamingContent('')
@@ -197,6 +358,8 @@ export function useChatStream<TExtra = void>({
     let graphChanged = false
     const appliedTools: string[] = []
     let assistantText = ''
+    let committedReceipt: ChatToolReceipt | null = null
+    let committedMessageMetadata: Record<string, unknown> | null = null
 
     try {
       const { mode, context } = buildTurnRequest(message, extra)
@@ -209,14 +372,16 @@ export function useChatStream<TExtra = void>({
           projectId,
           message,
           mode,
-          helperMode,
+          helperMode: helperModeRef.current,
           context,
           history: messages
+            .filter((entry) => !turnIdentity || entry.turnId !== turnIdentity.turnId)
             .filter((entry) => !isLocalOnlyMessage?.(entry))
             .map((entry) => ({
               role: entry.role,
               content: entry.content,
             })),
+          ...(turnIdentity ? { turn: turnIdentity } : {}),
         }),
       })
 
@@ -246,13 +411,47 @@ export function useChatStream<TExtra = void>({
 
         for (const event of events) {
           if (event.status === 'start') {
-            setToolActivity(formatToolName(event.tool))
+            setToolActivity(
+              getToolActivityLabel?.(event.tool, 'start') ?? formatToolName(event.tool),
+            )
           } else if (event.data) {
+            const receipt = readToolEventReceipt(event.data)
+            let eventCommitted = false
+            if (
+              receipt?.status === 'committed' &&
+              turnIdentity &&
+              receipt.turnId === turnIdentity.turnId &&
+              receipt.changeSetId === turnIdentity.changeSetId &&
+              receipt.expectedRevision === turnIdentity.expectedRevision &&
+              turnIdentity.operationIds[receipt.sequence] === receipt.operationId
+            ) {
+              eventCommitted = true
+              committedReceipt = receipt
+              const nextMetadata = getCommittedMessageMetadata?.(event.tool, event.data)
+              if (nextMetadata) {
+                committedMessageMetadata = {
+                  ...(committedMessageMetadata ?? {}),
+                  ...nextMetadata,
+                }
+              }
+              const currentLink = planningLinkRef.current
+              if (currentLink) {
+                planningLinkRef.current = {
+                  ...currentLink,
+                  expectedRevision: receipt.committedRevision!,
+                  artifactVersionId: receipt.artifactVersionId ?? currentLink.artifactVersionId,
+                }
+              }
+            }
             if (GRAPH_MUTATION_TOOLS.has(event.tool)) {
               graphChanged = true
             }
             appliedTools.push(event.tool)
             applyToolEvent(event.tool, event.data, addToolCall)
+            if (eventCommitted) {
+              const committedActivity = getToolActivityLabel?.(event.tool, 'committed')
+              if (committedActivity) setToolActivity(committedActivity)
+            }
           }
         }
       }
@@ -265,7 +464,13 @@ export function useChatStream<TExtra = void>({
       if (assistantText.trim()) {
         setMessages((current) => [
           ...current,
-          makeLocalMessage('assistant', assistantText.trim(), turnToolCallsRef.current),
+          withTurnIdentity(
+            makeLocalMessage('assistant', assistantText.trim(), turnToolCallsRef.current),
+            turnIdentity,
+            'assistant',
+            committedReceipt,
+            committedMessageMetadata,
+          ),
         ])
       }
       completedSuccessfully = true
@@ -274,7 +479,12 @@ export function useChatStream<TExtra = void>({
       if (!streamStarted) {
         setMessages((current) => current.filter((entry) => entry.id !== optimisticUserMessage.id))
       }
-      commitPartialAssistantText(assistantText)
+      commitPartialAssistantText(
+        assistantText,
+        turnIdentity,
+        committedReceipt,
+        committedMessageMetadata,
+      )
 
       // Stopping is a deliberate end to the turn, not a failure.
       if (controller.signal.aborted) return streamStarted

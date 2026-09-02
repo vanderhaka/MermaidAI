@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   applyProjectToolEvent,
   applyScopeToolEvent,
+  readToolEventReceipt,
 } from '@/components/dashboard/tool-event-applier'
 import { useGraphStore } from '@/store/graph-store'
 import type { FlowEdge, FlowNode, Module, ModuleConnection, OpenQuestion } from '@/types/graph'
@@ -79,6 +80,19 @@ function makeConnection(overrides: Partial<ModuleConnection> = {}): ModuleConnec
     target_entry_point: 'default',
     created_at: '2026-01-01T00:00:00Z',
     ...overrides,
+  }
+}
+
+function makeCommittedToolReceipt() {
+  return {
+    turnId: '11111111-1111-4111-8111-111111111111',
+    changeSetId: '22222222-2222-4222-8222-222222222222',
+    operationId: '33333333-3333-4333-8333-333333333333',
+    sequence: 0,
+    status: 'committed' as const,
+    expectedRevision: 3,
+    committedRevision: 4,
+    artifactVersionId: '44444444-4444-4444-8444-444444444444',
   }
 }
 
@@ -262,6 +276,148 @@ describe('tool event appliers', () => {
     expect(recordToolCall).toHaveBeenCalledWith('Connected Cart → Payments')
   })
 
+  it('applies one committed Architecture batch to the client graph', () => {
+    const recordToolCall = vi.fn()
+    const modules = [
+      makeModule({ id: 'mod-source', name: 'Bookings' }),
+      makeModule({ id: 'mod-target', name: 'Payments' }),
+    ]
+    const connections = [makeConnection()]
+    const nodes = [
+      makeNode({ id: 'question-node-1', module_id: 'mod-target', node_type: 'question' }),
+    ]
+    const questions = [makeQuestion({ node_id: 'question-node-1' })]
+
+    applyProjectToolEvent(
+      'capture_architecture_map',
+      {
+        modules,
+        connections,
+        nodes,
+        questions,
+        __chatTurnReceipt: makeCommittedToolReceipt(),
+      },
+      { recordToolCall },
+    )
+
+    const state = useGraphStore.getState()
+    expect(state.modules).toEqual(modules)
+    expect(state.connections).toEqual(connections)
+    expect(state.nodes).toEqual(nodes)
+    expect(state.openQuestions).toEqual(questions)
+    expect([...state.lastTurnChangedIds]).toEqual(['question-node-1'])
+    expect(recordToolCall).toHaveBeenCalledWith('Built Architecture: 2 capabilities, 1 connection')
+  })
+
+  it('applies an atomic map refinement without waiting for a reload', () => {
+    const recordToolCall = vi.fn()
+    const source = makeModule({ id: 'mod-source', name: 'Bookings' })
+    const target = makeModule({ id: 'mod-target', name: 'Payments' })
+    const removed = makeModule({ id: 'mod-old', name: 'Legacy Email' })
+    const oldConnection = makeConnection({
+      id: 'conn-old',
+      source_module_id: removed.id,
+      target_module_id: target.id,
+    })
+    useGraphStore.getState().setModules([source, target, removed])
+    useGraphStore.getState().setConnections([oldConnection])
+    const notification = makeModule({ id: 'mod-notifications', name: 'Notifications' })
+    const updatedTarget = makeModule({ ...target, name: 'Deposits' })
+    const newConnection = makeConnection({
+      id: 'conn-new',
+      source_module_id: source.id,
+      target_module_id: notification.id,
+    })
+
+    applyProjectToolEvent(
+      'refine_architecture_map',
+      {
+        createdModules: [notification],
+        updatedModules: [updatedTarget],
+        deletedModuleIds: [removed.id],
+        createdConnections: [newConnection],
+        deletedConnectionIds: [oldConnection.id],
+        __chatTurnReceipt: makeCommittedToolReceipt(),
+      },
+      { recordToolCall },
+    )
+
+    const state = useGraphStore.getState()
+    expect(state.modules.map((module) => [module.id, module.name])).toEqual([
+      ['mod-source', 'Bookings'],
+      ['mod-target', 'Deposits'],
+      ['mod-notifications', 'Notifications'],
+    ])
+    expect(state.connections).toEqual([newConnection])
+    expect(recordToolCall).toHaveBeenCalledWith('Updated Architecture atomically')
+  })
+
+  it('applies an atomic flow refinement and highlights every changed step', () => {
+    const recordToolCall = vi.fn()
+    const oldNode = makeNode({ id: 'node-old' })
+    const updatedNode = makeNode({ id: 'node-update', label: 'Old label' })
+    const staleEdge = makeEdge({ id: 'edge-old', source_node_id: oldNode.id })
+    useGraphStore.getState().setNodes([oldNode, updatedNode])
+    useGraphStore.getState().setEdges([staleEdge])
+    const createdNode = makeNode({ id: 'node-new', label: 'Send confirmation' })
+    const changedNode = makeNode({ id: updatedNode.id, label: 'Validate booking' })
+    const createdEdge = makeEdge({
+      id: 'edge-new',
+      source_node_id: changedNode.id,
+      target_node_id: createdNode.id,
+    })
+
+    applyProjectToolEvent(
+      'refine_architecture_flow',
+      {
+        createdNodes: [createdNode],
+        updatedNodes: [changedNode],
+        deletedNodeIds: [oldNode.id],
+        createdEdges: [createdEdge],
+        updatedEdges: [],
+        deletedEdgeIds: [staleEdge.id],
+        __chatTurnReceipt: makeCommittedToolReceipt(),
+      },
+      { recordToolCall },
+    )
+
+    const state = useGraphStore.getState()
+    expect(state.nodes).toEqual([changedNode, createdNode])
+    expect(state.edges).toEqual([createdEdge])
+    expect([...state.lastTurnChangedIds].sort()).toEqual(['node-new', 'node-update'])
+    expect(recordToolCall).toHaveBeenCalledWith('Updated Architecture flow atomically')
+  })
+
+  it.each([
+    ['missing', undefined],
+    ['failed', { ...makeCommittedToolReceipt(), status: 'failed' as const }],
+    ['legacy direct', { ...makeCommittedToolReceipt(), status: 'legacy_direct' as const }],
+  ])('ignores a capture batch with a %s receipt', (_label, receipt) => {
+    const recordToolCall = vi.fn()
+
+    applyProjectToolEvent(
+      'capture_architecture_map',
+      {
+        modules: [makeModule()],
+        ...(receipt ? { __chatTurnReceipt: receipt } : {}),
+      },
+      { recordToolCall },
+    )
+
+    expect(useGraphStore.getState().modules).toEqual([])
+    expect(recordToolCall).not.toHaveBeenCalled()
+  })
+
+  it('does not create optimistic Architecture rows from an empty batch event', () => {
+    applyProjectToolEvent('capture_architecture_map', {}, { recordToolCall: vi.fn() })
+
+    const state = useGraphStore.getState()
+    expect(state.modules).toEqual([])
+    expect(state.connections).toEqual([])
+    expect(state.nodes).toEqual([])
+    expect(state.openQuestions).toEqual([])
+  })
+
   it('updates Full Design PRD content from write_prd payloads', () => {
     const recordToolCall = vi.fn()
     useGraphStore.getState().setModules([makeModule({ id: 'mod-1', prd_content: '' })])
@@ -301,6 +457,31 @@ describe('tool event appliers', () => {
 
     expect(scopeRecord).toHaveBeenCalledWith('Archive project')
     expect(projectRecord).toHaveBeenCalledWith('Archive project')
+  })
+
+  it('reads a committed receipt without treating compatibility data as a commit', () => {
+    const committed = {
+      turnId: '11111111-1111-4111-8111-111111111111',
+      changeSetId: '22222222-2222-4222-8222-222222222222',
+      operationId: '33333333-3333-4333-8333-333333333333',
+      sequence: 0,
+      status: 'committed',
+      expectedRevision: 3,
+      committedRevision: 4,
+      artifactVersionId: '44444444-4444-4444-8444-444444444444',
+    }
+
+    expect(readToolEventReceipt({ __chatTurnReceipt: committed })).toEqual(committed)
+    expect(
+      readToolEventReceipt({
+        __chatTurnReceipt: {
+          ...committed,
+          status: 'legacy_direct',
+          committedRevision: 4,
+        },
+      }),
+    ).toEqual(expect.objectContaining({ status: 'legacy_direct', committedRevision: undefined }))
+    expect(readToolEventReceipt({ __chatTurnReceipt: { status: 'committed' } })).toBeNull()
   })
 
   describe('shared node and edge handling', () => {

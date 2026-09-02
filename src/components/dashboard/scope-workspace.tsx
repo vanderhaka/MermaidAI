@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import CanvasContainer from '@/components/canvas/CanvasContainer'
@@ -12,9 +12,8 @@ import PrdPreviewPanel from '@/components/dashboard/PrdPreviewPanel'
 import { SavedIndicator } from '@/components/dashboard/SavedIndicator'
 import { applyScopeToolEvent } from '@/components/dashboard/tool-event-applier'
 import { useChatStream } from '@/hooks/useChatStream'
+import { useScopeArchitectureHandoff } from '@/hooks/useScopeArchitectureHandoff'
 import { getProjectModeConfig } from '@/lib/project-modes'
-import { queueScopeHandoff } from '@/lib/scope-handoff'
-import { updateProject } from '@/lib/services/project-service'
 import { useGraphStore } from '@/store/graph-store'
 import type { ChatMessage } from '@/types/chat'
 import type {
@@ -69,11 +68,7 @@ export function ScopeWorkspace({
 }: ScopeWorkspaceProps) {
   const modeConfig = getProjectModeConfig(project.mode)
   const router = useRouter()
-  const [isPromoting, startPromote] = useTransition()
   const [confirmingPromote, setConfirmingPromote] = useState(false)
-  // Promote failures stay in page flow; chat failures belong inside the panel,
-  // which is fixed and can cover anything under it.
-  const [error, setError] = useState<string | null>(null)
   const [assistantOpen, setAssistantOpen] = useState(initialMessages.length === 0)
   const [isPeeking, setIsPeeking] = useState(false)
   const [prdOpen, setPrdOpen] = useState(false)
@@ -94,6 +89,12 @@ export function ScopeWorkspace({
   const setConnections = useGraphStore((state) => state.setConnections)
   const setOpenQuestions = useGraphStore((state) => state.setOpenQuestions)
   const setActiveModuleId = useGraphStore((state) => state.setActiveModuleId)
+  const refreshAfterHandoff = useCallback(() => router.refresh(), [router])
+  const architectureHandoff = useScopeArchitectureHandoff({
+    projectId: project.id,
+    onComplete: refreshAfterHandoff,
+  })
+  const isPromoting = architectureHandoff.isRunning
 
   useEffect(() => {
     setModules(initialModules)
@@ -249,16 +250,7 @@ export function ScopeWorkspace({
 
   function handlePromoteClick() {
     if (confirmingPromote) {
-      startPromote(async () => {
-        const result = await updateProject(project.id, { mode: 'architecture' })
-        if (result.success) {
-          queueScopeHandoff(project.id)
-          router.refresh()
-        } else {
-          setConfirmingPromote(false)
-          setError(result.error)
-        }
-      })
+      void architectureHandoff.run()
     } else {
       setConfirmingPromote(true)
     }
@@ -325,16 +317,15 @@ export function ScopeWorkspace({
           {confirmingPromote ? (
             <div className="flex items-center gap-3">
               <div className="space-y-0.5 text-xs">
-                <p className="text-slate-500">
-                  This is permanent &mdash; you can&apos;t switch back to{' '}
-                  {modeConfig.workspaceLabel}.
+                <p className="font-medium text-slate-700">
+                  Turn this capture into a high-level Architecture?
                 </p>
                 <p className="text-slate-500">
-                  Your flowchart,{' '}
+                  We&apos;ll preserve your flowchart,{' '}
                   {unresolvedCount > 0
                     ? `${unresolvedCount} open question${unresolvedCount === 1 ? '' : 's'}, `
                     : ''}
-                  and chat history will carry over.
+                  and chat history. Nothing switches until the Architecture is safely saved.
                 </p>
               </div>
               <button
@@ -347,20 +338,21 @@ export function ScopeWorkspace({
               <button
                 type="button"
                 onClick={handlePromoteClick}
-                disabled={isPromoting}
+                disabled={isPromoting || architectureHandoff.isChecking}
                 className="shrink-0 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60"
               >
-                {isPromoting ? 'Switching...' : 'Confirm switch'}
+                {isPromoting ? 'Building Architecture…' : 'Build Architecture'}
               </button>
             </div>
           ) : (
             <button
               type="button"
               onClick={handlePromoteClick}
-              title="Switch to Full Design mode for module management and deeper planning. Your flowchart and questions will be preserved."
+              disabled={architectureHandoff.isChecking}
+              title="Turn this capture into a high-level Architecture. Your source stays intact until the Architecture is safely saved."
               className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100"
             >
-              Switch to Full Design
+              {architectureHandoff.isChecking ? 'Checking handoff…' : 'Build Architecture'}
             </button>
           )}
         </div>
@@ -395,12 +387,42 @@ export function ScopeWorkspace({
         </div>
       </div>
 
-      {error && (
+      {isPromoting && (
+        <div
+          role="status"
+          className="flex items-center gap-2 border-t border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-800"
+        >
+          <span className="h-2 w-2 animate-pulse rounded-full bg-blue-600" aria-hidden />
+          <span>
+            {architectureHandoff.status === 'starting'
+              ? 'Freezing this Quick Capture…'
+              : 'Building and validating the Architecture… You can safely reload this page.'}
+          </span>
+        </div>
+      )}
+
+      {architectureHandoff.error && (
         <div
           role="alert"
-          className="border-t border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700"
+          className="flex items-center justify-between gap-3 border-t border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700"
         >
-          {error}
+          <span>{architectureHandoff.error} Your Quick Capture is still intact.</span>
+          <span className="flex shrink-0 gap-2">
+            <button
+              type="button"
+              onClick={architectureHandoff.dismissError}
+              className="rounded-md px-2 py-1 font-medium hover:bg-red-100"
+            >
+              Dismiss
+            </button>
+            <button
+              type="button"
+              onClick={architectureHandoff.retry}
+              className="rounded-md bg-red-700 px-2.5 py-1 font-medium text-white hover:bg-red-800"
+            >
+              Retry safely
+            </button>
+          </span>
         </div>
       )}
 

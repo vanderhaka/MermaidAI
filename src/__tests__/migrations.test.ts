@@ -11,6 +11,10 @@ const FLOWCHART_MODE_MIGRATION_PATH = resolve(
   __dirname,
   '../../supabase/migrations/20260430000000_add_flowchart_project_mode.sql',
 )
+const PLANNING_MIGRATION_PATH = resolve(
+  __dirname,
+  '../../supabase/migrations/20260901230157_add_planning_schema_and_rls.sql',
+)
 
 const TABLES = [
   'profiles',
@@ -181,5 +185,139 @@ describe('Flowchart project mode migration', () => {
 
   it('allows scope, architecture, and flowchart modes', () => {
     expect(sql).toMatch(/mode\s+in\s*\(\s*'scope'\s*,\s*'architecture'\s*,\s*'flowchart'\s*\)/is)
+  })
+})
+
+describe('Planning schema migration', () => {
+  let sql: string
+
+  beforeAll(() => {
+    sql = readFileSync(PLANNING_MIGRATION_PATH, 'utf-8')
+  })
+
+  it.each([
+    'planning_states',
+    'planning_artifacts',
+    'planning_artifact_versions',
+    'planning_decisions',
+    'planning_change_sets',
+    'planning_operations',
+    'planning_handoff_jobs',
+  ])('creates and enables RLS for %s', (table) => {
+    expect(sql).toMatch(new RegExp(`create\\s+table\\s+public\\.${table}`, 'i'))
+    expect(sql).toMatch(
+      new RegExp(`alter\\s+table\\s+public\\.${table}\\s+enable\\s+row\\s+level\\s+security`, 'i'),
+    )
+  })
+
+  it('keeps legacy rows additive and protects immutable versions', () => {
+    expect(sql).toMatch(
+      /alter\s+table\s+public\.open_questions\s+add\s+column\s+if\s+not\s+exists/is,
+    )
+    expect(sql).toMatch(
+      /alter\s+table\s+public\.chat_messages\s+add\s+column\s+if\s+not\s+exists/is,
+    )
+    expect(sql).not.toMatch(/alter\s+table\s+public\.modules\s+.*prd_content/is)
+    expect(sql).toMatch(/planning_artifact_versions_immutable/is)
+    expect(sql).toMatch(/before\s+update\s+on\s+public\.planning_artifact_versions/is)
+    expect(sql).toMatch(
+      /active_version_id\)\s+references\s+public\.planning_artifact_versions\(id\)\s+on\s+delete\s+set\s+null/is,
+    )
+  })
+
+  it('uses ownership RLS and narrowly grants authenticated access', () => {
+    expect(sql).toMatch(/to\s+authenticated\s+using\s*\(\s*public\.owns_project/is)
+    expect(sql).toMatch(/with\s+check\s*\(\s*public\.owns_project/is)
+    expect(sql).toMatch(
+      /grant\s+select.*on\s+table\s+public\.planning_states\s+to\s+authenticated/is,
+    )
+    expect(sql).toMatch(
+      /revoke\s+execute\s+on\s+function\s+public\.initialize_architecture_planning_state\(uuid\)\s+from\s+public/is,
+    )
+    expect(sql).toMatch(
+      /grant\s+execute\s+on\s+function\s+public\.owns_project\(uuid\)\s+to\s+authenticated/is,
+    )
+    expect(sql).toMatch(
+      /revoke\s+all\s+on\s+table\s+public\.planning_states[\s\S]*?from\s+public,\s*anon,\s*authenticated/is,
+    )
+    const planningTableGrants = [
+      ...sql.matchAll(
+        /^grant\s+([^;]+)\s+on\s+table\s+public\.(planning_\w+)\s+to\s+authenticated;/gim,
+      ),
+    ]
+    expect(planningTableGrants).toHaveLength(7)
+    for (const [, privileges] of planningTableGrants) {
+      expect(privileges).not.toMatch(/truncate|delete/i)
+    }
+    expect(sql).toMatch(
+      /grant\s+execute\s+on\s+function\s+public\.initialize_architecture_planning_state\(uuid\)\s+to\s+authenticated/is,
+    )
+  })
+
+  it('restores only the authenticated base-table operations used by application services', () => {
+    expect(sql).toMatch(
+      /revoke\s+all\s+on\s+table\s+public\.profiles,\s*public\.projects,\s*public\.modules,\s*public\.flow_nodes,\s*public\.flow_edges,\s*public\.module_connections,\s*public\.chat_messages,\s*public\.open_questions\s+from\s+public,\s*anon,\s*authenticated/is,
+    )
+
+    const expectedGrants: Record<string, string[]> = {
+      profiles: ['insert', 'select', 'update'],
+      projects: ['delete', 'insert', 'select', 'update'],
+      modules: ['delete', 'insert', 'select', 'update'],
+      flow_nodes: ['delete', 'insert', 'select', 'update'],
+      flow_edges: ['delete', 'insert', 'select', 'update'],
+      module_connections: ['delete', 'insert', 'select', 'update'],
+      chat_messages: ['insert', 'select'],
+      open_questions: ['delete', 'insert', 'select', 'update'],
+    }
+
+    const baseTableGrants = [
+      ...sql.matchAll(
+        /^grant\s+([^;]+)\s+on\s+table\s+public\.(profiles|projects|modules|flow_nodes|flow_edges|module_connections|chat_messages|open_questions)\s+to\s+authenticated;/gim,
+      ),
+    ]
+
+    expect(baseTableGrants).toHaveLength(Object.keys(expectedGrants).length)
+    for (const [, privileges, table] of baseTableGrants) {
+      const actual = privileges
+        .split(',')
+        .map((privilege) => privilege.trim().toLowerCase())
+        .sort()
+      expect(actual, table).toEqual(expectedGrants[table])
+      expect(actual).not.toContain('truncate')
+    }
+  })
+
+  it('provides lock, monotonic allocation, and Architecture-only lazy initialization', () => {
+    expect(sql).toMatch(/create\s+or\s+replace\s+function\s+public\.lock_planning_state/is)
+    expect(sql).toMatch(/for\s+update/is)
+    expect(sql).toMatch(
+      /create\s+or\s+replace\s+function\s+public\.allocate_planning_artifact_version/is,
+    )
+    expect(sql).toMatch(/coalesce\(max\(version\),\s*0\)\s*\+\s*1/is)
+    expect(sql).toMatch(/mode\s*=\s*'architecture'/is)
+    expect(sql).toMatch(
+      /content_state,\s*content,\s*content_hash\)\s*values\s*\(architecture_artifact_id,\s*p_project_id,\s*1,\s*'draft'/is,
+    )
+  })
+
+  it('makes complete version retries race-safe without deduplicating intentional reverts', () => {
+    expect(sql).toMatch(/request_key\s+uuid/is)
+    expect(sql).toMatch(/request_hash\s+text/is)
+    expect(sql).toMatch(
+      /content_state\s*=\s*'complete'[\s\S]*?request_key\s+is\s+not\s+null[\s\S]*?request_hash\s+is\s+not\s+null/is,
+    )
+    expect(sql).toMatch(/unique\s*\(artifact_id,\s*request_key\)/is)
+    expect(sql).not.toMatch(/unique\s*\(artifact_id,\s*content_hash\)/is)
+    expect(sql).toMatch(
+      /select\s+\*\s+into\s+artifact_row\s+from\s+public\.planning_artifacts\s+where\s+id\s*=\s*p_artifact_id\s+for\s+update/is,
+    )
+    expect(sql).toMatch(/existing_version\.request_hash\s+is\s+distinct\s+from\s+p_request_hash/is)
+    expect(sql).toMatch(/existing_version\.content\s+is\s+distinct\s+from\s+p_content/is)
+    expect(sql).toMatch(
+      /raise\s+exception\s+'Idempotency key reused with different request content'/is,
+    )
+    expect(sql).toMatch(/set\s+active_version_id\s*=\s*allocated_version\.id/is)
+    expect(sql).toMatch(/set\s+active_work_plan_artifact_id\s*=\s*artifact_row\.id/is)
+    expect(sql).toMatch(/set\s+active_execution_handoff_artifact_id\s*=\s*artifact_row\.id/is)
   })
 })

@@ -25,6 +25,17 @@ export type ToolResult = {
   isError: boolean
   /** Structured data for client-side store updates */
   data?: Record<string, unknown>
+  /**
+   * Deterministic user-facing completion for a successful terminal tool.
+   * Providers emit it after the tool data event, then make no continuation call.
+   */
+  terminalText?: string
+}
+
+export function successfulToolTerminalText(result: ToolResult): string | null {
+  if (result.isError) return null
+  const text = result.terminalText?.trim()
+  return text ? text : null
 }
 
 export type ToolExecutor = (name: string, input: Record<string, unknown>) => Promise<ToolResult>

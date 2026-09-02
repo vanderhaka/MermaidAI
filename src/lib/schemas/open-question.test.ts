@@ -10,11 +10,41 @@ const validInput = {
 }
 
 describe('createOpenQuestionSchema', () => {
-  it('accepts valid input and defaults status to open', () => {
+  it('accepts valid input and applies fail-closed planning defaults', () => {
     const result = createOpenQuestionSchema.safeParse(validInput)
     expect(result.success).toBe(true)
     expect(result.data?.status).toBe('open')
     expect(result.data?.resolution).toBeNull()
+    expect(result.data?.readiness_impact).toBe('blocking')
+    expect(result.data?.provenance).toBe('assistant')
+    expect(result.data?.artifact_version_id).toBeNull()
+    expect(result.data?.planning_decision_id).toBeNull()
+  })
+
+  it.each(['blocking', 'non_blocking', 'deferred'] as const)(
+    'accepts the explicit %s readiness classification',
+    (readinessImpact) => {
+      const result = createOpenQuestionSchema.safeParse({
+        ...validInput,
+        readiness_impact: readinessImpact,
+        provenance: 'user',
+      })
+
+      expect(result.success).toBe(true)
+      expect(result.data).toMatchObject({
+        readiness_impact: readinessImpact,
+        provenance: 'user',
+      })
+    },
+  )
+
+  it('rejects an unknown readiness classification', () => {
+    expect(
+      createOpenQuestionSchema.safeParse({
+        ...validInput,
+        readiness_impact: 'probably-blocking',
+      }).success,
+    ).toBe(false)
   })
 
   it('accepts explicit status', () => {

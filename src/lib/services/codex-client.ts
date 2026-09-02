@@ -13,6 +13,7 @@ import {
   TOOL_BUDGET_NUDGE,
   TOOL_EVENT_DELIMITER,
   sanitizeError,
+  successfulToolTerminalText,
   stringifyMessageContent,
 } from '@/lib/services/llm-shared'
 import type { CallLLMWithToolsOptions, ToolExecutor, ToolResult } from '@/lib/services/llm-shared'
@@ -282,6 +283,15 @@ export async function callCodexWithTools(
               controller.enqueue(
                 `${TOOL_EVENT_DELIMITER}${JSON.stringify({ tool: call.name, data: toolResult.data })}\n`,
               )
+            }
+
+            const terminalText = options.signal?.aborted
+              ? null
+              : successfulToolTerminalText(toolResult)
+            if (terminalText) {
+              controller.enqueue(terminalText)
+              controller.close()
+              return
             }
 
             input.push({

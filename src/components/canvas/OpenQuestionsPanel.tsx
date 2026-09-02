@@ -37,13 +37,24 @@ export default function OpenQuestionsPanel({
 
   useEffect(() => {
     const previousOpenCount = previousOpenCountRef.current
-    previousOpenCountRef.current = openCount
+    const nextOpenState =
+      previousOpenCount === 0 && openCount > 0
+        ? true
+        : previousOpenCount > 0 && openCount === 0
+          ? false
+          : null
 
-    if (previousOpenCount === 0 && openCount > 0) {
-      setIsOpen(true)
-    } else if (previousOpenCount > 0 && openCount === 0) {
-      setIsOpen(false)
+    if (nextOpenState === null) {
+      previousOpenCountRef.current = openCount
+      return
     }
+
+    const timeout = window.setTimeout(() => {
+      previousOpenCountRef.current = openCount
+      setIsOpen(nextOpenState)
+    }, 0)
+
+    return () => window.clearTimeout(timeout)
   }, [openCount])
 
   function handleQuestionClick(question: OpenQuestion) {

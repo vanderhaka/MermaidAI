@@ -5,6 +5,7 @@ import 'server-only'
 import { createOpenQuestionSchema, resolveOpenQuestionSchema } from '@/lib/schemas/open-question'
 import { createClient } from '@/lib/supabase/server'
 import type { OpenQuestion } from '@/types/graph'
+import type { OpenQuestionReadinessImpact, PlanningProvenance } from '@/types/graph'
 
 type ServiceResult<T> = { success: true; data: T } | { success: false; error: string }
 
@@ -13,6 +14,10 @@ export async function createOpenQuestion(input: {
   node_id: string
   section: string
   question: string
+  artifact_version_id?: string | null
+  planning_decision_id?: string | null
+  readiness_impact?: OpenQuestionReadinessImpact
+  provenance?: PlanningProvenance
 }): Promise<ServiceResult<OpenQuestion>> {
   const parsed = createOpenQuestionSchema.safeParse(input)
   if (!parsed.success) {

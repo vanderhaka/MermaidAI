@@ -17,6 +17,9 @@ const mockRemoveEdge = vi.fn()
 const mockGetGraphForModule = vi.fn()
 const mockUpdateProject = vi.fn()
 const mockDeleteModule = vi.fn()
+const mockCaptureArchitectureMap = vi.fn()
+const mockCreateModule = vi.fn()
+const mockApplyArchitectureRefinement = vi.fn()
 
 vi.mock('@/lib/services/open-question-service', () => ({
   createOpenQuestion: (...args: unknown[]) => mockCreateOpenQuestion(...args),
@@ -39,17 +42,28 @@ vi.mock('@/lib/services/project-service', () => ({
 }))
 
 vi.mock('@/lib/services/module-service', () => ({
-  createModule: vi.fn(),
+  createModule: (...args: unknown[]) => mockCreateModule(...args),
   updateModule: vi.fn(),
   deleteModule: (...args: unknown[]) => mockDeleteModule(...args),
   getModuleById: vi.fn(),
 }))
 
+vi.mock('@/lib/services/architecture-service', () => ({
+  captureArchitectureMap: (...args: unknown[]) => mockCaptureArchitectureMap(...args),
+}))
+
+vi.mock('@/lib/services/architecture-refinement-service', () => ({
+  applyArchitectureRefinement: (...args: unknown[]) => mockApplyArchitectureRefinement(...args),
+}))
+
 import {
   addOpenQuestionsTool,
+  captureArchitectureMapTool,
   captureScopeFlowTool,
   createToolExecutor,
   getToolsForMode,
+  refineArchitectureFlowTool,
+  refineArchitectureMapTool,
   resolveOpenQuestionTool,
 } from '@/lib/services/llm-tools'
 
@@ -61,6 +75,69 @@ describe('capture_scope_flow tool definition', () => {
       'nodes',
       'edges',
       'questions',
+    ])
+  })
+})
+
+describe('capture_architecture_map tool definition', () => {
+  it('accepts a complete locally keyed high-level Architecture in one call', () => {
+    expect(captureArchitectureMapTool.name).toBe('capture_architecture_map')
+    expect(captureArchitectureMapTool.input_schema.required).toEqual([
+      'objective',
+      'outcomes',
+      'actors',
+      'modules',
+      'connections',
+      'importantFlows',
+      'assumptions',
+      'questions',
+    ])
+  })
+})
+
+describe('staged Architecture refinement tools', () => {
+  it('offers one atomic map tool instead of repeated mutation calls', () => {
+    expect(refineArchitectureMapTool.name).toBe('refine_architecture_map')
+    expect(refineArchitectureMapTool.input_schema.required).toEqual([
+      'createModules',
+      'updateModules',
+      'deleteModuleIds',
+      'connectModules',
+      'disconnectModules',
+      'resolveQuestions',
+      'decisionActions',
+      'decisionReplacements',
+      'recordDecisions',
+    ])
+    expect(refineArchitectureMapTool.input_schema.properties).toEqual(
+      expect.objectContaining({
+        actors: expect.any(Object),
+        importantFlows: expect.any(Object),
+        resolveQuestions: expect.any(Object),
+        decisionActions: expect.any(Object),
+        decisionReplacements: expect.any(Object),
+        recordDecisions: expect.any(Object),
+      }),
+    )
+    expect(
+      getToolsForMode('module_map', { stagedArchitecture: true }).map((tool) => tool.name),
+    ).toEqual(['capture_architecture_map', 'refine_architecture_map', 'lookup_docs'])
+  })
+
+  it('offers one atomic flow tool while preserving legacy mode tools', () => {
+    expect(refineArchitectureFlowTool.name).toBe('refine_architecture_flow')
+    expect(
+      getToolsForMode('module_detail', { stagedArchitecture: true }).map((tool) => tool.name),
+    ).toEqual(['refine_architecture_flow', 'lookup_docs'])
+    expect(getToolsForMode('module_detail').map((tool) => tool.name)).toEqual([
+      'create_node',
+      'update_node',
+      'delete_node',
+      'create_edge',
+      'update_edge',
+      'delete_edge',
+      'lookup_docs',
+      'write_prd',
     ])
   })
 })
@@ -123,6 +200,38 @@ describe('resolve_open_question tool definition', () => {
 
   it('has a description', () => {
     expect(resolveOpenQuestionTool.description).toBeTruthy()
+  })
+})
+
+describe('chat turn operation identity', () => {
+  it('assigns the supplied operation IDs in deterministic execution order', async () => {
+    const operationIds = [
+      '55555555-5555-4555-8555-555555555555',
+      '66666666-6666-4666-8666-666666666666',
+    ]
+    const executeTool = createToolExecutor('proj-1', {
+      turnIdentity: {
+        turnId: '11111111-1111-4111-8111-111111111111',
+        userMessageKey: '22222222-2222-4222-8222-222222222222',
+        assistantMessageKey: '33333333-3333-4333-8333-333333333333',
+        changeSetId: '44444444-4444-4444-8444-444444444444',
+        expectedRevision: 7,
+        operationIds,
+        planningStage: 'architecture',
+        artifactId: '77777777-7777-4777-8777-777777777777',
+        artifactVersionId: '88888888-8888-4888-8888-888888888888',
+      },
+    })
+
+    const first = await executeTool('not_a_real_tool', {})
+    const second = await executeTool('still_not_a_real_tool', {})
+
+    expect(first.data?.__chatTurnReceipt).toEqual(
+      expect.objectContaining({ operationId: operationIds[0], sequence: 0, status: 'failed' }),
+    )
+    expect(second.data?.__chatTurnReceipt).toEqual(
+      expect.objectContaining({ operationId: operationIds[1], sequence: 1, status: 'failed' }),
+    )
   })
 })
 
@@ -205,6 +314,7 @@ describe('existing mode tool scopes', () => {
     const moduleDetailTools = getToolsForMode('module_detail').map((tool) => tool.name)
 
     expect(moduleMapTools).toEqual([
+      'capture_architecture_map',
       'create_module',
       'update_module',
       'delete_module',
@@ -222,6 +332,445 @@ describe('existing mode tool scopes', () => {
       'lookup_docs',
       'write_prd',
     ])
+  })
+})
+
+describe('createToolExecutor capture_architecture_map', () => {
+  it('passes turn identity to the atomic service and advances by the committed batch size', async () => {
+    const operationIds = [
+      '55555555-5555-4555-8555-555555555555',
+      '66666666-6666-4666-8666-666666666666',
+      '77777777-7777-4777-8777-777777777777',
+      '88888888-8888-4888-8888-888888888888',
+    ]
+    const identity = {
+      turnId: '11111111-1111-4111-8111-111111111111',
+      userMessageKey: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      assistantMessageKey: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      changeSetId: '22222222-2222-4222-8222-222222222222',
+      expectedRevision: 0,
+      operationIds,
+      planningStage: 'architecture' as const,
+      artifactId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      artifactVersionId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    }
+    mockCaptureArchitectureMap.mockResolvedValue({
+      success: true,
+      data: {
+        modules: [
+          { id: 'module-1', name: 'Customers' },
+          { id: 'module-2', name: 'Bookings' },
+        ],
+        connections: [
+          {
+            id: 'connection-1',
+            source_module_id: 'module-1',
+            target_module_id: 'module-2',
+          },
+        ],
+        nodes: [],
+        questions: [
+          {
+            id: 'question-1',
+            question: 'Should deposits be refundable?',
+            readiness_impact: 'blocking',
+          },
+          {
+            id: 'question-2',
+            question: 'Should staff approve booking changes?',
+            readiness_impact: 'blocking',
+          },
+        ],
+        consumedOperationCount: 3,
+        architectureReceipt: {
+          changeSetId: identity.changeSetId,
+          expectedRevision: 0,
+          operations: operationIds.slice(0, 3).map((operationId, sequence) => ({
+            operationId,
+            sequence,
+            type:
+              sequence === 0
+                ? 'module.create'
+                : sequence === 1
+                  ? 'module_connection.create'
+                  : 'decision.create',
+          })),
+        },
+        chatReceipt: {
+          turnId: identity.turnId,
+          changeSetId: identity.changeSetId,
+          operationId: operationIds[0],
+          sequence: 0,
+          status: 'committed',
+          expectedRevision: 0,
+          committedRevision: 1,
+          artifactVersionId: '99999999-9999-4999-8999-999999999999',
+        },
+      },
+    })
+    const executeTool = createToolExecutor('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', {
+      turnIdentity: identity,
+    })
+
+    const captured = await executeTool('capture_architecture_map', { objective: 'Salon' })
+    const following = await executeTool('not_a_real_tool', {})
+
+    expect(mockCaptureArchitectureMap).toHaveBeenCalledWith({
+      projectId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      turnIdentity: identity,
+      startingSequence: 0,
+      input: { objective: 'Salon' },
+    })
+    expect(captured.data?.__chatTurnReceipt).toEqual(
+      expect.objectContaining({ status: 'committed', sequence: 0 }),
+    )
+    expect(captured.data?.metadata).toEqual({
+      change_summary: {
+        created: 5,
+        updated: 0,
+        deleted: 0,
+        assumed: 1,
+        resolved: 0,
+        capabilitiesCreated: 2,
+        connectionsCreated: 1,
+        assumptionsRecorded: 1,
+        questionsRecorded: 2,
+        provisional: true,
+      },
+    })
+    expect(captured.terminalText).toBe(
+      'Built a provisional Architecture with 2 capabilities: Customers and Bookings. Connected 1 relationship. Key flow: Customers → Bookings. Recorded 1 assumption and 2 questions. This stays high level; lower-level implementation detail belongs in the Work Plan. One decision to confirm: Should deposits be refundable?',
+    )
+    expect(captured.terminalText).not.toContain('Should staff approve booking changes?')
+    expect(following.data?.__chatTurnReceipt).toEqual(
+      expect.objectContaining({ operationId: operationIds[3], sequence: 3 }),
+    )
+  })
+
+  it('names the committed capability and omits empty count clauses', async () => {
+    const operationId = '55555555-5555-4555-8555-555555555555'
+    const identity = {
+      turnId: '11111111-1111-4111-8111-111111111111',
+      userMessageKey: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      assistantMessageKey: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      changeSetId: '22222222-2222-4222-8222-222222222222',
+      expectedRevision: 0,
+      operationIds: [operationId],
+      planningStage: 'architecture' as const,
+      artifactId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      artifactVersionId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    }
+    mockCaptureArchitectureMap.mockResolvedValue({
+      success: true,
+      data: {
+        modules: [{ id: 'module-1', name: 'Customer Accounts' }],
+        connections: [],
+        nodes: [],
+        questions: [],
+        consumedOperationCount: 1,
+        architectureReceipt: {
+          changeSetId: identity.changeSetId,
+          expectedRevision: 0,
+          operations: [{ operationId, sequence: 0, type: 'module.create' }],
+        },
+        chatReceipt: {
+          turnId: identity.turnId,
+          changeSetId: identity.changeSetId,
+          operationId,
+          sequence: 0,
+          status: 'committed',
+          expectedRevision: 0,
+          committedRevision: 1,
+          artifactVersionId: '99999999-9999-4999-8999-999999999999',
+        },
+      },
+    })
+    const executeTool = createToolExecutor('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', {
+      turnIdentity: identity,
+    })
+
+    const captured = await executeTool('capture_architecture_map', { objective: 'Accounts' })
+
+    expect(captured.terminalText).toBe(
+      'Built a provisional Architecture with 1 capability: Customer Accounts. This stays high level; lower-level implementation detail belongs in the Work Plan.',
+    )
+    expect(captured.terminalText).not.toContain('0')
+    expect(captured.terminalText).not.toContain('Recorded')
+    expect(captured.terminalText).not.toContain('Connected')
+  })
+
+  it('withholds terminal success text when the committed batch receipt is invalid', async () => {
+    const operationIds = [
+      '55555555-5555-4555-8555-555555555555',
+      '66666666-6666-4666-8666-666666666666',
+    ]
+    const identity = {
+      turnId: '11111111-1111-4111-8111-111111111111',
+      userMessageKey: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      assistantMessageKey: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      changeSetId: '22222222-2222-4222-8222-222222222222',
+      expectedRevision: 0,
+      operationIds,
+      planningStage: 'architecture' as const,
+      artifactId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      artifactVersionId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    }
+    mockCaptureArchitectureMap.mockResolvedValue({
+      success: true,
+      data: {
+        modules: [{ id: 'module-1' }],
+        connections: [],
+        nodes: [],
+        questions: [],
+        consumedOperationCount: 2,
+        architectureReceipt: {
+          changeSetId: identity.changeSetId,
+          expectedRevision: 0,
+          operations: [{ operationId: operationIds[0], sequence: 0, type: 'module.create' }],
+        },
+        chatReceipt: {
+          turnId: identity.turnId,
+          changeSetId: identity.changeSetId,
+          operationId: operationIds[0],
+          sequence: 0,
+          status: 'committed',
+          expectedRevision: 0,
+          committedRevision: 1,
+          artifactVersionId: '99999999-9999-4999-8999-999999999999',
+        },
+      },
+    })
+    const executeTool = createToolExecutor('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', {
+      turnIdentity: identity,
+    })
+
+    const result = await executeTool('capture_architecture_map', { objective: 'Salon' })
+
+    expect(result.data?.__chatTurnReceipt).toEqual(expect.objectContaining({ status: 'failed' }))
+    expect(result.terminalText).toBeUndefined()
+  })
+})
+
+describe('createToolExecutor refine_architecture_map', () => {
+  it('commits the whole requested refinement once and returns terminal receipt copy', async () => {
+    const operationIds = [
+      '55555555-5555-4555-8555-555555555555',
+      '66666666-6666-4666-8666-666666666666',
+      '77777777-7777-4777-8777-777777777777',
+    ]
+    const identity = {
+      turnId: '11111111-1111-4111-8111-111111111111',
+      userMessageKey: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      assistantMessageKey: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      changeSetId: '22222222-2222-4222-8222-222222222222',
+      expectedRevision: 4,
+      operationIds,
+      planningStage: 'architecture' as const,
+      artifactId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      artifactVersionId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    }
+    mockApplyArchitectureRefinement.mockResolvedValue({
+      success: true,
+      data: {
+        createdModules: [{ id: 'module-notifications', name: 'Notifications' }],
+        updatedModules: [{ id: 'module-bookings', name: 'Bookings' }],
+        deletedModuleIds: [],
+        createdConnections: [{ id: 'connection-bookings-notifications' }],
+        deletedConnectionIds: [],
+        createdNodes: [],
+        updatedNodes: [],
+        deletedNodeIds: [],
+        createdEdges: [],
+        updatedEdges: [],
+        deletedEdgeIds: [],
+        consumedOperationCount: 3,
+        architectureReceipt: {
+          changeSetId: identity.changeSetId,
+          expectedRevision: 4,
+          operations: [
+            { operationId: operationIds[0], sequence: 0, type: 'module.create' },
+            { operationId: operationIds[1], sequence: 1, type: 'module.update' },
+            {
+              operationId: operationIds[2],
+              sequence: 2,
+              type: 'module_connection.create',
+            },
+          ],
+        },
+        chatReceipt: {
+          turnId: identity.turnId,
+          changeSetId: identity.changeSetId,
+          operationId: operationIds[0],
+          sequence: 0,
+          status: 'committed',
+          expectedRevision: 4,
+          committedRevision: 5,
+          artifactVersionId: '99999999-9999-4999-8999-999999999999',
+        },
+      },
+    })
+    const executeTool = createToolExecutor('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', {
+      authenticatedUserId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      mode: 'module_map',
+      turnIdentity: identity,
+    })
+    const input = {
+      createModules: [],
+      updateModules: [],
+      deleteModuleIds: [],
+      connectModules: [],
+      disconnectModules: [],
+    }
+
+    const result = await executeTool('refine_architecture_map', input)
+
+    expect(mockApplyArchitectureRefinement).toHaveBeenCalledTimes(1)
+    expect(mockApplyArchitectureRefinement).toHaveBeenCalledWith({
+      projectId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      authenticatedUserId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      turnIdentity: identity,
+      startingSequence: 0,
+      toolName: 'refine_architecture_map',
+      input,
+    })
+    expect(result.data?.metadata).toEqual({
+      change_summary: expect.objectContaining({
+        created: 2,
+        updated: 1,
+        capabilitiesCreated: 1,
+        connectionsCreated: 1,
+      }),
+    })
+    expect(result.terminalText).toBe(
+      'Architecture updated: added 1 capability · updated 1 capability · connected 1 handoff. The whole request committed atomically and is ready to review or undo.',
+    )
+  })
+})
+
+describe('createToolExecutor existing Architecture refinement', () => {
+  const identity = {
+    turnId: '11111111-1111-4111-8111-111111111111',
+    userMessageKey: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    assistantMessageKey: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    changeSetId: '22222222-2222-4222-8222-222222222222',
+    expectedRevision: 4,
+    operationIds: [
+      '55555555-5555-4555-8555-555555555555',
+      '66666666-6666-4666-8666-666666666666',
+      '77777777-7777-4777-8777-777777777777',
+    ],
+    planningStage: 'architecture' as const,
+    artifactId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    artifactVersionId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+  }
+
+  it('routes an existing-map mutation through one committed command result, not direct DML', async () => {
+    mockApplyArchitectureRefinement.mockResolvedValue({
+      success: true,
+      data: {
+        module: { id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', name: 'Payments' },
+        consumedOperationCount: 1,
+        architectureReceipt: {
+          changeSetId: identity.changeSetId,
+          expectedRevision: identity.expectedRevision,
+          operations: [
+            {
+              operationId: identity.operationIds[0],
+              sequence: 0,
+              type: 'module.create',
+            },
+          ],
+        },
+        chatReceipt: {
+          turnId: identity.turnId,
+          changeSetId: identity.changeSetId,
+          operationId: identity.operationIds[0],
+          sequence: 0,
+          status: 'committed',
+          expectedRevision: identity.expectedRevision,
+          committedRevision: 5,
+          artifactVersionId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+        },
+      },
+    })
+    const executeTool = createToolExecutor('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', {
+      turnIdentity: identity,
+      mode: 'module_map',
+    })
+
+    const result = await executeTool('create_module', {
+      name: 'Payments',
+      description: 'Own deposits.',
+    })
+
+    expect(mockApplyArchitectureRefinement).toHaveBeenCalledWith({
+      projectId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      turnIdentity: identity,
+      startingSequence: 0,
+      toolName: 'create_module',
+      input: { name: 'Payments', description: 'Own deposits.' },
+    })
+    expect(mockCreateModule).not.toHaveBeenCalled()
+    expect(result.data).toEqual(
+      expect.objectContaining({
+        module: expect.objectContaining({ name: 'Payments' }),
+        __chatTurnReceipt: expect.objectContaining({ status: 'committed' }),
+      }),
+    )
+  })
+
+  it('rejects a claimed batch receipt whose complete operation range does not match', async () => {
+    mockApplyArchitectureRefinement.mockResolvedValue({
+      success: true,
+      data: {
+        consumedOperationCount: 2,
+        architectureReceipt: {
+          changeSetId: identity.changeSetId,
+          expectedRevision: identity.expectedRevision,
+          operations: [
+            { operationId: identity.operationIds[0], sequence: 0, type: 'module.update' },
+            {
+              operationId: identity.operationIds[2],
+              sequence: 1,
+              type: 'module_connection.create',
+            },
+          ],
+        },
+        chatReceipt: {
+          turnId: identity.turnId,
+          changeSetId: identity.changeSetId,
+          operationId: identity.operationIds[0],
+          sequence: 0,
+          status: 'committed',
+          expectedRevision: identity.expectedRevision,
+          committedRevision: 5,
+          artifactVersionId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+        },
+      },
+    })
+    const executeTool = createToolExecutor('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', {
+      turnIdentity: identity,
+      mode: 'module_map',
+    })
+
+    const result = await executeTool('connect_modules', {})
+
+    expect(result.data?.__chatTurnReceipt).toEqual(expect.objectContaining({ status: 'failed' }))
+  })
+
+  it('preserves explicit non-Architecture and flag-off legacy paths', async () => {
+    mockCreateModule.mockResolvedValue({
+      success: true,
+      data: { id: 'module-legacy', name: 'Payments' },
+    })
+    const scopeExecutor = createToolExecutor('proj-1', { mode: 'scope_build' })
+    const flagOffExecutor = createToolExecutor('proj-1', { mode: 'module_map' })
+
+    await scopeExecutor('create_module', { name: 'Payments' })
+    await flagOffExecutor('create_module', { name: 'Payments' })
+
+    expect(mockCreateModule).toHaveBeenCalledTimes(2)
+    expect(mockApplyArchitectureRefinement).not.toHaveBeenCalled()
   })
 })
 

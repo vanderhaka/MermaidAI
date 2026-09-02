@@ -2,6 +2,14 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
+import {
+  ArchitectureActivity,
+  ArchitectureChangeReceipt,
+} from '@/components/chat/ArchitectureTurnStatus'
+import {
+  WorkPlanChangeReceipt,
+  type ChangeSetUndoHandler,
+} from '@/components/planning/change-receipt'
 import type { ChatMessage } from '@/types/chat'
 
 interface ChatMessageListProps {
@@ -9,9 +17,12 @@ interface ChatMessageListProps {
   isLoading: boolean
   streamingContent?: string
   toolActivity?: string | null
+  pendingActivity?: string | null
   toolCalls?: string[]
   onSend?: (message: string) => void
   examplePrompts?: string[]
+  undoableChangeSetId?: string | null
+  onUndoChangeSet?: ChangeSetUndoHandler
 }
 
 const RECOMMENDATION_PREFIX_RE =
@@ -218,10 +229,14 @@ function MessageBubble({
   message,
   onSend,
   isLoading,
+  undoableChangeSetId,
+  onUndoChangeSet,
 }: {
   message: ChatMessage
   onSend?: (message: string) => void
   isLoading: boolean
+  undoableChangeSetId?: string | null
+  onUndoChangeSet?: ChangeSetUndoHandler
 }) {
   const isUser = message.role === 'user'
 
@@ -315,6 +330,24 @@ function MessageBubble({
           <ToolCallsSummary calls={message.toolCalls} />
         </div>
       )}
+      <ArchitectureChangeReceipt
+        message={message}
+        canUndo={message.changeSetId === undoableChangeSetId}
+        onUndo={onUndoChangeSet}
+        onContinue={
+          onSend && !isLoading
+            ? () =>
+                onSend(
+                  'Continue from the committed partial change. Check the current Architecture first, then complete only the unfinished part of my previous request.',
+                )
+            : undefined
+        }
+      />
+      <WorkPlanChangeReceipt
+        message={message}
+        canUndo={message.changeSetId === undoableChangeSetId}
+        onUndo={onUndoChangeSet}
+      />
     </article>
   )
 }
@@ -330,9 +363,12 @@ export default function ChatMessageList({
   isLoading,
   streamingContent,
   toolActivity,
+  pendingActivity,
   toolCalls = [],
   onSend,
   examplePrompts,
+  undoableChangeSetId = null,
+  onUndoChangeSet,
 }: ChatMessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -398,9 +434,10 @@ export default function ChatMessageList({
 
   // While the turn is in flight the record is live; once it lands it belongs to
   // the message that produced it, so completed turns render from `message.toolCalls`.
-  const showLiveToolCalls = isLoading && toolCalls.length > 0
+  const showLiveToolCalls = isLoading && toolCalls.length > 0 && !pendingActivity
   // Before the first call completes there is nothing to count, only a label.
   const soleActivity = isLoading && !showLiveToolCalls ? toolActivity : null
+  const architectureActivity = isLoading ? pendingActivity : null
 
   return (
     <div
@@ -411,14 +448,31 @@ export default function ChatMessageList({
       className="flex flex-1 flex-col gap-3 overflow-y-auto p-4"
     >
       {messages.map((msg) => (
-        <MessageBubble key={msg.id} message={msg} onSend={onSend} isLoading={isLoading} />
+        <MessageBubble
+          key={msg.id}
+          message={msg}
+          onSend={onSend}
+          isLoading={isLoading}
+          undoableChangeSetId={undoableChangeSetId}
+          onUndoChangeSet={onUndoChangeSet}
+        />
       ))}
-      {isLoading && !streamingContent && !toolActivity && <ThinkingIndicator />}
+      {isLoading && !streamingContent && !toolActivity && !pendingActivity && <ThinkingIndicator />}
       {streamingMessage && (
-        <MessageBubble message={streamingMessage} onSend={onSend} isLoading={isLoading} />
+        <MessageBubble
+          message={streamingMessage}
+          onSend={onSend}
+          isLoading={isLoading}
+          undoableChangeSetId={undoableChangeSetId}
+          onUndoChangeSet={onUndoChangeSet}
+        />
       )}
       {showLiveToolCalls && <ToolCallsSummary calls={toolCalls} live activity={toolActivity} />}
-      {soleActivity && <ToolActivityIndicator activity={soleActivity} />}
+      {architectureActivity ? (
+        <ArchitectureActivity activity={architectureActivity} />
+      ) : (
+        soleActivity && <ToolActivityIndicator activity={soleActivity} />
+      )}
       <div ref={scrollRef} data-testid="scroll-anchor" />
     </div>
   )

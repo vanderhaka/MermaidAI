@@ -8,6 +8,24 @@ describe('buildSystemPrompt', () => {
     projectName: 'TaskFlow',
   }
 
+  it('appends durable planning truth to every prompt mode exactly once', () => {
+    const planningTruthSection = '## Persisted Planning Truth\nArchitecture version: v3'
+    const modes: PromptMode[] = [
+      'discovery',
+      'module_map',
+      'module_detail',
+      'scope_build',
+      'flowchart_build',
+      'brainstorm_build',
+    ]
+
+    for (const mode of modes) {
+      const prompt = buildSystemPrompt(mode, { ...baseContext, planningTruthSection })
+      expect(prompt).toContain(planningTruthSection)
+      expect(prompt.match(/Persisted Planning Truth/g)).toHaveLength(1)
+    }
+  })
+
   describe('discovery mode', () => {
     const mode: PromptMode = 'discovery'
 
@@ -144,6 +162,65 @@ describe('buildSystemPrompt', () => {
       const prompt = buildSystemPrompt(mode, ctx)
       expect(prompt).toContain('NewApp')
       expect(prompt).toContain('No modules exist yet')
+    })
+
+    it('defers non-blocking lower-level questions until module detail work', () => {
+      const prompt = buildSystemPrompt(mode, { projectName: 'NewApp', modules: [] })
+
+      expect(prompt).toContain(
+        'Defer non-blocking lower-level implementation questions until module detail mode.',
+      )
+    })
+
+    it('builds a provisional high-level map immediately when Architecture is empty', () => {
+      const prompt = buildSystemPrompt(mode, { projectName: 'NewApp', modules: [] })
+
+      expect(prompt).toContain('capture_architecture_map')
+      expect(prompt).toContain('first useful turn')
+      expect(prompt).toContain('at most one')
+      expect(prompt).toContain('Do not re-ask facts')
+      expect(prompt).toContain('Work Plan')
+      expect(prompt).not.toContain('Ask who the users are before building')
+    })
+
+    it('keeps independently governed identity and resource owners outside orchestration', () => {
+      const prompt = buildSystemPrompt(mode, { projectName: 'NewApp', modules: [] })
+
+      expect(prompt).toContain('eligibility, preferences, permissions, availability, or lifecycle')
+      expect(prompt).toContain('its own high-level capability')
+      expect(prompt).toContain('Orchestration coordinates these capabilities')
+      expect(prompt).toContain('payments or deposits')
+      expect(prompt).toContain('communications')
+      expect(prompt.toLowerCase()).not.toContain('salon')
+    })
+
+    it('keeps existing maps on granular refinement and forbids wholesale recapture', () => {
+      const prompt = buildSystemPrompt(mode, contextWithModules)
+
+      expect(prompt).toContain('Never call capture_architecture_map')
+      expect(prompt).toContain('granular')
+      expect(prompt).toContain('create_module')
+      expect(prompt).toContain('connect_modules')
+    })
+
+    it('uses one atomic refinement batch for a staged existing Architecture', () => {
+      const prompt = buildSystemPrompt(mode, {
+        ...contextWithModules,
+        stagedArchitecture: true,
+      })
+
+      expect(prompt).toContain('exactly one `refine_architecture_map` call')
+      expect(prompt).toContain('one atomic receipt')
+      expect(prompt).toContain('Only `refine_architecture_map` and `lookup_docs` are available')
+      expect(prompt).toContain('include its exact ID in resolveQuestions')
+      expect(prompt).toContain('include its exact ID in decisionActions')
+      expect(prompt).toContain('use decisionReplacements with both exact IDs')
+      expect(prompt).toContain('capability responsibilities')
+      expect(prompt).toContain('unanswered scope')
+      expect(prompt).toContain('send the complete actors and importantFlows replacement lists')
+      expect(prompt).toContain('Never infer acceptance from silence')
+      expect(prompt).not.toContain('use granular tools such as')
+      expect(prompt).not.toContain('// file:')
     })
   })
 
@@ -307,6 +384,20 @@ describe('buildSystemPrompt', () => {
       const prompt = buildSystemPrompt(mode, ctx)
       expect(prompt).toContain('Auth')
       expect(prompt).toContain('No nodes exist yet')
+    })
+
+    it('uses one atomic flow refinement and defers implementation detail when staged', () => {
+      const prompt = buildSystemPrompt(mode, { ...detailContext, stagedArchitecture: true })
+
+      expect(prompt).toContain('exactly one `refine_architecture_flow` call')
+      expect(prompt).toContain('New nodes use local keys')
+      expect(prompt).toContain('belong in the Work Plan')
+      expect(prompt).toContain('Do not call `write_prd`')
+      expect(prompt).toContain('After the committed receipt, stop')
+      expect(prompt).toContain('Defer API shapes and SDK patterns')
+      expect(prompt).not.toContain('`update_edge`')
+      expect(prompt).not.toContain('// file:')
+      expect(prompt).not.toContain('ask one follow-up question after')
     })
   })
 

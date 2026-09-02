@@ -1,23 +1,40 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useRef, useState, useTransition } from 'react'
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 
 import CanvasContainer from '@/components/canvas/CanvasContainer'
 import FloatingChat from '@/components/chat/FloatingChat'
+import type { ChangeSetUndoResult } from '@/components/planning/change-receipt'
+import { ArchitectureReadinessPanel } from '@/components/dashboard/architecture-readiness-panel'
 import { InlineProjectName } from '@/components/dashboard/InlineProjectName'
+import {
+  PlanningDecisionsPanel,
+  type PlanningDecisionAction,
+  type PlanningDecisionActionResult,
+} from '@/components/dashboard/planning-decisions-panel'
+import { PlanningStageNav } from '@/components/dashboard/planning-stage-nav'
 import PrdPreviewPanel from '@/components/dashboard/PrdPreviewPanel'
 import { SavedIndicator } from '@/components/dashboard/SavedIndicator'
 import { applyProjectToolEvent } from '@/components/dashboard/tool-event-applier'
 import { useChatStream } from '@/hooks/useChatStream'
+import {
+  commitManualArchitectureModule,
+  commitPlanningAutoDecidePreference,
+  commitPlanningDecisionAction,
+} from '@/lib/actions/architecture-review-actions'
 import { signOut } from '@/lib/services/auth-service'
 import { createModule } from '@/lib/services/module-service'
 import { updateProject, deleteProject } from '@/lib/services/project-service'
 import { groupModulesByDomain } from '@/lib/module-hierarchy'
 import { SCOPE_HANDOFF_PROMPT, takeScopeHandoff } from '@/lib/scope-handoff'
+import {
+  mergeArchitectureChangeSummaries,
+  readArchitectureChangeSummary,
+} from '@/lib/planning/architecture-change-summary'
 import { useGraphStore } from '@/store/graph-store'
-import type { ChatMessage } from '@/types/chat'
+import type { ArchitectureChangeSummary, ChatMessage, ChatPlanningLink } from '@/types/chat'
 import type {
   FlowEdge,
   FlowNode,
@@ -26,6 +43,7 @@ import type {
   OpenQuestion,
   Project,
 } from '@/types/graph'
+import type { ArchitecturePlanningView, PlanningStageAvailability } from '@/types/planning-ui'
 
 /**
  * Stable identity: this feeds the store-sync effect's dependency array, and a
@@ -50,10 +68,23 @@ type ProjectWorkspaceProps = {
   initialConnections: ModuleConnection[]
   initialMessages: ChatMessage[]
   initialOpenQuestions?: OpenQuestion[]
+  planningLink?: ChatPlanningLink
+  architecturePlanning?: ArchitecturePlanningView
+  planningStages?: PlanningStageAvailability
 }
 
 type ProjectSendOptions = {
   scopeHandoff?: boolean
+}
+
+type ArchitectureUndoAttempt = {
+  targetChangeSetId: string
+  undoChangeSetId: string
+}
+
+type ArchitectureUndoResponse = {
+  error?: string
+  receipt?: { committedRevision?: number }
 }
 
 export function ProjectWorkspace({
@@ -64,6 +95,9 @@ export function ProjectWorkspace({
   initialConnections,
   initialMessages,
   initialOpenQuestions = NO_OPEN_QUESTIONS,
+  planningLink,
+  architecturePlanning,
+  planningStages,
 }: ProjectWorkspaceProps) {
   const router = useRouter()
   const [isRefreshing, startRefresh] = useTransition()
@@ -82,6 +116,13 @@ export function ProjectWorkspace({
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [prdOpen, setPrdOpen] = useState(false)
   const [saveCounter, setSaveCounter] = useState(0)
+  const [architectureTurnActive, setArchitectureTurnActive] = useState(false)
+  const [planningRevision, setPlanningRevision] = useState(
+    architecturePlanning?.expectedRevision ?? planningLink?.expectedRevision ?? 0,
+  )
+  const undoAttemptRef = useRef<ArchitectureUndoAttempt | null>(null)
+  const architectureTurnSummaryRef = useRef<ArchitectureChangeSummary | null>(null)
+  const isStagedArchitecture = architecturePlanning !== undefined
 
   const hasScopeModule = initialModules.some((m) => m.name === 'Scope')
   const [showOnboarding, setShowOnboarding] = useState(() => {
@@ -112,7 +153,14 @@ export function ProjectWorkspace({
     setEdges(initialEdges)
     setConnections(initialConnections)
     setOpenQuestions(initialOpenQuestions)
+    if (
+      activeModuleId !== null &&
+      !initialModules.some((candidate) => candidate.id === activeModuleId)
+    ) {
+      setActiveModuleId(null)
+    }
   }, [
+    activeModuleId,
     initialConnections,
     initialEdges,
     initialModules,
@@ -123,21 +171,47 @@ export function ProjectWorkspace({
     setModules,
     setNodes,
     setOpenQuestions,
+    setActiveModuleId,
   ])
+
+  useEffect(() => {
+    setPlanningRevision(
+      architecturePlanning?.expectedRevision ?? planningLink?.expectedRevision ?? 0,
+    )
+  }, [architecturePlanning?.expectedRevision, planningLink?.expectedRevision])
+
+  async function persistAutoDecide(input: { enabled: boolean; expectedRevision: number }) {
+    const result = await commitPlanningAutoDecidePreference({
+      projectId: project.id,
+      ...input,
+    })
+    if (result.success) {
+      setPlanningRevision(result.expectedRevision)
+      setSaveCounter((count) => count + 1)
+      startRefresh(() => router.refresh())
+    }
+    return result
+  }
 
   const chat = useChatStream<ProjectSendOptions>({
     projectId: project.id,
     initialMessages,
+    planningLink,
+    initialHelperMode: architecturePlanning?.autoDecideEnabled,
+    persistHelperMode: isStagedArchitecture ? persistAutoDecide : undefined,
     fallbackErrorMessage: 'Failed to send chat message',
     buildTurnRequest: (_message, options) => {
+      architectureTurnSummaryRef.current = null
       const requestActiveModuleId = options?.scopeHandoff ? null : activeModuleId
       const mode = options?.scopeHandoff
         ? 'module_map'
         : requestActiveModuleId
           ? 'module_detail'
-          : modules.length > 0
-            ? 'module_map'
-            : 'discovery'
+          : 'module_map'
+
+      setArchitectureTurnActive(
+        project.mode === 'architecture' && modules.length === 0 && mode === 'module_map',
+      )
 
       return {
         mode,
@@ -155,7 +229,21 @@ export function ProjectWorkspace({
     },
     applyToolEvent: (tool, data, recordToolCall) =>
       applyProjectToolEvent(tool, data, { recordToolCall }),
+    getToolActivityLabel: (tool, phase) => {
+      if (tool !== 'capture_architecture_map') return undefined
+      return phase === 'start' ? 'Mapping capabilities' : 'Applying committed connections'
+    },
+    getCommittedMessageMetadata: (_tool, data) => {
+      architectureTurnSummaryRef.current = mergeArchitectureChangeSummaries(
+        architectureTurnSummaryRef.current,
+        readArchitectureChangeSummary(data),
+      )
+      return architectureTurnSummaryRef.current
+        ? { change_summary: architectureTurnSummaryRef.current }
+        : null
+    },
     onTurnEnd: ({ completedSuccessfully, graphChanged }) => {
+      setArchitectureTurnActive(false)
       if (completedSuccessfully) setSaveCounter((n) => n + 1)
       // On failure the canvas already shows tool results only the server can confirm.
       if (completedSuccessfully || graphChanged) startRefresh(() => router.refresh())
@@ -163,6 +251,64 @@ export function ProjectWorkspace({
   })
 
   const handoffProjectRef = useRef<string | null>(null)
+
+  const pendingArchitectureActivity =
+    architectureTurnActive && chat.isSending
+      ? (chat.toolActivity ?? 'Reading your brief and finding actors')
+      : null
+
+  const undoableArchitectureChangeSetId = useMemo(() => {
+    const activeVersionId = architecturePlanning?.version?.id
+    if (!activeVersionId) return null
+    return (
+      [...chat.messages]
+        .reverse()
+        .find(
+          (message) =>
+            message.changeSetId &&
+            message.artifactVersionId === activeVersionId &&
+            readArchitectureChangeSummary(message.metadata) !== null,
+        )?.changeSetId ?? null
+    )
+  }, [architecturePlanning?.version?.id, chat.messages])
+
+  async function handleUndoArchitectureChangeSet(
+    targetChangeSetId: string,
+  ): Promise<ChangeSetUndoResult> {
+    const previousAttempt = undoAttemptRef.current
+    const attempt =
+      previousAttempt?.targetChangeSetId === targetChangeSetId
+        ? previousAttempt
+        : { targetChangeSetId, undoChangeSetId: crypto.randomUUID() }
+    undoAttemptRef.current = attempt
+
+    try {
+      const response = await fetch('/api/planning/change-sets/undo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: project.id, stage: 'architecture', ...attempt }),
+      })
+      const payload = (await response.json().catch(() => ({}))) as ArchitectureUndoResponse
+      if (!response.ok || typeof payload.receipt?.committedRevision !== 'number') {
+        throw new Error(payload.error ?? 'This Architecture change could not be undone.')
+      }
+
+      undoAttemptRef.current = null
+      setPlanningRevision(payload.receipt.committedRevision)
+      setSaveCounter((count) => count + 1)
+      startRefresh(() => router.refresh())
+      return { success: true }
+    } catch (undoError) {
+      startRefresh(() => router.refresh())
+      return {
+        success: false,
+        error:
+          undoError instanceof Error
+            ? undoError.message
+            : 'This Architecture change could not be undone',
+      }
+    }
+  }
 
   useEffect(() => {
     if (handoffProjectRef.current === project.id) return
@@ -208,9 +354,32 @@ export function ProjectWorkspace({
     setIsCreatingModule(true)
     setError(null)
 
+    const moduleName = isStagedArchitecture
+      ? `Capability ${modules.length + 1}`
+      : `Module ${modules.length + 1}`
+    if (project.mode === 'architecture' && planningLink) {
+      const result = await commitManualArchitectureModule({
+        projectId: project.id,
+        architectureVersionId: planningLink.artifactVersionId,
+        expectedRevision: planningRevision,
+        requestId: crypto.randomUUID(),
+        name: moduleName,
+      })
+
+      setIsCreatingModule(false)
+      if (!result.success) {
+        setError(result.error)
+        return
+      }
+      setPlanningRevision(result.receipt.committedRevision)
+      setSaveCounter((n) => n + 1)
+      startRefresh(() => router.refresh())
+      return
+    }
+
     const result = await createModule({
       project_id: project.id,
-      name: `Module ${modules.length + 1}`,
+      name: moduleName,
       description: `Part of ${project.name}`,
       position: { x: 0, y: 0 },
       color: '#111827',
@@ -230,6 +399,31 @@ export function ProjectWorkspace({
     setSaveCounter((n) => n + 1)
   }
 
+  async function handlePlanningDecision(
+    action: PlanningDecisionAction,
+  ): Promise<PlanningDecisionActionResult> {
+    if (!planningLink || !architecturePlanning?.version) {
+      return { success: false, error: 'The current Architecture version is unavailable.' }
+    }
+
+    const result = await commitPlanningDecisionAction({
+      projectId: project.id,
+      architectureVersionId: architecturePlanning.version.id,
+      expectedRevision: planningRevision,
+      requestId: crypto.randomUUID(),
+      action: action.type,
+      decisionId: action.decisionId,
+      reason: action.reason,
+      ...(action.statement === undefined ? {} : { statement: action.statement }),
+    })
+    if (result.success) {
+      setPlanningRevision(result.receipt.committedRevision)
+      setSaveCounter((count) => count + 1)
+      startRefresh(() => router.refresh())
+    }
+    return result
+  }
+
   const activeModuleName =
     activeModuleId && modules.find((module) => module.id === activeModuleId)?.name
       ? modules.find((module) => module.id === activeModuleId)?.name
@@ -238,8 +432,15 @@ export function ProjectWorkspace({
   return (
     <main className="min-h-screen bg-gray-50 px-4 py-4 sm:px-6" data-testid="project-workspace">
       <div className="flex flex-col gap-4">
-        <header className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-          <div className="space-y-1">
+        {isStagedArchitecture && planningStages && (
+          <PlanningStageNav
+            projectId={project.id}
+            activeStage="architecture"
+            availability={planningStages}
+          />
+        )}
+        <header className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 flex-1 space-y-1">
             <div className="flex items-center gap-3 text-sm text-gray-500">
               <Link href="/dashboard" className="font-medium text-gray-700 hover:text-black">
                 Back to dashboard
@@ -253,20 +454,53 @@ export function ProjectWorkspace({
                 className="text-3xl font-semibold tracking-tight text-gray-900"
               />
               <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-800">
-                Full Design
+                {isStagedArchitecture ? 'Architecture' : 'Full Design'}
               </span>
               <SavedIndicator trigger={saveCounter} />
             </div>
             <p className="text-sm text-gray-500">
-              {project.description?.trim() || 'Design your modules, flows, and decisions here.'}
+              {project.description?.trim() ||
+                (isStagedArchitecture
+                  ? 'Shape the high-level system, review assumptions, then move into detailed work planning.'
+                  : 'Design your modules, flows, and decisions here.')}
             </p>
+            {isStagedArchitecture && (
+              <div className="max-w-4xl pt-2">
+                <ArchitectureReadinessPanel report={architecturePlanning.readinessReport}>
+                  <PlanningDecisionsPanel
+                    decisions={architecturePlanning.decisions}
+                    onAction={handlePlanningDecision}
+                  />
+                </ArchitectureReadinessPanel>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-3">
+            {isStagedArchitecture &&
+              planningStages &&
+              architecturePlanning.version?.contentState === 'complete' &&
+              (planningStages.workPlan.state === 'ready' ||
+                planningStages.workPlan.state === 'current' ||
+                planningStages.workPlan.state === 'stale') && (
+                <Link
+                  href={
+                    planningStages.workPlan.state === 'ready'
+                      ? `/dashboard/${project.id}?stage=work-plan&generate=1`
+                      : `/dashboard/${project.id}?stage=work-plan`
+                  }
+                  prefetch
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                >
+                  {planningStages.workPlan.state === 'ready'
+                    ? 'Create Work Plan'
+                    : 'Open Work Plan'}
+                </Link>
+              )}
             <button
               type="button"
               onClick={() => setPrdOpen(true)}
-              title="View Product Requirements"
+              title={isStagedArchitecture ? 'View Architecture Brief' : 'View Product Requirements'}
               className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50 hover:text-gray-900"
             >
               <svg
@@ -282,7 +516,7 @@ export function ProjectWorkspace({
                   clipRule="evenodd"
                 />
               </svg>
-              Requirements
+              {isStagedArchitecture ? 'Architecture Brief' : 'Requirements'}
             </button>
             <button
               type="button"
@@ -290,7 +524,13 @@ export function ProjectWorkspace({
               disabled={isCreatingModule}
               className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isCreatingModule ? 'Adding module...' : 'Add module'}
+              {isCreatingModule
+                ? isStagedArchitecture
+                  ? 'Adding capability...'
+                  : 'Adding module...'
+                : isStagedArchitecture
+                  ? 'Add capability'
+                  : 'Add module'}
             </button>
             <button
               type="button"
@@ -460,19 +700,25 @@ export function ProjectWorkspace({
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
             role="dialog"
             aria-modal="true"
-            aria-label="Welcome to Full Design mode"
+            aria-label={
+              isStagedArchitecture ? 'Welcome to Architecture' : 'Welcome to Full Design mode'
+            }
           >
             <div className="mx-4 w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-lg">
               <div className="mb-1 flex items-center gap-2">
                 <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-800">
-                  Full Design
+                  {isStagedArchitecture ? 'Architecture' : 'Full Design'}
                 </span>
               </div>
               <h2 className="mt-3 text-lg font-semibold text-gray-900">
-                Welcome to Full Design mode
+                {isStagedArchitecture
+                  ? 'Your first Architecture draft'
+                  : 'Welcome to Full Design mode'}
               </h2>
               <p className="mt-2 text-sm leading-relaxed text-gray-600">
-                Your Quick Capture session is now a module. Here&apos;s what&apos;s new:
+                {isStagedArchitecture
+                  ? 'Your Quick Capture has been carried into a high-level map. Review the important boundaries here, then create a detailed Work Plan.'
+                  : "Your Quick Capture session is now a module. Here's what's new:"}
               </p>
               <ul className="mt-3 space-y-2 text-sm text-gray-600">
                 <li className="flex items-start gap-2">
@@ -480,8 +726,8 @@ export function ProjectWorkspace({
                     &#9654;
                   </span>
                   <span>
-                    <strong className="text-gray-900">Sidebar</strong> — organise and navigate your
-                    modules
+                    <strong className="text-gray-900">Sidebar</strong> — organise and navigate your{' '}
+                    {isStagedArchitecture ? 'capabilities' : 'modules'}
                   </span>
                 </li>
                 <li className="flex items-start gap-2">
@@ -489,7 +735,7 @@ export function ProjectWorkspace({
                     &#9654;
                   </span>
                   <span>
-                    <strong className="text-gray-900">Chat</strong> — keep building, same as before
+                    <strong className="text-gray-900">Chat</strong> — refine only the material gaps
                   </span>
                 </li>
                 <li className="flex items-start gap-2">
@@ -497,8 +743,8 @@ export function ProjectWorkspace({
                     &#9654;
                   </span>
                   <span>
-                    <strong className="text-gray-900">Canvas</strong> — your flowchart and questions
-                    are preserved
+                    <strong className="text-gray-900">Readiness</strong> — see exactly what blocks
+                    the next stage
                   </span>
                 </li>
               </ul>
@@ -537,7 +783,7 @@ export function ProjectWorkspace({
               {!moduleSidebarCollapsed && (
                 <>
                   <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                    Modules
+                    {isStagedArchitecture ? 'Capabilities' : 'Modules'}
                   </h2>
                   {activeModuleId && (
                     <button
@@ -545,7 +791,7 @@ export function ProjectWorkspace({
                       onClick={() => setActiveModuleId(null)}
                       className="text-xs font-medium text-gray-500 hover:text-black"
                     >
-                      Module map
+                      {isStagedArchitecture ? 'Architecture map' : 'Module map'}
                     </button>
                   )}
                 </>
@@ -601,7 +847,9 @@ export function ProjectWorkspace({
             >
               {modules.length === 0 ? (
                 <p className="text-sm text-gray-500">
-                  Add your first module to start shaping the project.
+                  {isStagedArchitecture
+                    ? 'Chat with the assistant to map the first capabilities, or add one manually.'
+                    : 'Add your first module to start shaping the project.'}
                 </p>
               ) : (
                 <ul className="space-y-5">
@@ -672,6 +920,7 @@ export function ProjectWorkspace({
           isLoading={chat.isSending || isRefreshing}
           streamingContent={chat.streamingContent}
           toolActivity={chat.toolActivity}
+          pendingActivity={pendingArchitectureActivity}
           toolCalls={chat.toolCalls}
           onSend={chat.sendMessage}
           onStop={chat.stop}
@@ -682,6 +931,16 @@ export function ProjectWorkspace({
           onToggle={() => setAssistantOpen((o) => !o)}
           helperMode={chat.helperMode}
           onToggleHelperMode={chat.toggleHelperMode}
+          subtitle={
+            isStagedArchitecture
+              ? 'Shape the high-level system. I’ll build first and only ask about material gaps.'
+              : undefined
+          }
+          draftStorageKey={
+            isStagedArchitecture ? `mermaidai.planningDraft.${project.id}.architecture` : undefined
+          }
+          undoableChangeSetId={undoableArchitectureChangeSetId}
+          onUndoChangeSet={handleUndoArchitectureChangeSet}
         />
 
         <PrdPreviewPanel
@@ -689,6 +948,7 @@ export function ProjectWorkspace({
           projectDescription={project.description ?? null}
           isOpen={prdOpen}
           onClose={() => setPrdOpen(false)}
+          architecturePlanning={architecturePlanning}
         />
       </div>
     </main>

@@ -3,10 +3,17 @@
  * unfinished answer is marked, and where the per-project chat preference lives.
  */
 
-import type { ChatMessage, ChatRole } from '@/types/chat'
+import {
+  CHAT_TOOL_RECEIPT_KEY,
+  type ChatMessage,
+  type ChatRole,
+  type ChatToolReceipt,
+} from '@/types/chat'
 
 const TOOL_LABELS: Record<string, string> = {
   capture_scope_flow: 'Building scope',
+  refine_architecture_map: 'Updating Architecture',
+  refine_architecture_flow: 'Updating flow',
   create_node: 'Creating node',
   update_node: 'Updating node',
   delete_node: 'Removing node',
@@ -27,6 +34,75 @@ const TOOL_LABELS: Record<string, string> = {
 
 /** Tacked onto whatever the assistant had said when the turn broke. */
 export const INTERRUPTED_MARKER = '⚠ Response interrupted'
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
+ * Reads the receipt seam shared by today's compatibility tools and the atomic
+ * command tools added in the next slice. Only an explicit committed status may
+ * advance the client revision.
+ */
+export function readChatToolReceipt(data: Record<string, unknown>): ChatToolReceipt | null {
+  const candidate = data[CHAT_TOOL_RECEIPT_KEY]
+  if (!isRecord(candidate)) return null
+
+  const status = candidate.status
+  if (status !== 'committed' && status !== 'failed' && status !== 'legacy_direct') return null
+  if (
+    typeof candidate.turnId !== 'string' ||
+    !UUID_REGEX.test(candidate.turnId) ||
+    typeof candidate.changeSetId !== 'string' ||
+    !UUID_REGEX.test(candidate.changeSetId) ||
+    typeof candidate.operationId !== 'string' ||
+    !UUID_REGEX.test(candidate.operationId) ||
+    typeof candidate.sequence !== 'number' ||
+    !Number.isInteger(candidate.sequence) ||
+    candidate.sequence < 0 ||
+    typeof candidate.expectedRevision !== 'number' ||
+    !Number.isInteger(candidate.expectedRevision) ||
+    candidate.expectedRevision < 0
+  ) {
+    return null
+  }
+
+  const base: ChatToolReceipt = {
+    turnId: candidate.turnId,
+    changeSetId: candidate.changeSetId,
+    operationId: candidate.operationId,
+    sequence: candidate.sequence,
+    status,
+    expectedRevision: candidate.expectedRevision,
+  }
+
+  if (status !== 'committed') return { ...base, committedRevision: undefined }
+  if (
+    typeof candidate.committedRevision !== 'number' ||
+    !Number.isInteger(candidate.committedRevision) ||
+    candidate.committedRevision !== candidate.expectedRevision + 1
+  ) {
+    return null
+  }
+  if (
+    candidate.artifactVersionId !== undefined &&
+    candidate.artifactVersionId !== null &&
+    (typeof candidate.artifactVersionId !== 'string' ||
+      !UUID_REGEX.test(candidate.artifactVersionId))
+  ) {
+    return null
+  }
+
+  return {
+    ...base,
+    committedRevision: candidate.committedRevision,
+    ...(candidate.artifactVersionId !== undefined
+      ? { artifactVersionId: candidate.artifactVersionId as string | null }
+      : {}),
+  }
+}
 
 /** "Auto-decide" preference, remembered per project. */
 const AUTO_DECIDE_STORAGE_PREFIX = 'mermaid:auto-decide:'

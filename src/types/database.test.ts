@@ -9,7 +9,7 @@ type Tables = Database['public']['Tables']
 // or sub-key is missing, TypeScript compilation fails and vitest reports it.
 
 describe('Database types', () => {
-  it('has all 8 required tables', () => {
+  it('has the legacy and planning-system tables', () => {
     // If any table is missing from the type, this will fail to compile
     const tableKeys: (keyof Tables)[] = [
       'projects',
@@ -20,8 +20,17 @@ describe('Database types', () => {
       'chat_messages',
       'profiles',
       'open_questions',
+      'planning_states',
+      'planning_artifacts',
+      'planning_artifact_versions',
+      'planning_decisions',
+      'planning_decision_events',
+      'planning_change_sets',
+      'planning_operations',
+      'planning_readiness_reports',
+      'planning_handoff_jobs',
     ]
-    expect(tableKeys).toHaveLength(8)
+    expect(tableKeys).toHaveLength(17)
   })
 
   it('projects table has Row/Insert/Update with expected columns', () => {
@@ -135,6 +144,9 @@ describe('Database types', () => {
       'role',
       'content',
       'metadata',
+      'turn_id',
+      'artifact_version_id',
+      'change_set_id',
     ]
     const insertKeys: (keyof Tables['chat_messages']['Insert'])[] = [
       'project_id',
@@ -145,6 +157,61 @@ describe('Database types', () => {
     expect(keys.length).toBeGreaterThan(0)
     expect(insertKeys.length).toBeGreaterThan(0)
     expect(updateKeys.length).toBeGreaterThan(0)
+  })
+
+  it('planning tables preserve source, ownership, revision, and idempotency contracts', () => {
+    const stateKeys: (keyof Tables['planning_states']['Row'])[] = [
+      'project_id',
+      'readiness_state',
+      'write_safety_revision',
+      'active_architecture_artifact_id',
+      'staged_workflow_enabled',
+    ]
+    const versionKeys: (keyof Tables['planning_artifact_versions']['Row'])[] = [
+      'artifact_id',
+      'project_id',
+      'version',
+      'content_hash',
+      'request_key',
+      'request_hash',
+      'source_version_id',
+      'secondary_source_version_id',
+    ]
+    const operationKeys: (keyof Tables['planning_operations']['Row'])[] = [
+      'change_set_id',
+      'operation_id',
+      'request_hash',
+      'sequence',
+    ]
+    const jobKeys: (keyof Tables['planning_handoff_jobs']['Row'])[] = [
+      'source_version_id',
+      'target_artifact_id',
+      'request_key',
+      'state',
+      'claim_token',
+    ]
+    const allocationArgs: (keyof Database['public']['Functions']['allocate_planning_artifact_version']['Args'])[] =
+      ['p_artifact_id', 'p_content_hash', 'p_request_key', 'p_request_hash']
+
+    const beginHandoffArgs: (keyof Database['public']['Functions']['begin_planning_handoff']['Args'])[] =
+      ['p_project_id', 'p_source_version_id', 'p_target_kind', 'p_request_key', 'p_request_hash']
+    const completeHandoffArgs: (keyof Database['public']['Functions']['complete_planning_handoff']['Args'])[] =
+      [
+        'p_project_id',
+        'p_job_id',
+        'p_claim_token',
+        'p_content',
+        'p_content_hash',
+        'p_version_request_hash',
+      ]
+
+    expect(stateKeys).toHaveLength(5)
+    expect(versionKeys).toHaveLength(8)
+    expect(operationKeys).toHaveLength(4)
+    expect(jobKeys).toHaveLength(5)
+    expect(allocationArgs).toHaveLength(4)
+    expect(beginHandoffArgs).toHaveLength(5)
+    expect(completeHandoffArgs).toHaveLength(6)
   })
 
   it('profiles table has Row/Insert/Update with expected columns', () => {

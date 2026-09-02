@@ -33,6 +33,12 @@ interface ChatInputProps {
    * the formats the scope upload endpoint supports.
    */
   acceptedFileTypes?: string
+  /** Persists an unfinished draft across workspace navigation and refreshes. */
+  draftStorageKey?: string
+  /** Requests a conditional clear after a separate retry action succeeds. */
+  resetSignal?: number
+  /** Only clear when the current composer still exactly matches this submitted draft. */
+  resetValue?: string
 }
 
 const DEFAULT_ACCEPT =
@@ -51,16 +57,53 @@ export default function ChatInput({
   onStop,
   onAttachFile,
   acceptedFileTypes = DEFAULT_ACCEPT,
+  draftStorageKey,
+  resetSignal = 0,
+  resetValue,
 }: ChatInputProps) {
   const [message, setMessage] = useState('')
+  const [loadedDraftKey, setLoadedDraftKey] = useState<string | null>(null)
+  const [observedResetSignal, setObservedResetSignal] = useState(resetSignal)
   const [queued, setQueued] = useState<string[]>([])
   const [attachedFile, setAttachedFile] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
+  if (observedResetSignal !== resetSignal) {
+    setObservedResetSignal(resetSignal)
+    if (resetValue !== undefined && message === resetValue) setMessage('')
+  }
+
   useEffect(() => {
     if (autoFocus) textareaRef.current?.focus()
   }, [autoFocus])
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!draftStorageKey) {
+        setMessage('')
+        setLoadedDraftKey(null)
+        return
+      }
+      try {
+        setMessage(window.sessionStorage.getItem(draftStorageKey) ?? '')
+      } catch {
+        setMessage('')
+      }
+      setLoadedDraftKey(draftStorageKey)
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [draftStorageKey])
+
+  useEffect(() => {
+    if (!draftStorageKey || loadedDraftKey !== draftStorageKey) return
+    try {
+      if (message) window.sessionStorage.setItem(draftStorageKey, message)
+      else window.sessionStorage.removeItem(draftStorageKey)
+    } catch {
+      // Storage may be unavailable; the in-memory draft still works.
+    }
+  }, [draftStorageKey, loadedDraftKey, message])
 
   // Flush queued messages once the in-flight response finishes. Messages typed
   // during a stream must never be dropped — scope mode is used live on calls.

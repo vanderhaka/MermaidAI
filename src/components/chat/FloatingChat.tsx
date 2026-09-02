@@ -5,12 +5,14 @@ import ChatErrorNotice from '@/components/chat/ChatErrorNotice'
 import ChatInput from '@/components/chat/ChatInput'
 import ChatMessageList from '@/components/chat/ChatMessageList'
 import type { ChatMessage } from '@/types/chat'
+import type { ChangeSetUndoHandler } from '@/components/planning/change-receipt'
 
 type FloatingChatProps = {
   messages: ChatMessage[]
   isLoading: boolean
   streamingContent: string
   toolActivity: string | null
+  pendingActivity?: string | null
   toolCalls?: string[]
   onSend: (message: string) => void | Promise<boolean | void>
   onAttachFile?: (file: File, note: string) => void | Promise<boolean | void>
@@ -25,6 +27,11 @@ type FloatingChatProps = {
   subtitle?: string
   isPeeking?: boolean
   examplePrompts?: string[]
+  draftStorageKey?: string
+  composerResetSignal?: number
+  composerResetValue?: string
+  undoableChangeSetId?: string | null
+  onUndoChangeSet?: ChangeSetUndoHandler
 }
 
 const DEFAULT_CHAT_SIZE = {
@@ -97,6 +104,7 @@ export default function FloatingChat({
   isLoading,
   streamingContent,
   toolActivity,
+  pendingActivity = null,
   toolCalls = [],
   onSend,
   onAttachFile,
@@ -111,6 +119,11 @@ export default function FloatingChat({
   subtitle = 'Ask MermaidAI to sketch modules or refine the active module flow.',
   isPeeking = false,
   examplePrompts,
+  draftStorageKey,
+  composerResetSignal = 0,
+  composerResetValue,
+  undoableChangeSetId = null,
+  onUndoChangeSet,
 }: FloatingChatProps) {
   const [chatSize, setChatSize] = useState<ChatSize>(DEFAULT_CHAT_SIZE)
 
@@ -290,9 +303,12 @@ export default function FloatingChat({
           isLoading={isLoading}
           streamingContent={streamingContent}
           toolActivity={toolActivity}
+          pendingActivity={pendingActivity}
           toolCalls={toolCalls}
           onSend={onSend}
           examplePrompts={examplePrompts}
+          undoableChangeSetId={undoableChangeSetId}
+          onUndoChangeSet={onUndoChangeSet}
         />
 
         {error && <ChatErrorNotice message={error} onRetry={onRetry} onDismiss={onDismissError} />}
@@ -304,6 +320,9 @@ export default function FloatingChat({
             onStop={onStop}
             isLoading={isLoading}
             autoFocus={isOpen}
+            draftStorageKey={draftStorageKey}
+            resetSignal={composerResetSignal}
+            resetValue={composerResetValue}
           />
         </div>
       </section>
