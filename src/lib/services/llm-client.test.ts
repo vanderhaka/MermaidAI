@@ -377,6 +377,62 @@ describe('llm-client', () => {
       expect(body.max_completion_tokens).toBe(2400)
     })
 
+    it('requires a named Cerebras tool for structured artifact generation', async () => {
+      process.env.CEREBRAS_API_KEY = 'csk-test-key'
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: null,
+                  tool_calls: [
+                    {
+                      id: 'call-plan',
+                      type: 'function',
+                      function: { name: 'submit_work_plan', arguments: '{}' },
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+
+      const executeTool = vi.fn().mockResolvedValue({
+        content: 'Accepted.',
+        isError: false,
+        terminalText: 'Work Plan ready',
+      })
+      const { callLLMWithTools } = await import('@/lib/services/llm-client')
+      await readStreamToString(
+        await callLLMWithTools(
+          'System prompt',
+          [{ role: 'user', content: 'Create the Work Plan' }],
+          [
+            {
+              name: 'submit_work_plan',
+              description: 'Submit the plan.',
+              input_schema: { type: 'object', properties: {} },
+            },
+          ],
+          executeTool,
+          { provider: 'cerebras', requiredToolName: 'submit_work_plan' },
+        ),
+      )
+
+      const [, init] = fetchMock.mock.calls[0]
+      const body = JSON.parse(String(init.body))
+      expect(body.tool_choice).toEqual({
+        type: 'function',
+        function: { name: 'submit_work_plan' },
+      })
+      expect(executeTool).toHaveBeenCalledWith('submit_work_plan', {})
+    })
+
     it('uses the existing Anthropic stream when explicitly selected', async () => {
       mockStreamInstance.finalMessage.mockResolvedValue({
         stop_reason: 'end_turn',
@@ -401,6 +457,56 @@ describe('llm-client', () => {
         }),
         { signal: undefined },
       )
+    })
+
+    it('requires a named Anthropic tool for structured artifact generation', async () => {
+      const toolRound = createMockStream()
+      toolRound.finalMessage.mockResolvedValue({
+        stop_reason: 'tool_use',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call-plan',
+            name: 'submit_work_plan',
+            input: {},
+          },
+        ],
+      })
+      mockStreamFn.mockReturnValue(toolRound)
+
+      const executeTool = vi.fn().mockResolvedValue({
+        content: 'Accepted.',
+        isError: false,
+        terminalText: 'Work Plan ready',
+      })
+      const { callLLMWithTools } = await import('@/lib/services/llm-client')
+      await readStreamToString(
+        await callLLMWithTools(
+          'System prompt',
+          [{ role: 'user', content: 'Create the Work Plan' }],
+          [
+            {
+              name: 'submit_work_plan',
+              description: 'Submit the plan.',
+              input_schema: { type: 'object', properties: {} },
+            },
+          ],
+          executeTool,
+          { provider: 'anthropic', requiredToolName: 'submit_work_plan' },
+        ),
+      )
+
+      expect(mockStreamFn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tool_choice: {
+            type: 'tool',
+            name: 'submit_work_plan',
+            disable_parallel_tool_use: true,
+          },
+        }),
+        { signal: undefined },
+      )
+      expect(executeTool).toHaveBeenCalledWith('submit_work_plan', {})
     })
 
     it('ends the Anthropic loop after committed tool data when terminal text is supplied', async () => {

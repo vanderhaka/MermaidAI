@@ -190,6 +190,29 @@ describe('codex-client', () => {
     ])
   })
 
+  it('requires a named tool for structured artifact generation', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([messageItem('final_answer', 'Work Plan ready.'), COMPLETED]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { callCodexWithTools } = await import('@/lib/services/codex-client')
+    await readStreamToString(
+      await callCodexWithTools(
+        'System prompt',
+        [{ role: 'user', content: 'Create the Work Plan' }],
+        [CREATE_NODE_TOOL],
+        vi.fn(),
+        { requiredToolName: 'create_node' },
+      ),
+    )
+
+    expect(requestBody(fetchMock, 0).tool_choice).toEqual({
+      type: 'function',
+      name: 'create_node',
+    })
+  })
+
   it('streams final_answer deltas as they arrive without repeating them at round end', async () => {
     const fetchMock = vi
       .fn()

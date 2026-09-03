@@ -178,6 +178,7 @@ describe('Work Plan refinement service', () => {
       expect.any(Function),
       expect.objectContaining({
         provider: 'codex',
+        requiredToolName: 'submit_work_plan_edits',
         reasoningEffort: 'low',
         continuationReasoningEffort: 'low',
         sessionKey: projectId,

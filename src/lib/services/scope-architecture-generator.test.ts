@@ -95,6 +95,7 @@ describe('Quick Capture Architecture generator', () => {
       expect.any(Function),
       expect.objectContaining({
         provider: 'codex',
+        requiredToolName: 'submit_architecture_capture',
         reasoningEffort: 'low',
         continuationReasoningEffort: 'low',
         sessionKey: projectId,

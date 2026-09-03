@@ -207,7 +207,11 @@ export async function callCodexWithTools(
               instructions,
               input,
               tools: codexTools,
-              tool_choice: forcedTextRound ? 'none' : 'auto',
+              tool_choice: forcedTextRound
+                ? 'none'
+                : options.requiredToolName
+                  ? { type: 'function', name: options.requiredToolName }
+                  : 'auto',
               // Independent calls batch into one round; BATCHING_INSTRUCTIONS
               // keeps id-dependent ones sequential, and the loop below still
               // executes whatever arrives in emission order.

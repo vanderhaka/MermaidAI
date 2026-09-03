@@ -144,6 +144,7 @@ describe('Work Plan generator', () => {
       expect.any(Function),
       expect.objectContaining({
         provider: 'codex',
+        requiredToolName: 'submit_work_plan',
         reasoningEffort: 'low',
         continuationReasoningEffort: 'low',
         sessionKey: projectId,

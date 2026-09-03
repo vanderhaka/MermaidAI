@@ -548,7 +548,13 @@ async function callAnthropicWithTools(
               max_tokens: MAX_TOKENS,
               system: systemPrompt,
               tools,
-              tool_choice: { type: 'auto', disable_parallel_tool_use: true },
+              tool_choice: options.requiredToolName
+                ? {
+                    type: 'tool',
+                    name: options.requiredToolName,
+                    disable_parallel_tool_use: true,
+                  }
+                : { type: 'auto', disable_parallel_tool_use: true },
               messages: currentMessages,
             },
             { signal: options.signal },
@@ -715,7 +721,11 @@ async function callCerebrasWithTools(
               model,
               messages: currentMessages,
               tools: cerebrasTools,
-              tool_choice: forcedTextRound ? 'none' : 'auto',
+              tool_choice: forcedTextRound
+                ? 'none'
+                : options.requiredToolName
+                  ? { type: 'function', function: { name: options.requiredToolName } }
+                  : 'auto',
               // Disabled so dependent operations stay sequential (e.g. create_module
               // then create_node in that module) — mirrors the Anthropic path's
               // disable_parallel_tool_use and the architecture note above.

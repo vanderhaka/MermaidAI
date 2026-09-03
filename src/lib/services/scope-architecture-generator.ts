@@ -180,6 +180,7 @@ Call submit_architecture_capture exactly once with the complete result.`
       },
       {
         provider: resolveAIProvider(),
+        requiredToolName: 'submit_architecture_capture',
         reasoningEffort: 'low',
         continuationReasoningEffort: 'low',
         sessionKey: input.projectId,

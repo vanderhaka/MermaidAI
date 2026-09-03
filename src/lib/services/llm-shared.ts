@@ -51,6 +51,8 @@ export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 export type CallLLMWithToolsOptions = {
   provider?: AIProvider
   onToolResult?: ToolEventCallback
+  /** Force the provider to call this tool instead of returning prose. */
+  requiredToolName?: string
   /** Codex-only first-round reasoning override for this request. */
   reasoningEffort?: ReasoningEffort
   /** Codex-only follow-up tool-round reasoning override for this request. */

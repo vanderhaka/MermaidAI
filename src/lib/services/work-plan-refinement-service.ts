@@ -130,6 +130,7 @@ export async function refineWorkPlan(
         },
         {
           provider: resolveAIProvider(),
+          requiredToolName: 'submit_work_plan_edits',
           reasoningEffort: 'low',
           continuationReasoningEffort: 'low',
           sessionKey: input.workPlanVersion.project_id,

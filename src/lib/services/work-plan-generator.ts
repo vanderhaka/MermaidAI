@@ -115,6 +115,7 @@ export async function generateWorkPlan(
       },
       {
         provider: resolveAIProvider(),
+        requiredToolName: 'submit_work_plan',
         reasoningEffort: 'low',
         continuationReasoningEffort: 'low',
         sessionKey: input.architectureVersion.project_id,
