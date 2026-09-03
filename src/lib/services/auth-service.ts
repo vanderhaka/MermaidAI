@@ -65,6 +65,18 @@ export async function signIn(email: string, password: string): Promise<AuthResul
   redirect('/dashboard')
 }
 
+export async function enterPreview(): Promise<AuthResult> {
+  const supabase = await createClient()
+  const { error } = await supabase.auth.signInAnonymously()
+
+  if (error) {
+    return { success: false, error: sanitizeAuthError(error.message) }
+  }
+
+  revalidatePath('/', 'layout')
+  redirect('/dashboard')
+}
+
 export async function signOut(): Promise<void> {
   const supabase = await createClient()
   await supabase.auth.signOut()

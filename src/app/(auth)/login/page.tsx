@@ -4,8 +4,8 @@ import LoginForm from '@/components/auth/login-form'
 import { StripSensitiveAuthQuery } from '@/components/auth/strip-sensitive-auth-query'
 
 export const metadata: Metadata = {
-  title: 'Sign In | MermaidAI',
-  description: 'Sign in to your MermaidAI account',
+  title: 'Open Workspace | MermaidAI',
+  description: 'Open a MermaidAI preview workspace instantly or sign in to an existing account',
 }
 
 export default function LoginPage() {

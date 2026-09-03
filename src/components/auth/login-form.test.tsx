@@ -5,14 +5,17 @@ import userEvent from '@testing-library/user-event'
 import LoginForm from '@/components/auth/login-form'
 
 const mockSignIn = vi.fn()
+const mockEnterPreview = vi.fn()
 
 vi.mock('@/lib/services/auth-service', () => ({
   signIn: (...args: unknown[]) => mockSignIn(...args),
+  enterPreview: (...args: unknown[]) => mockEnterPreview(...args),
 }))
 
 describe('LoginForm', () => {
   beforeEach(() => {
     mockSignIn.mockReset()
+    mockEnterPreview.mockReset()
   })
 
   describe('rendering', () => {
@@ -31,6 +34,12 @@ describe('LoginForm', () => {
     it('renders a submit button', () => {
       render(<LoginForm />)
       expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
+    })
+
+    it('offers one-click preview access', () => {
+      render(<LoginForm />)
+      expect(screen.getByRole('button', { name: /enter preview/i })).toBeInTheDocument()
+      expect(screen.getByText(/this browser keeps access/i)).toBeInTheDocument()
     })
 
     it('renders a link to /signup for new users', () => {
@@ -68,6 +77,27 @@ describe('LoginForm', () => {
   })
 
   describe('submission', () => {
+    it('enters the preview without asking for account credentials', async () => {
+      const user = userEvent.setup()
+      mockEnterPreview.mockResolvedValue({ success: true })
+      render(<LoginForm />)
+
+      await user.click(screen.getByRole('button', { name: /enter preview/i }))
+
+      expect(mockEnterPreview).toHaveBeenCalledOnce()
+      expect(mockSignIn).not.toHaveBeenCalled()
+    })
+
+    it('displays a safe error when preview entry fails', async () => {
+      const user = userEvent.setup()
+      mockEnterPreview.mockResolvedValue({ success: false, error: 'Something went wrong.' })
+      render(<LoginForm />)
+
+      await user.click(screen.getByRole('button', { name: /enter preview/i }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong.')
+    })
+
     it('calls signIn with email and password on valid submit', async () => {
       const user = userEvent.setup()
       mockSignIn.mockResolvedValue({ success: true })
@@ -120,11 +150,29 @@ describe('LoginForm', () => {
       await user.type(screen.getByLabelText(/password/i), 'mypassword')
       await user.click(screen.getByRole('button', { name: /sign in/i }))
 
-      const button = screen.getByRole('button')
+      const button = screen.getByRole('button', { name: /signing in/i })
       expect(button).toBeDisabled()
       expect(button).toHaveTextContent(/signing in/i)
 
       resolveSignIn!({ success: true })
+    })
+
+    it('disables both entry paths while the preview is opening', async () => {
+      const user = userEvent.setup()
+      let resolvePreview: (value: { success: boolean }) => void
+      mockEnterPreview.mockReturnValue(
+        new Promise((resolve) => {
+          resolvePreview = resolve
+        }),
+      )
+      render(<LoginForm />)
+
+      await user.click(screen.getByRole('button', { name: /enter preview/i }))
+
+      expect(screen.getByRole('button', { name: /opening preview/i })).toBeDisabled()
+      expect(screen.getByRole('button', { name: /sign in/i })).toBeDisabled()
+
+      resolvePreview!({ success: true })
     })
   })
 

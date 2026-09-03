@@ -3,11 +3,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 
-import { signUp, signOut, signIn } from '@/lib/services/auth-service'
+import { enterPreview, signUp, signOut, signIn } from '@/lib/services/auth-service'
 
 const mockSignUp = vi.fn()
 const mockSignOut = vi.fn().mockResolvedValue({ error: null })
 const mockSignInWithPassword = vi.fn()
+const mockSignInAnonymously = vi.fn()
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn().mockResolvedValue({
@@ -15,6 +16,7 @@ vi.mock('@/lib/supabase/server', () => ({
       signUp: (...args: unknown[]) => mockSignUp(...args),
       signOut: (...args: unknown[]) => mockSignOut(...args),
       signInWithPassword: (...args: unknown[]) => mockSignInWithPassword(...args),
+      signInAnonymously: (...args: unknown[]) => mockSignInAnonymously(...args),
     },
   }),
 }))
@@ -219,5 +221,40 @@ describe('signIn', () => {
     const result = await signIn('test@example.com', 'password123')
 
     expect(result).toEqual({ success: false, error: 'Something went wrong. Please try again.' })
+  })
+})
+
+describe('enterPreview', () => {
+  beforeEach(() => {
+    mockSignInAnonymously.mockReset()
+    mockRevalidatePath.mockReset()
+    mockRedirect.mockImplementation(() => {
+      throw new Error('NEXT_REDIRECT')
+    })
+  })
+
+  it('creates an anonymous session and redirects to the dashboard', async () => {
+    mockSignInAnonymously.mockResolvedValue({
+      data: { user: { id: 'preview-user' }, session: {} },
+      error: null,
+    })
+
+    await expect(enterPreview()).rejects.toThrow('NEXT_REDIRECT')
+
+    expect(mockSignInAnonymously).toHaveBeenCalledOnce()
+    expect(mockRevalidatePath).toHaveBeenCalledWith('/', 'layout')
+    expect(mockRedirect).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it('sanitizes anonymous sign-in failures', async () => {
+    mockSignInAnonymously.mockResolvedValue({
+      data: { user: null, session: null },
+      error: { message: 'internal auth configuration detail' },
+    })
+
+    await expect(enterPreview()).resolves.toEqual({
+      success: false,
+      error: 'Something went wrong. Please try again.',
+    })
   })
 })

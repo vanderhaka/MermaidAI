@@ -13,14 +13,14 @@ export default function Home() {
             href="/login"
             className="inline-flex items-center rounded-full border border-gray-200 bg-white/80 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-gray-300 hover:bg-white"
           >
-            Sign in
+            Open preview
           </Link>
         </header>
 
         <section className="grid gap-8 lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
           <div className="space-y-8">
             <div className="inline-flex items-center rounded-full border border-slate-200 bg-white/75 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-slate-600 shadow-sm">
-              Free while in beta
+              Personal preview
             </div>
 
             <div className="space-y-5">
@@ -36,10 +36,10 @@ export default function Home() {
 
             <div className="flex flex-col gap-3 sm:flex-row">
               <Link
-                href="/signup"
+                href="/login"
                 className="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-6 py-3.5 text-sm font-medium text-white shadow-lg shadow-slate-300/50 transition hover:bg-slate-800"
               >
-                Start building &mdash; it&apos;s free
+                Open the workspace
               </Link>
             </div>
 
