@@ -175,9 +175,12 @@ export function ProjectWorkspace({
   ])
 
   useEffect(() => {
-    setPlanningRevision(
-      architecturePlanning?.expectedRevision ?? planningLink?.expectedRevision ?? 0,
-    )
+    const timeout = window.setTimeout(() => {
+      setPlanningRevision(
+        architecturePlanning?.expectedRevision ?? planningLink?.expectedRevision ?? 0,
+      )
+    }, 0)
+    return () => window.clearTimeout(timeout)
   }, [architecturePlanning?.expectedRevision, planningLink?.expectedRevision])
 
   async function persistAutoDecide(input: { enabled: boolean; expectedRevision: number }) {

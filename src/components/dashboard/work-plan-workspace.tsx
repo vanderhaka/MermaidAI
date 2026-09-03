@@ -207,16 +207,17 @@ export function WorkPlanWorkspace({
   const [refinementError, setRefinementError] = useState<string | null>(null)
   const [composerResetSignal, setComposerResetSignal] = useState(0)
   const [composerResetValue, setComposerResetValue] = useState<string | undefined>()
+  const [canRetry, setCanRetry] = useState(false)
   const lastAttemptRef = useRef<RefinementAttempt | null>(null)
   const undoAttemptRef = useRef<UndoAttempt | null>(null)
 
   useEffect(() => {
-    setActiveVersion(planning.version)
-  }, [planning.version])
-
-  useEffect(() => {
-    setMessages(planning.messages)
-  }, [planning.messages])
+    const timeout = window.setTimeout(() => {
+      setActiveVersion(planning.version)
+      setMessages(planning.messages)
+    }, 0)
+    return () => window.clearTimeout(timeout)
+  }, [planning.messages, planning.version])
 
   const handleComplete = useCallback(() => {
     router.replace(`/dashboard/${project.id}?stage=work-plan`)
@@ -246,6 +247,7 @@ export function WorkPlanWorkspace({
       if (isRefining) return false
 
       lastAttemptRef.current = attempt
+      setCanRetry(true)
       setRefinementError(null)
       setIsRefining(true)
 
@@ -290,6 +292,7 @@ export function WorkPlanWorkspace({
           setComposerResetSignal((current) => current + 1)
         }
         lastAttemptRef.current = null
+        setCanRetry(false)
         router.refresh()
         return true
       } catch (error) {
@@ -362,6 +365,7 @@ export function WorkPlanWorkspace({
         setMessages((current) => appendMessage(current, payload.assistantMessage!))
         undoAttemptRef.current = null
         lastAttemptRef.current = null
+        setCanRetry(false)
         router.refresh()
         return { success: true }
       } catch (error) {
@@ -677,7 +681,7 @@ export function WorkPlanWorkspace({
           toolActivity={isRefining ? 'Applying bounded Work Plan edits' : null}
           onSend={handleSend}
           error={refinementError}
-          onRetry={lastAttemptRef.current ? handleRetry : undefined}
+          onRetry={canRetry ? handleRetry : undefined}
           onDismissError={() => setRefinementError(null)}
           isOpen={isChatOpen}
           onToggle={() => setIsChatOpen((open) => !open)}

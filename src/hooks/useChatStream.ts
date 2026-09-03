@@ -202,13 +202,13 @@ export function useChatStream<TExtra = void>({
   // Restored after mount, never during render: the server has no localStorage,
   // so reading it inline would make the first client render disagree with it.
   useEffect(() => {
-    if (initialHelperMode !== undefined) {
-      helperModeRef.current = initialHelperMode
-      setHelperMode(initialHelperMode)
-      return
-    }
-
     const restoreStoredPreference = window.setTimeout(() => {
+      if (initialHelperMode !== undefined) {
+        helperModeRef.current = initialHelperMode
+        setHelperMode(initialHelperMode)
+        return
+      }
+
       const stored = readAutoDecidePreference(projectId)
       if (stored !== null) {
         helperModeRef.current = stored
