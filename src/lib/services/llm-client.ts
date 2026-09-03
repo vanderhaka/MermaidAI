@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 
 import { callCodexWithTools } from '@/lib/services/codex-client'
+import { callGeminiWithTools } from '@/lib/services/gemini-client'
 import {
   FORCED_TEXT_NUDGE,
   TOOL_BUDGET_NUDGE,
@@ -505,6 +506,10 @@ export async function callLLMWithTools(
 
   if (provider === 'codex') {
     return callCodexWithTools(systemPrompt, messages, tools, executeTool, options)
+  }
+
+  if (provider === 'gemini') {
+    return callGeminiWithTools(systemPrompt, messages, tools, executeTool, options)
   }
 
   if (provider === 'cerebras') {

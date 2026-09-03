@@ -1400,7 +1400,28 @@ async function commandForArchitectureFlowBatch(
     condition: string | null
   }> = []
   const edgeUpdates = new Map(input.updateEdges.map((update) => [update.edgeId, update]))
-  const knownEdgeKeys = new Set<string>()
+  const knownRoutes: Array<{
+    sourceNodeId: string
+    targetNodeId: string
+    label: string
+    condition: string
+  }> = []
+  const conflictsWithKnownRoute = (candidate: (typeof knownRoutes)[number]) =>
+    knownRoutes.some((known) => {
+      if (
+        known.sourceNodeId !== candidate.sourceNodeId ||
+        known.targetNodeId !== candidate.targetNodeId
+      ) {
+        return false
+      }
+      const knownIsBare = !known.label && !known.condition
+      const candidateIsBare = !candidate.label && !candidate.condition
+      return (
+        knownIsBare ||
+        candidateIsBare ||
+        (known.label === candidate.label && known.condition === candidate.condition)
+      )
+    })
   for (const edge of existingEdges) {
     if (
       deletedEdgeIds.has(edge.id) ||
@@ -1410,16 +1431,20 @@ async function commandForArchitectureFlowBatch(
       continue
     }
     const update = edgeUpdates.get(edge.id)
-    const edgeKey = [
-      edge.source_node_id,
-      edge.target_node_id,
-      update?.label === undefined ? (edge.label ?? '') : update.label.trim(),
-      update?.condition === undefined ? (edge.condition ?? '') : update.condition.trim(),
-    ].join('\u0000')
-    if (knownEdgeKeys.has(edgeKey)) {
+    const route = {
+      sourceNodeId: edge.source_node_id,
+      targetNodeId: edge.target_node_id,
+      label: (update?.label === undefined ? (edge.label ?? '') : update.label)
+        .trim()
+        .toLocaleLowerCase(),
+      condition: (update?.condition === undefined ? (edge.condition ?? '') : update.condition)
+        .trim()
+        .toLocaleLowerCase(),
+    }
+    if (conflictsWithKnownRoute(route)) {
       return { error: 'The flow edge updates would create a duplicate edge.' }
     }
-    knownEdgeKeys.add(edgeKey)
+    knownRoutes.push(route)
   }
   for (const [index, requested] of input.createEdges.entries()) {
     const sourceNodeId = resolveNode(requested.source)
@@ -1431,14 +1456,16 @@ async function commandForArchitectureFlowBatch(
     if (deletedNodeIds.has(sourceNodeId) || deletedNodeIds.has(targetNodeId)) {
       return { error: 'A flow edge cannot use a node deleted in the same refinement.' }
     }
-    const edgeKey = [
+    const route = {
       sourceNodeId,
       targetNodeId,
-      requested.label?.trim() ?? '',
-      requested.condition?.trim() ?? '',
-    ].join('\u0000')
-    if (knownEdgeKeys.has(edgeKey)) return { error: 'That flow edge already exists.' }
-    knownEdgeKeys.add(edgeKey)
+      label: requested.label?.trim().toLocaleLowerCase() ?? '',
+      condition: requested.condition?.trim().toLocaleLowerCase() ?? '',
+    }
+    if (conflictsWithKnownRoute(route)) {
+      return { error: 'That flow route already exists; update the existing edge instead.' }
+    }
+    knownRoutes.push(route)
     requestedEdges.push({
       id: deterministicEntityId(
         request.turnIdentity.changeSetId,
@@ -1879,8 +1906,44 @@ async function commandForFlowTool(
     if (!modules.some((module) => module.id === parsed.data.moduleId)) {
       return { error: 'The target Architecture module does not exist.' }
     }
+    const graph = await getGraphForModule(parsed.data.moduleId)
+    if (!graph.success) return graph
+    const label = parsed.data.label?.trim() ?? ''
+    const condition = parsed.data.condition?.trim() ?? ''
+    const sameRoute = graph.data.edges.filter(
+      (edge) =>
+        edge.source_node_id === parsed.data.sourceNodeId &&
+        edge.target_node_id === parsed.data.targetNodeId,
+    )
+    const exactMatch = sameRoute.find(
+      (edge) =>
+        (edge.label?.trim().toLocaleLowerCase() ?? '') === label.toLocaleLowerCase() &&
+        (edge.condition?.trim().toLocaleLowerCase() ?? '') === condition.toLocaleLowerCase(),
+    )
+    if (exactMatch) return { error: 'That flow edge already exists.' }
+
     const operationId = singleOperationId()
     if (!operationId) return { error: 'No durable operation ID remains for this refinement.' }
+    const bareEdge = sameRoute.find((edge) => !edge.label?.trim() && !edge.condition?.trim())
+    if (bareEdge && (label || condition)) {
+      return {
+        ...commandBase,
+        operations: [
+          {
+            operationId,
+            type: 'flow_edge.update',
+            edgeId: bareEdge.id,
+            changes: {
+              ...(label ? { label } : {}),
+              ...(condition ? { condition } : {}),
+            },
+          },
+        ],
+      }
+    }
+    if (!label && !condition && sameRoute.length > 0) {
+      return { error: 'That flow route already exists; update the existing edge instead.' }
+    }
     return {
       ...commandBase,
       operations: [
@@ -1895,8 +1958,8 @@ async function commandForFlowTool(
             moduleId: parsed.data.moduleId,
             sourceNodeId: parsed.data.sourceNodeId,
             targetNodeId: parsed.data.targetNodeId,
-            label: parsed.data.label ?? null,
-            condition: parsed.data.condition ?? null,
+            label: label || null,
+            condition: condition || null,
           },
         },
       ],

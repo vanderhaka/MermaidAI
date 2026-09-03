@@ -327,6 +327,49 @@ function toReactFlowEdges(
   })
 }
 
+function normalizeEdgeDetail(value: string | null): string {
+  return value?.trim().toLocaleLowerCase() ?? ''
+}
+
+function collapseDuplicateRoutes(edges: FlowEdge[]): FlowEdge[] {
+  const collapsed: FlowEdge[] = []
+  const routeIndexes = new Map<string, number[]>()
+
+  for (const edge of edges) {
+    const routeKey = `${edge.source_node_id}\u0000${edge.target_node_id}`
+    const indexes = routeIndexes.get(routeKey) ?? []
+    const label = normalizeEdgeDetail(edge.label)
+    const condition = normalizeEdgeDetail(edge.condition)
+    const isBare = !label && !condition
+    const exactMatch = indexes.find((index) => {
+      const candidate = collapsed[index]
+      return (
+        normalizeEdgeDetail(candidate.label) === label &&
+        normalizeEdgeDetail(candidate.condition) === condition
+      )
+    })
+
+    if (exactMatch !== undefined) continue
+
+    const bareIndex = indexes.find((index) => {
+      const candidate = collapsed[index]
+      return !normalizeEdgeDetail(candidate.label) && !normalizeEdgeDetail(candidate.condition)
+    })
+
+    if (isBare && indexes.length > 0) continue
+    if (bareIndex !== undefined) {
+      collapsed[bareIndex] = edge
+      continue
+    }
+
+    indexes.push(collapsed.length)
+    routeIndexes.set(routeKey, indexes)
+    collapsed.push(edge)
+  }
+
+  return collapsed
+}
+
 function ModuleDetailFlow({
   nodes,
   edges,
@@ -430,6 +473,7 @@ export default function ModuleDetailView({
   const [notesOpen, setNotesOpen] = useState(false)
   const [layout, setLayout] = useState<FlowDetailLayoutResult>({ nodes: [], edges: [] })
   const hasNodes = nodes.length > 0
+  const displayEdges = useMemo(() => collapseDuplicateRoutes(edges), [edges])
 
   useEffect(() => {
     if (!hasNodes) return
@@ -437,7 +481,7 @@ export default function ModuleDetailView({
     let cancelled = false
 
     async function runLayout() {
-      const nextLayout = await computeFlowDetailLayout(nodes, edges)
+      const nextLayout = await computeFlowDetailLayout(nodes, displayEdges)
       if (cancelled) return
 
       startTransition(() => {
@@ -450,7 +494,7 @@ export default function ModuleDetailView({
     return () => {
       cancelled = true
     }
-  }, [nodes, edges, hasNodes])
+  }, [nodes, displayEdges, hasNodes])
 
   return (
     <div className="flex h-full flex-col">
@@ -498,7 +542,7 @@ export default function ModuleDetailView({
           <ReactFlowProvider>
             <ModuleDetailFlow
               nodes={nodes}
-              edges={edges}
+              edges={displayEdges}
               layout={layout}
               changedNodeIds={changedNodeIds}
               showFunnelLanes={showFunnelLanes}

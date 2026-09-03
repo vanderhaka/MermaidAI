@@ -186,7 +186,7 @@ const captureArchitectureMapTool: Anthropic.Tool = {
 const refineArchitectureMapTool: Anthropic.Tool = {
   name: 'refine_architecture_map',
   description:
-    'Atomically refine an existing high-level Architecture in one call. It can update the Architecture brief, capabilities, connections, actor flows, exact open questions, and exact planning decisions. New modules and flows use local keys. Never split one user request across repeated mutation tools, and never claim a question or decision changed unless it is included here.',
+    'Atomically refine an existing high-level Architecture in one call. It can update the Architecture brief, capabilities, connections, actor flows, exact open questions, and exact planning decisions. Resolving a question already records its answer as an accepted user decision; do not duplicate that answer in recordDecisions. New modules and flows use local keys. Never split one user request across repeated mutation tools, and never claim a question or decision changed unless it is included here.',
   input_schema: {
     type: 'object' as const,
     properties: {
@@ -639,7 +639,7 @@ const updateEdgeTool: Anthropic.Tool = {
 const insertNodeBetweenTool: Anthropic.Tool = {
   name: 'insert_node_between',
   description:
-    'Insert a new node between two existing nodes in one atomic operation: removes any direct edge source → target, creates the new node, and wires source → new node → target. Use this whenever a step must be added between two existing steps. Never replicate this manually with delete_edge/create_node/create_edge.',
+    'Insert a new node between two existing nodes in one atomic operation: removes any direct edge source → target, creates the new node, and wires source → new node → target. Use this whenever a step must be added between two existing steps. On success the insertion is complete: do not follow it with delete_edge, create_node, or create_edge for the same change.',
   input_schema: {
     type: 'object' as const,
     properties: {
@@ -814,7 +814,7 @@ const addOpenQuestionsTool: Anthropic.Tool = {
 const resolveOpenQuestionTool: Anthropic.Tool = {
   name: 'resolve_open_question',
   description:
-    'Mark an open question as resolved when the client provides information that answers it. Updates the question status and records the resolution.',
+    'Mark an open question as resolved when the client provides information that answers it. If the latest message only answers existing open questions, this is the only mutation needed: do not also call capture_scope_flow or create graph objects. After success, ask the next scope question with one Recommended answer.',
   input_schema: {
     type: 'object' as const,
     properties: {
@@ -1524,6 +1524,7 @@ function createRawToolExecutor(projectId: string, options: ToolExecutorOptions =
           }
 
           const edgeDrafts: ScopeEdgeDraft[] = []
+          let skippedDuplicateEdges = 0
           for (const [index, item] of rawEdges.entries()) {
             if (!item || typeof item !== 'object' || Array.isArray(item)) {
               return fail(`edges[${index}] must be an object.`)
@@ -1534,7 +1535,7 @@ function createRawToolExecutor(projectId: string, options: ToolExecutorOptions =
             if (!source || !target) {
               return fail(`edges[${index}] requires non-empty source and target references.`)
             }
-            edgeDrafts.push({
+            const edgeDraft: ScopeEdgeDraft = {
               source,
               target,
               ...(typeof draft.label === 'string' && draft.label.trim()
@@ -1543,7 +1544,35 @@ function createRawToolExecutor(projectId: string, options: ToolExecutorOptions =
               ...(typeof draft.condition === 'string' && draft.condition.trim()
                 ? { condition: draft.condition.trim() }
                 : {}),
+            }
+            const sameRouteIndexes = edgeDrafts.flatMap((candidate, candidateIndex) =>
+              candidate.source === source && candidate.target === target ? [candidateIndex] : [],
+            )
+            const normalizedLabel = edgeDraft.label?.toLocaleLowerCase() ?? ''
+            const normalizedCondition = edgeDraft.condition?.toLocaleLowerCase() ?? ''
+            const exactMatch = sameRouteIndexes.some((candidateIndex) => {
+              const candidate = edgeDrafts[candidateIndex]
+              return (
+                (candidate.label?.toLocaleLowerCase() ?? '') === normalizedLabel &&
+                (candidate.condition?.toLocaleLowerCase() ?? '') === normalizedCondition
+              )
             })
+            const bareIndex = sameRouteIndexes.find((candidateIndex) => {
+              const candidate = edgeDrafts[candidateIndex]
+              return !candidate.label && !candidate.condition
+            })
+            const isBare = !edgeDraft.label && !edgeDraft.condition
+
+            if (exactMatch || (isBare && sameRouteIndexes.length > 0)) {
+              skippedDuplicateEdges += 1
+              continue
+            }
+            if (bareIndex !== undefined) {
+              edgeDrafts[bareIndex] = edgeDraft
+              skippedDuplicateEdges += 1
+              continue
+            }
+            edgeDrafts.push(edgeDraft)
           }
 
           const questionDrafts: ScopeQuestionDraft[] = []
@@ -1694,8 +1723,10 @@ function createRawToolExecutor(projectId: string, options: ToolExecutorOptions =
           const warning = errors.length > 0 ? ` ${errors.length} item(s) need repair.` : ''
           const duplicateNote =
             skippedDuplicates > 0 ? ` Skipped ${skippedDuplicates} duplicate question(s).` : ''
+          const duplicateEdgeNote =
+            skippedDuplicateEdges > 0 ? ` Skipped ${skippedDuplicateEdges} duplicate edge(s).` : ''
           return okWithGraphCheck(
-            `Captured ${createdByKey.size} flow node(s), ${edges.length} edge(s), and ${questions.length} open question(s).${warning}${duplicateNote}`,
+            `Captured ${createdByKey.size} flow node(s), ${edges.length} edge(s), and ${questions.length} open question(s).${warning}${duplicateEdgeNote}${duplicateNote}`,
             moduleId,
             { nodes, edges, questions },
           )
@@ -1751,16 +1782,69 @@ function createRawToolExecutor(projectId: string, options: ToolExecutorOptions =
 
         case 'create_edge': {
           const moduleId = input.moduleId as string
+          const sourceNodeId = input.sourceNodeId as string
+          const targetNodeId = input.targetNodeId as string
+          const label = typeof input.label === 'string' ? input.label.trim() : ''
+          const condition = typeof input.condition === 'string' ? input.condition.trim() : ''
+          const existingGraph = await getGraphForModule(moduleId)
+
+          if (existingGraph.success) {
+            const sameRoute = existingGraph.data.edges.filter(
+              (edge) =>
+                edge.source_node_id === sourceNodeId && edge.target_node_id === targetNodeId,
+            )
+            const exactMatch = sameRoute.find(
+              (edge) =>
+                (edge.label?.trim().toLocaleLowerCase() ?? '') === label.toLocaleLowerCase() &&
+                (edge.condition?.trim().toLocaleLowerCase() ?? '') ===
+                  condition.toLocaleLowerCase(),
+            )
+
+            if (exactMatch) {
+              return okWithGraphCheck(
+                `Edge ${sourceNodeId} → ${targetNodeId} already exists (id: ${exactMatch.id}); reused it instead of creating a duplicate.`,
+                moduleId,
+                { edge: exactMatch },
+              )
+            }
+
+            const bareEdge = sameRoute.find(
+              (edge) => !edge.label?.trim() && !edge.condition?.trim(),
+            )
+            if (bareEdge && (label || condition)) {
+              const updated = await updateEdge(bareEdge.id, {
+                ...(label ? { label } : {}),
+                ...(condition ? { condition } : {}),
+              })
+              if (!updated.success) {
+                return failNotFound('Edge', bareEdge.id, 'update', updated.error)
+              }
+              return okWithGraphCheck(
+                `Updated existing edge ${sourceNodeId} → ${targetNodeId} (id: ${bareEdge.id}) instead of creating a duplicate.`,
+                moduleId,
+                { edge: updated.data },
+              )
+            }
+
+            if (!label && !condition && sameRoute.length > 0) {
+              return okWithGraphCheck(
+                `Edge ${sourceNodeId} → ${targetNodeId} already exists (id: ${sameRoute[0].id}); reused it instead of creating a blank duplicate.`,
+                moduleId,
+                { edge: sameRoute[0] },
+              )
+            }
+          }
+
           const result = await addEdge({
             module_id: moduleId,
-            source_node_id: input.sourceNodeId as string,
-            target_node_id: input.targetNodeId as string,
-            label: input.label as string | undefined,
-            condition: input.condition as string | undefined,
+            source_node_id: sourceNodeId,
+            target_node_id: targetNodeId,
+            ...(label ? { label } : {}),
+            ...(condition ? { condition } : {}),
           })
           if (!result.success) return failWithExistingNodes(result.error, moduleId)
           return okWithGraphCheck(
-            `Created edge ${input.sourceNodeId} → ${input.targetNodeId} (id: ${result.data.id})`,
+            `Created edge ${sourceNodeId} → ${targetNodeId} (id: ${result.data.id})`,
             moduleId,
             { edge: result.data },
           )

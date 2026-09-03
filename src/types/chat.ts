@@ -2,7 +2,7 @@ import type { PlanningArtifactKind } from '@/types/planning'
 
 export type ChatRole = 'user' | 'assistant' | 'system'
 
-export const AI_PROVIDERS = ['cerebras', 'anthropic', 'codex'] as const
+export const AI_PROVIDERS = ['cerebras', 'anthropic', 'codex', 'gemini'] as const
 
 export type AIProvider = (typeof AI_PROVIDERS)[number]
 

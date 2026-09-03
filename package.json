@@ -10,11 +10,17 @@
     "format": "prettier --write .",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
+    "test:llm-benchmark": "RUN_LLM_PROVIDER_BENCHMARK=1 node --env-file=.env.local ./node_modules/vitest/vitest.mjs run --disableConsoleIntercept src/lib/services/llm-provider-benchmark.live.test.ts",
+    "test:llm-benchmark:preflight": "RUN_LLM_PROVIDER_BENCHMARK=1 LLM_BENCHMARK_DRY_RUN=1 LLM_BENCHMARK_MAX_PROVIDER_REQUESTS=96 node --env-file=.env.local ./node_modules/vitest/vitest.mjs run --disableConsoleIntercept src/lib/services/llm-provider-benchmark.live.test.ts",
+    "test:prompt-tuning": "RUN_PROMPT_TUNING=1 node --env-file=.env.local ./node_modules/vitest/vitest.mjs run --disableConsoleIntercept src/lib/services/llm-prompt-tuning.live.test.ts",
+    "test:prompt-tuning:holdout": "RUN_PROMPT_TUNING=1 PROMPT_TUNING_SET=holdout PROMPT_TUNING_MAX_PROVIDER_REQUESTS=15 node --env-file=.env.local ./node_modules/vitest/vitest.mjs run --disableConsoleIntercept src/lib/services/llm-prompt-tuning.live.test.ts",
+    "test:prompt-tuning:preflight": "RUN_PROMPT_TUNING=1 PROMPT_TUNING_DRY_RUN=1 PROMPT_TUNING_ITERATION=0 PROMPT_TUNING_MAX_PROVIDER_REQUESTS=13 node --env-file=.env.local ./node_modules/vitest/vitest.mjs run --disableConsoleIntercept src/lib/services/llm-prompt-tuning.live.test.ts",
     "test:watch": "vitest",
     "prepare": "husky"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.82.0",
+    "@google/genai": "^2.21.0",
     "@supabase/ssr": "^0.10.0",
     "@supabase/supabase-js": "^2.101.1",
     "@tailwindcss/postcss": "^4.2.2",

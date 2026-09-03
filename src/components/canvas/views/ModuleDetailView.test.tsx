@@ -246,6 +246,66 @@ describe('ModuleDetailView', () => {
     })
   })
 
+  it('collapses duplicate routes while preserving the more descriptive edge', async () => {
+    const duplicateEdges: FlowEdge[] = [
+      makeEdge({ id: 'empty-route', source_node_id: 'n1', target_node_id: 'n2' }),
+      makeEdge({
+        id: 'described-route',
+        source_node_id: 'n1',
+        target_node_id: 'n2',
+        label: 'Proceed',
+      }),
+    ]
+    const { computeFlowDetailLayout } = (await import('@/lib/canvas/layout')) as unknown as {
+      computeFlowDetailLayout: ReturnType<typeof vi.fn>
+    }
+    computeFlowDetailLayout.mockClear()
+
+    render(<ModuleDetailView moduleName="Auth" nodes={sampleNodes} edges={duplicateEdges} />)
+
+    await waitFor(() => {
+      const flow = screen.getByTestId('react-flow')
+      const rfEdges = JSON.parse(flow.getAttribute('data-edges') ?? '[]')
+
+      expect(rfEdges).toHaveLength(1)
+      expect(rfEdges[0]).toEqual(
+        expect.objectContaining({
+          id: 'described-route',
+          source: 'n1',
+          target: 'n2',
+          data: expect.objectContaining({ label: 'Proceed' }),
+        }),
+      )
+      expect(computeFlowDetailLayout).toHaveBeenCalledWith(sampleNodes, [duplicateEdges[1]])
+    })
+  })
+
+  it('keeps distinct described routes between the same nodes', async () => {
+    const distinctEdges: FlowEdge[] = [
+      makeEdge({
+        id: 'yes-route',
+        source_node_id: 'n3',
+        target_node_id: 'n2',
+        label: 'Yes',
+      }),
+      makeEdge({
+        id: 'no-route',
+        source_node_id: 'n3',
+        target_node_id: 'n2',
+        label: 'No',
+      }),
+    ]
+
+    render(<ModuleDetailView moduleName="Auth" nodes={sampleNodes} edges={distinctEdges} />)
+
+    await waitFor(() => {
+      const flow = screen.getByTestId('react-flow')
+      const rfEdges = JSON.parse(flow.getAttribute('data-edges') ?? '[]')
+
+      expect(rfEdges.map((edge: { id: string }) => edge.id)).toEqual(['yes-route', 'no-route'])
+    })
+  })
+
   it('registers all custom nodeTypes', () => {
     render(<ModuleDetailView moduleName="Auth" nodes={sampleNodes} edges={sampleEdges} />)
     const flow = screen.getByTestId('react-flow')

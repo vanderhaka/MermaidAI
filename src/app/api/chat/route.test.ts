@@ -821,8 +821,10 @@ describe('POST /api/chat', () => {
     expect(text).toContain(
       'What happens when payment fails — does the user get a retry option or error details?',
     )
-    expect(text).toContain('Recommended answer:')
-    expect(text).toContain('let the user retry with a different card or payment method')
+    expect(text).toContain('Options:')
+    expect(text).toContain('let the user retry with another payment method')
+    expect(text.match(/\(Recommended\)/g)).toHaveLength(1)
+    expect(text.match(/^\d+\. /gm)).toHaveLength(3)
     expect(text.toLowerCase()).not.toContain('already resolved')
     expect(mockCallLLMWithTools).not.toHaveBeenCalled()
     expect(mockCreateToolExecutor).not.toHaveBeenCalled()
@@ -1011,6 +1013,19 @@ describe('POST /api/chat', () => {
       expect.any(Array),
       mockExecutor,
       { provider: 'anthropic', sessionKey: 'proj-1', signal: expect.any(AbortSignal) },
+    )
+  })
+
+  it('passes explicit Gemini provider selection to callLLMWithTools', async () => {
+    const { POST } = await import('@/app/api/chat/route')
+    await POST(makeRequest({ ...validBody(), provider: 'gemini' }))
+
+    expect(mockCallLLMWithTools).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      expect.any(Array),
+      mockExecutor,
+      { provider: 'gemini', sessionKey: 'proj-1', signal: expect.any(AbortSignal) },
     )
   })
 

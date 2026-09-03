@@ -265,7 +265,7 @@ export default function FloatingChat({
                 type="button"
                 onClick={onToggleHelperMode}
                 aria-pressed={helperMode}
-                title="When on, the assistant decides routine points itself and records them as assumptions"
+                title="When on, the assistant includes standard product basics and records non-obvious choices for review"
                 className={`shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium transition-[background-color,color,scale] duration-150 ease-out active:scale-[0.96] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 ${
                   helperMode
                     ? 'bg-blue-600 text-white hover:bg-blue-700'

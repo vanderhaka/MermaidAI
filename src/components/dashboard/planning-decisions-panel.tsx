@@ -51,6 +51,12 @@ const STATE_STYLES = {
   superseded: 'border-slate-200 bg-white text-slate-500',
 } as const
 
+const PROVENANCE_LABELS = {
+  assistant: 'Chosen by assistant',
+  user: 'Chosen by you',
+  system: 'System recorded',
+} as const
+
 function actionVerb(type: PlanningDecisionActionType): string {
   return type === 'supersede' ? 'superseding' : `${type}ing`
 }
@@ -127,10 +133,11 @@ export function PlanningDecisionsPanel({ decisions, onAction }: PlanningDecision
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
           <h3 id="planning-decisions-title" className="text-xs font-semibold text-slate-900">
-            Assumptions and decisions
+            Decisions made during planning
           </h3>
           <p className="mt-0.5 text-xs text-slate-500">
-            Review durable choices before creating a Work Plan.
+            Routine product basics are included automatically. Review non-obvious choices before
+            creating a Work Plan.
           </p>
         </div>
         <span className="text-xs text-slate-400">
@@ -173,8 +180,9 @@ export function PlanningDecisionsPanel({ decisions, onAction }: PlanningDecision
                       >
                         {STATE_LABELS[decision.state]}
                       </span>
-                      <span className="text-[11px] text-slate-500">
-                        {decision.category} · {decision.provenance}
+                      <span className="text-[11px] text-slate-500">{decision.category}</span>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">
+                        {PROVENANCE_LABELS[decision.provenance]}
                       </span>
                     </div>
                     <p className="mt-2 text-xs leading-relaxed text-slate-800">

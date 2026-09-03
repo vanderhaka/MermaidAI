@@ -119,6 +119,9 @@ describe('staged Architecture refinement tools', () => {
         recordDecisions: expect.any(Object),
       }),
     )
+    expect(refineArchitectureMapTool.description).toContain(
+      'do not duplicate that answer in recordDecisions',
+    )
     expect(
       getToolsForMode('module_map', { stagedArchitecture: true }).map((tool) => tool.name),
     ).toEqual(['capture_architecture_map', 'refine_architecture_map', 'lookup_docs'])
@@ -200,6 +203,9 @@ describe('resolve_open_question tool definition', () => {
 
   it('has a description', () => {
     expect(resolveOpenQuestionTool.description).toBeTruthy()
+    expect(resolveOpenQuestionTool.description).toContain('only mutation needed')
+    expect(resolveOpenQuestionTool.description).toContain('do not also call capture_scope_flow')
+    expect(resolveOpenQuestionTool.description).toContain('ask the next scope question')
   })
 })
 
@@ -865,6 +871,54 @@ describe('createToolExecutor capture_scope_flow', () => {
     )
     expect(mockGetGraphForModule).toHaveBeenCalledTimes(1)
   })
+
+  it('stores one descriptive route when a scope batch repeats it with a blank copy', async () => {
+    mockAddNode
+      .mockResolvedValueOnce({
+        success: true,
+        data: { id: 'node-start', module_id: 'mod-1', node_type: 'start', label: 'Start' },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: { id: 'node-next', module_id: 'mod-1', node_type: 'process', label: 'Next' },
+      })
+    mockAddEdge.mockResolvedValueOnce({
+      success: true,
+      data: {
+        id: 'edge-proceed',
+        module_id: 'mod-1',
+        source_node_id: 'node-start',
+        target_node_id: 'node-next',
+        label: 'Proceed',
+        condition: null,
+      },
+    })
+    mockListOpenQuestions.mockResolvedValue({ success: true, data: [] })
+
+    const executeTool = createToolExecutor('proj-1')
+    const result = await executeTool('capture_scope_flow', {
+      moduleId: 'mod-1',
+      nodes: [
+        { key: 'start', label: 'Start', nodeType: 'start' },
+        { key: 'next', label: 'Next', nodeType: 'process' },
+      ],
+      edges: [
+        { source: 'start', target: 'next' },
+        { source: 'start', target: 'next', label: 'Proceed' },
+      ],
+      questions: [],
+    })
+
+    expect(result.isError).toBe(false)
+    expect(mockAddEdge).toHaveBeenCalledTimes(1)
+    expect(mockAddEdge).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source_node_id: 'node-start',
+        target_node_id: 'node-next',
+        label: 'Proceed',
+      }),
+    )
+  })
 })
 
 describe('createToolExecutor selected open question guard', () => {
@@ -1180,6 +1234,63 @@ describe('createToolExecutor update_edge', () => {
     expect(result.isError).toBe(true)
     expect(result.content).toContain('Edge edge-missing not found or update failed: No rows found')
     expect(result.content).toContain('never invent ids')
+  })
+})
+
+describe('createToolExecutor create_edge deduplication', () => {
+  const bareEdge = {
+    id: 'edge-1',
+    module_id: 'mod-1',
+    source_node_id: 'node-a',
+    target_node_id: 'node-b',
+    label: null,
+    condition: null,
+    created_at: '2026-01-01T00:00:00Z',
+  }
+
+  it('enriches a blank existing route instead of creating a parallel edge', async () => {
+    mockGetGraphForModule.mockResolvedValue({
+      success: true,
+      data: { nodes: [], edges: [bareEdge] },
+    })
+    mockUpdateEdge.mockResolvedValue({
+      success: true,
+      data: { ...bareEdge, label: 'Proceed' },
+    })
+
+    const executeTool = createToolExecutor('proj-1')
+    const result = await executeTool('create_edge', {
+      moduleId: 'mod-1',
+      sourceNodeId: 'node-a',
+      targetNodeId: 'node-b',
+      label: 'Proceed',
+    })
+
+    expect(result.isError).toBe(false)
+    expect(mockUpdateEdge).toHaveBeenCalledWith('edge-1', { label: 'Proceed' })
+    expect(mockAddEdge).not.toHaveBeenCalled()
+    expect(result.data?.edge).toEqual(expect.objectContaining({ id: 'edge-1', label: 'Proceed' }))
+  })
+
+  it('reuses an equivalent existing route instead of inserting it twice', async () => {
+    const describedEdge = { ...bareEdge, label: 'Proceed' }
+    mockGetGraphForModule.mockResolvedValue({
+      success: true,
+      data: { nodes: [], edges: [describedEdge] },
+    })
+
+    const executeTool = createToolExecutor('proj-1')
+    const result = await executeTool('create_edge', {
+      moduleId: 'mod-1',
+      sourceNodeId: 'node-a',
+      targetNodeId: 'node-b',
+      label: ' proceed ',
+    })
+
+    expect(result.isError).toBe(false)
+    expect(mockAddEdge).not.toHaveBeenCalled()
+    expect(mockUpdateEdge).not.toHaveBeenCalled()
+    expect(result.data?.edge).toEqual(describedEdge)
   })
 })
 

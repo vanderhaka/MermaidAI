@@ -96,6 +96,14 @@ describe('sanitizeError', () => {
     expect(result).toContain('[REDACTED]')
   })
 
+  it('redacts Google Gemini API keys (AIza...)', async () => {
+    const { sanitizeError } = await import('@/lib/services/llm-client')
+    const fakeKey = `AIza${'not-a-real-key-'.repeat(3)}`
+    const result = sanitizeError(new Error(`Auth failed for ${fakeKey}`))
+    expect(result).not.toContain(fakeKey)
+    expect(result).toContain('[REDACTED]')
+  })
+
   it('redacts Supabase/Postgres connection strings', async () => {
     const { sanitizeError } = await import('@/lib/services/llm-client')
     const result = sanitizeError(
@@ -166,6 +174,16 @@ describe('sanitizeError', () => {
     expect(result).not.toContain('postgresql://')
     expect(result).not.toContain('10.0.0.5')
     expect(result).not.toContain('sk_live_')
+  })
+})
+
+describe('forced text instructions', () => {
+  it('defers reply shape to the active mode instead of always forcing a question', async () => {
+    const { FORCED_TEXT_NUDGE, TOOL_BUDGET_NUDGE } = await import('@/lib/services/llm-shared')
+
+    expect(FORCED_TEXT_NUDGE).toContain("system prompt's conversation rule")
+    expect(FORCED_TEXT_NUDGE).not.toContain('exactly ONE follow-up question')
+    expect(TOOL_BUDGET_NUDGE).toContain("system prompt's conversation rule")
   })
 })
 

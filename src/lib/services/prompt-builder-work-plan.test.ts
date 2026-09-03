@@ -62,5 +62,8 @@ describe('Work Plan prompt builder', () => {
     expect(prompt).toContain('Cover every Architecture capability')
     expect(prompt).toContain('Never invent a repository script')
     expect(prompt).toContain('Confirm in target repository:')
+    expect(prompt).toContain('conventional completeness')
+    expect(prompt).toContain('password reset')
+    expect(prompt).toContain('baseline acceptance criteria')
   })
 })

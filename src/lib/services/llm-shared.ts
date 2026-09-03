@@ -15,10 +15,10 @@ export const TOOL_EVENT_DELIMITER = '\x1ETOOL_EVENT:'
  * visible text — without it the chat goes silent and the conversation stalls.
  */
 export const FORCED_TEXT_NUDGE =
-  'Your reply contained no text for the user. Respond now in plain text: briefly state what you just did on the canvas, then ask exactly ONE follow-up question with a `Recommended answer:` line. Do not call any more tools.'
+  "Your reply contained no user-facing text. Respond now in plain text and follow the system prompt's conversation rule for the current mode. State only receipt-confirmed changes, or answer the user's non-mutation request directly. Ask a follow-up only when the mode requires one. Do not call more tools."
 
 export const TOOL_BUDGET_NUDGE =
-  'You have reached the tool budget for this turn. Stop calling tools. Reply in plain text: summarize what was captured on the canvas, mention anything still left to build, then ask exactly ONE follow-up question with a `Recommended answer:` line.'
+  "You have reached the tool budget. Stop calling tools. Reply in plain text and follow the system prompt's conversation rule for the current mode. Summarize only receipt-confirmed changes and say what remains incomplete."
 
 export type ToolResult = {
   content: string
@@ -58,6 +58,11 @@ export type CallLLMWithToolsOptions = {
   /** Codex-only follow-up tool-round reasoning override for this request. */
   continuationReasoningEffort?: ReasoningEffort
   /**
+   * Per-provider HTTP deadline in milliseconds. Providers that support a
+   * native request timeout honor it; normal chat requests leave it unset.
+   */
+  requestTimeoutMs?: number
+  /**
    * Stable cache key for the backend's prompt cache (Codex-only; other
    * providers ignore it). Pass a UUID-format string — e.g. the project id —
    * so repeated turns in the same conversation reuse the same warm cache
@@ -93,6 +98,8 @@ export function sanitizeError(error: unknown): string {
     .replace(/sk-ant[^\s]*/gi, '[REDACTED]')
     // Cerebras API keys
     .replace(/csk-[^\s"'`]+/gi, '[REDACTED]')
+    // Google Gemini API keys
+    .replace(/AIza[\w-]{20,}/g, '[REDACTED]')
     // Stripe keys (sk_live_, sk_test_)
     .replace(/sk_(live|test)_[^\s]*/gi, '[REDACTED]')
     // Postgres/Supabase connection strings

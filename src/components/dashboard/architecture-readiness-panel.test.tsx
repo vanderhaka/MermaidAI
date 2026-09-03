@@ -96,7 +96,7 @@ describe('ArchitectureReadinessPanel', () => {
     expect(details).toHaveTextContent('Add the staff cancellation flow.')
     expect(details).toHaveTextContent('Choose the deposit refund policy.')
     expect(details).toHaveTextContent('1 blocking question')
-    expect(details).toHaveTextContent('1 assumption to review')
+    expect(details).toHaveTextContent('1 assistant choice to review')
   })
 
   it.each([
@@ -127,7 +127,7 @@ describe('ArchitectureReadinessPanel', () => {
     await user.click(toggle)
 
     const details = screen.getByRole('region', { name: /architecture readiness details/i })
-    expect(details).toHaveTextContent('2 assumptions to review')
+    expect(details).toHaveTextContent('2 assistant choices to review')
     expect(details).toHaveTextContent('Decision review content')
   })
 

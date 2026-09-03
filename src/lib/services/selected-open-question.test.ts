@@ -40,20 +40,23 @@ describe('selected open question helpers', () => {
   })
 
   it('builds the deterministic helper response with the recommended default', () => {
-    expect(buildSelectedOpenQuestionHelpResponse(cartQuestion)).toContain(
+    const response = buildSelectedOpenQuestionHelpResponse(cartQuestion)
+    expect(response).toContain('Options:')
+    expect(response).toContain(
       'Let users edit quantities and remove items until payment is submitted',
     )
+    expect(response.match(/\(Recommended\)/g)).toHaveLength(1)
+    expect(response.match(/^\d+\. /gm)).toHaveLength(3)
   })
 
   it('answers supplier access choices with a concrete low-friction default', () => {
-    expect(
-      buildSelectedOpenQuestionHelpResponse({
-        id: 'oq-supplier-access',
-        section: 'Supplier Access',
-        question:
-          'Should suppliers use accounts, or receive secure quote links without signing up?',
-      }),
-    ).toContain('Use secure passwordless links initially')
+    const response = buildSelectedOpenQuestionHelpResponse({
+      id: 'oq-supplier-access',
+      section: 'Supplier Access',
+      question: 'Should suppliers use accounts, or receive secure quote links without signing up?',
+    })
+    expect(response).toContain('Use secure passwordless links initially')
+    expect(response).toContain('Require every user to create an account first')
   })
 
   it('gives reminder questions an actionable default schedule', () => {

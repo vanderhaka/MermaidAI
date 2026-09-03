@@ -27,6 +27,14 @@ interface ChatMessageListProps {
 
 const RECOMMENDATION_PREFIX_RE =
   /^\s*(?:\*\*)?(?:recommended answer|recommendation|my recommendation)(?:\*\*)?\s*:\s*(.+)$/i
+const OPTIONS_HEADING_RE = /^\s*(?:\*\*)?options\s*:(?:\*\*)?\s*$/i
+const OPTION_LINE_RE = /^\s*(?:\d+[.)]|[-*])\s+(.+?)\s*$/
+const RECOMMENDED_OPTION_RE = /\s*\(recommended\)\s*$/i
+
+type AssistantOption = {
+  text: string
+  recommended: boolean
+}
 
 function normalizeAssistantSpacing(content: string): string {
   return content
@@ -36,6 +44,56 @@ function normalizeAssistantSpacing(content: string): string {
 
 function stripQuestionEmphasis(content: string): string {
   return content.replace(/^\*\*(.+)\*\*$/s, '$1').trim()
+}
+
+function stripOptionEmphasis(content: string): string {
+  return content.replace(/^\*\*(.+)\*\*$/s, '$1').trim()
+}
+
+function extractAnswerOptions(content: string): {
+  content: string
+  options: AssistantOption[]
+} {
+  const lines = content.split('\n')
+  const headingIndex = lines.findIndex((line) => OPTIONS_HEADING_RE.test(line))
+  if (headingIndex === -1) return { content, options: [] }
+
+  const options: AssistantOption[] = []
+  let endIndex = headingIndex + 1
+
+  for (let index = headingIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (!line.trim() && options.length === 0) {
+      endIndex = index + 1
+      continue
+    }
+
+    const match = line.match(OPTION_LINE_RE)
+    if (!match) break
+
+    const recommended = RECOMMENDED_OPTION_RE.test(match[1])
+    const text = stripOptionEmphasis(match[1].replace(RECOMMENDED_OPTION_RE, ''))
+    if (!text) return { content, options: [] }
+
+    options.push({ text, recommended })
+    endIndex = index + 1
+  }
+
+  if (
+    options.length < 2 ||
+    options.length > 3 ||
+    options.filter((option) => option.recommended).length !== 1
+  ) {
+    return { content, options: [] }
+  }
+
+  return {
+    content: [...lines.slice(0, headingIndex), ...lines.slice(endIndex)]
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim(),
+    options,
+  }
 }
 
 function extractFollowUpQuestion(content: string): {
@@ -64,13 +122,15 @@ function parseAssistantContent(content: string): {
   body: string
   question: string | null
   recommendation: string | null
+  options: AssistantOption[]
 } {
-  const lines = content.split('\n')
+  const extracted = extractAnswerOptions(content)
+  const lines = extracted.content.split('\n')
   const recommendationIndex = lines.findIndex((line) => RECOMMENDATION_PREFIX_RE.test(line))
 
   if (recommendationIndex === -1) {
-    const { body, question } = extractFollowUpQuestion(normalizeAssistantSpacing(content))
-    return { body, question, recommendation: null }
+    const { body, question } = extractFollowUpQuestion(normalizeAssistantSpacing(extracted.content))
+    return { body, question, recommendation: null, options: extracted.options }
   }
 
   const match = lines[recommendationIndex].match(RECOMMENDATION_PREFIX_RE)
@@ -87,6 +147,7 @@ function parseAssistantContent(content: string): {
     body,
     question,
     recommendation: recommendation || null,
+    options: extracted.options,
   }
 }
 
@@ -286,7 +347,7 @@ function MessageBubble({
     )
   }
 
-  const { body, question, recommendation } = parseAssistantContent(message.content)
+  const { body, question, recommendation, options } = parseAssistantContent(message.content)
 
   return (
     <article aria-label="assistant message" data-role="assistant" className="w-full">
@@ -302,6 +363,35 @@ function MessageBubble({
         >
           <p className="text-xs font-semibold uppercase tracking-wide text-blue-200">Question</p>
           <p className="mt-1 text-base font-semibold leading-relaxed text-white">{question}</p>
+        </div>
+      )}
+      {options.length > 0 && (
+        <div
+          data-testid="assistant-options"
+          role="group"
+          aria-label="Answer options"
+          className="mt-3 space-y-2"
+        >
+          {options.map((option, index) => (
+            <button
+              key={`${option.text}-${index}`}
+              type="button"
+              disabled={isLoading || !onSend}
+              onClick={() => onSend?.(`Choose option: ${option.text}`)}
+              className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                option.recommended
+                  ? 'border-blue-300 bg-blue-50 text-blue-950 hover:border-blue-400 hover:bg-blue-100'
+                  : 'border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50'
+              }`}
+            >
+              <span>{option.text}</span>
+              {option.recommended && (
+                <span className="shrink-0 rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                  Recommended
+                </span>
+              )}
+            </button>
+          ))}
         </div>
       )}
       {recommendation && (

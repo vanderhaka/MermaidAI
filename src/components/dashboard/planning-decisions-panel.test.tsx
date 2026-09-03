@@ -53,7 +53,14 @@ describe('PlanningDecisionsPanel', () => {
       />,
     )
 
-    expect(screen.getByRole('heading', { name: 'Assumptions and decisions' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'Decisions made during planning' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/routine product basics are included automatically/i),
+    ).toBeInTheDocument()
+    expect(screen.getAllByText('Chosen by assistant')).toHaveLength(2)
+    expect(screen.getByText('Chosen by you')).toBeInTheDocument()
     expect(screen.getAllByText('Proposed')).toHaveLength(1)
     expect(screen.getByText('Accepted')).toBeInTheDocument()
     expect(screen.getByText('Superseded')).toBeInTheDocument()

@@ -167,7 +167,7 @@ describe('FloatingChat', () => {
       expect(toggle).toHaveAttribute('aria-pressed', 'true')
       expect(toggle).toHaveAttribute(
         'title',
-        'When on, the assistant decides routine points itself and records them as assumptions',
+        'When on, the assistant includes standard product basics and records non-obvious choices for review',
       )
     })
 

@@ -123,8 +123,8 @@ export function ArchitectureReadinessPanel({
                 <span>
                   {countLabel(
                     report.proposedDecisionIds.length,
-                    'assumption to review',
-                    'assumptions to review',
+                    'assistant choice to review',
+                    'assistant choices to review',
                   )}
                 </span>
               </div>

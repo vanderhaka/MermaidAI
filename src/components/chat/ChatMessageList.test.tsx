@@ -94,6 +94,31 @@ describe('ChatMessageList', () => {
       )
     })
 
+    it('renders two or three bounded choices as one-click answers with one recommendation', async () => {
+      const user = userEvent.setup()
+      const onSend = vi.fn()
+      const msg = makeMessage({
+        id: 'msg-options',
+        role: 'assistant',
+        content:
+          'Which sign-in approach should we use?\n\nOptions:\n1. Email and password (Recommended)\n2. Passwordless email link\n3. Google sign-in only',
+      })
+
+      render(<ChatMessageList messages={[msg]} isLoading={false} onSend={onSend} />)
+
+      expect(screen.getByTestId('assistant-question')).toHaveTextContent(
+        'Which sign-in approach should we use?',
+      )
+      const options = screen.getByRole('group', { name: 'Answer options' })
+      expect(within(options).getAllByRole('button')).toHaveLength(3)
+      expect(within(options).getByText('Recommended')).toBeInTheDocument()
+      expect(screen.queryByText(/^Options:$/)).not.toBeInTheDocument()
+
+      await user.click(within(options).getByRole('button', { name: 'Passwordless email link' }))
+
+      expect(onSend).toHaveBeenCalledWith('Choose option: Passwordless email link')
+    })
+
     it('renders follow-up questions as a prominent callout before recommendations', () => {
       const msg = makeMessage({
         id: 'msg-question-callout',

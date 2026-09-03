@@ -825,6 +825,61 @@ describe('applyArchitectureRefinement', () => {
     })
   })
 
+  it('enriches a blank staged route instead of creating a parallel edge', async () => {
+    const sourceNodeId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'
+    const targetNodeId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2'
+    const existingEdgeId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3'
+    getGraphForModuleMock.mockResolvedValue({
+      success: true,
+      data: {
+        nodes: [graphNode(sourceNodeId, 'Start'), graphNode(targetNodeId, 'Finish')],
+        edges: [edgeRow(existingEdgeId, sourceNodeId, targetNodeId)],
+      },
+    })
+    applyArchitectureCommandMock.mockImplementation(async (command: ArchitectureCommand) => ({
+      success: true,
+      data: committedReceipt(command, [
+        {
+          flow_edges: [
+            {
+              ...edgeRow(existingEdgeId, sourceNodeId, targetNodeId),
+              label: 'Proceed',
+            },
+          ],
+        },
+      ]),
+    }))
+
+    const result = await applyArchitectureRefinement({
+      projectId,
+      turnIdentity: turnIdentity([operationIds[0]]),
+      startingSequence: 0,
+      toolName: 'create_edge',
+      input: {
+        moduleId: sourceModuleId,
+        sourceNodeId,
+        targetNodeId,
+        label: 'Proceed',
+      },
+    })
+
+    expect(result.success).toBe(true)
+    const command = applyArchitectureCommandMock.mock.calls[0][0] as ArchitectureCommand
+    expect(command.operations).toEqual([
+      expect.objectContaining({
+        type: 'flow_edge.update',
+        edgeId: existingEdgeId,
+        changes: { label: 'Proceed' },
+      }),
+    ])
+    expect(result).toEqual({
+      success: true,
+      data: expect.objectContaining({
+        edge: expect.objectContaining({ id: existingEdgeId, label: 'Proceed' }),
+      }),
+    })
+  })
+
   it('creates a connected flow in one atomic locally keyed refinement', async () => {
     getGraphForModuleMock.mockResolvedValue({ success: true, data: { nodes: [], edges: [] } })
     applyArchitectureCommandMock.mockImplementation(async (command: ArchitectureCommand) => {
@@ -990,6 +1045,41 @@ describe('applyArchitectureRefinement', () => {
     ).resolves.toEqual({
       success: false,
       error: 'The flow edge updates would create a duplicate edge.',
+    })
+    expect(applyArchitectureCommandMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects a described copy of an existing blank route', async () => {
+    const sourceNodeId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'
+    const targetNodeId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2'
+    const existingEdgeId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3'
+    getGraphForModuleMock.mockResolvedValue({
+      success: true,
+      data: {
+        nodes: [graphNode(sourceNodeId, 'Start'), graphNode(targetNodeId, 'Finish')],
+        edges: [edgeRow(existingEdgeId, sourceNodeId, targetNodeId)],
+      },
+    })
+
+    await expect(
+      applyArchitectureRefinement({
+        projectId,
+        turnIdentity: turnIdentity([operationIds[0]]),
+        startingSequence: 0,
+        toolName: 'refine_architecture_flow',
+        input: {
+          moduleId: sourceModuleId,
+          createNodes: [],
+          updateNodes: [],
+          deleteNodeIds: [],
+          createEdges: [{ source: sourceNodeId, target: targetNodeId, label: 'Proceed' }],
+          updateEdges: [],
+          deleteEdgeIds: [],
+        },
+      }),
+    ).resolves.toEqual({
+      success: false,
+      error: 'That flow route already exists; update the existing edge instead.',
     })
     expect(applyArchitectureCommandMock).not.toHaveBeenCalled()
   })
