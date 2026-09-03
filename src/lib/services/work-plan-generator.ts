@@ -4,7 +4,7 @@ import type Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 
 import type { ArchitectureReadinessDecision } from '@/lib/services/architecture-readiness'
-import { callLLMWithTools, sanitizeError } from '@/lib/services/llm-client'
+import { callLLMWithTools, resolveAIProvider, sanitizeError } from '@/lib/services/llm-client'
 import type { CompletePlanningArtifactVersion } from '@/lib/services/planning-artifact-service'
 import { buildWorkPlanPrompt } from '@/lib/services/prompt-builder-work-plan'
 import { workPlanContentSchema } from '@/lib/schemas/planning'
@@ -114,7 +114,7 @@ export async function generateWorkPlan(
         }
       },
       {
-        provider: 'codex',
+        provider: resolveAIProvider(),
         reasoningEffort: 'low',
         continuationReasoningEffort: 'low',
         sessionKey: input.architectureVersion.project_id,

@@ -15,6 +15,7 @@ import type {
   ToolExecutor,
   ToolResult,
 } from '@/lib/services/llm-shared'
+import { AI_PROVIDERS, type AIProvider } from '@/types/chat'
 
 export { TOOL_EVENT_DELIMITER, sanitizeError }
 export type { ToolResult, ToolExecutor, ToolEventCallback, CallLLMWithToolsOptions }
@@ -27,6 +28,11 @@ const DEFAULT_CEREBRAS_MODEL = 'gpt-oss-120b'
 const DEFAULT_CEREBRAS_MAX_COMPLETION_TOKENS = 2048
 const CEREBRAS_CHAT_COMPLETIONS_URL = 'https://api.cerebras.ai/v1/chat/completions'
 const MAX_CEREBRAS_TOOL_ROUNDS = 16
+
+export function resolveAIProvider(fallback: AIProvider = 'codex'): AIProvider {
+  const configured = process.env.AI_PROVIDER?.trim()
+  return AI_PROVIDERS.find((provider) => provider === configured) ?? fallback
+}
 
 const CEREBRAS_UNSUPPORTED_SCHEMA_KEYS = new Set([
   'maxItems',

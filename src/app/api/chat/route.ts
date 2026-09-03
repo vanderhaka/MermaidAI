@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/server'
 import { chatRateLimiter } from '@/lib/rate-limiter'
 import { buildSystemPrompt } from '@/lib/services/prompt-builder'
 import type { PromptMode } from '@/lib/services/prompt-builder'
-import { callLLMWithTools, sanitizeError } from '@/lib/services/llm-client'
+import { callLLMWithTools, resolveAIProvider, sanitizeError } from '@/lib/services/llm-client'
 import { createStreamParser } from '@/lib/stream-parser'
 import { getToolsForMode, createToolExecutor } from '@/lib/services/llm-tools'
 import { TOOL_EVENT_DELIMITER } from '@/lib/services/llm-shared'
@@ -34,22 +34,12 @@ import {
   CHAT_MODES,
   CHAT_TOOL_RECEIPT_KEY,
   CHAT_TURN_OPERATION_LIMIT,
-  type AIProvider,
   type ArchitectureChangeSummary,
   type ChatToolReceipt,
   type ChatTurnIdentity,
   type CreateChatMessageInput,
 } from '@/types/chat'
 import { PLANNING_ARTIFACT_KINDS, type PlanningArtifactKind } from '@/types/planning'
-
-/**
- * The app runs on the user's Codex (ChatGPT) membership unless a request or
- * AI_PROVIDER says otherwise.
- */
-function defaultProvider(): AIProvider {
-  const configured = process.env.AI_PROVIDER?.trim()
-  return AI_PROVIDERS.find((provider) => provider === configured) ?? 'codex'
-}
 
 const resolvingOpenQuestionSchema = z.object({
   id: z.string().min(1),
@@ -326,7 +316,7 @@ export async function POST(request: Request) {
   }
 
   const { projectId, message, mode, helperMode, context, history, turn } = parsed.data
-  const provider = parsed.data.provider ?? defaultProvider()
+  const provider = parsed.data.provider ?? resolveAIProvider()
 
   const planningTurn = await validatePlanningTurn(projectId, turn)
   if (planningTurn.status === 'stale') {

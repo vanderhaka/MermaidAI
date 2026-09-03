@@ -123,6 +123,7 @@ function providerStreamFromToolInput(toolInput: Record<string, unknown>) {
 describe('Work Plan generator', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    delete process.env.AI_PROVIDER
   })
 
   it('accepts one complete DAG bound to the exact Architecture version', async () => {
@@ -147,6 +148,25 @@ describe('Work Plan generator', () => {
         continuationReasoningEffort: 'low',
         sessionKey: projectId,
       }),
+    )
+  })
+
+  it('uses the configured hosted provider for Production generation', async () => {
+    process.env.AI_PROVIDER = 'anthropic'
+    mockCallLLMWithTools.mockImplementation(providerStreamFromToolInput(validPlan))
+
+    await generateWorkPlan({
+      projectName: 'Salon',
+      architectureVersion,
+      decisions: [],
+    })
+
+    expect(mockCallLLMWithTools).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      expect.any(Array),
+      expect.any(Function),
+      expect.objectContaining({ provider: 'anthropic' }),
     )
   })
 

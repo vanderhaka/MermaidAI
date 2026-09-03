@@ -74,7 +74,10 @@ function streamFromToolInput(toolInput: unknown) {
 }
 
 describe('Quick Capture Architecture generator', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    delete process.env.AI_PROVIDER
+  })
 
   it('uses one structured high-level Architecture call against the frozen snapshot', async () => {
     mockCallLLMWithTools.mockImplementation(streamFromToolInput(capture))
@@ -99,6 +102,21 @@ describe('Quick Capture Architecture generator', () => {
     )
     expect(mockCallLLMWithTools.mock.calls[0][0]).toContain(
       'keep uncertainty in assumptions, questions, and blockers only',
+    )
+  })
+
+  it('uses the configured hosted provider for Production generation', async () => {
+    process.env.AI_PROVIDER = 'anthropic'
+    mockCallLLMWithTools.mockImplementation(streamFromToolInput(capture))
+
+    await generateArchitectureFromScope({ projectId, snapshot })
+
+    expect(mockCallLLMWithTools).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      expect.any(Array),
+      expect.any(Function),
+      expect.objectContaining({ provider: 'anthropic' }),
     )
   })
 

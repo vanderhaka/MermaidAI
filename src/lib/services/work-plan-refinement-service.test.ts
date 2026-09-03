@@ -120,7 +120,10 @@ function providerStream(toolInput: Record<string, unknown>) {
 }
 
 describe('Work Plan refinement service', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    delete process.env.AI_PROVIDER
+  })
 
   it('applies one finite batch and preserves the frozen source', async () => {
     mockCallLLMWithTools.mockImplementation(
@@ -179,6 +182,40 @@ describe('Work Plan refinement service', () => {
         continuationReasoningEffort: 'low',
         sessionKey: projectId,
       }),
+    )
+  })
+
+  it('uses the configured hosted provider for Production refinement', async () => {
+    process.env.AI_PROVIDER = 'anthropic'
+    mockCallLLMWithTools.mockImplementation(
+      providerStream({
+        summary: 'Clarified the booking proof.',
+        commands: [
+          {
+            type: 'update_slice',
+            slice_id: 'slice-booking',
+            slice: { ...workPlan.slices[0], title: 'Confirm a booking' },
+          },
+        ],
+      }),
+    )
+
+    const result = await refineWorkPlan({
+      projectName: 'Salon',
+      architectureVersion,
+      workPlanVersion,
+      decisions: [],
+      history: [],
+      message: 'Keep the current plan.',
+    })
+
+    expect(result.success).toBe(true)
+    expect(mockCallLLMWithTools).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      expect.any(Array),
+      expect.any(Function),
+      expect.objectContaining({ provider: 'anthropic' }),
     )
   })
 

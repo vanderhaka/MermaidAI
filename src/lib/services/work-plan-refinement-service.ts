@@ -5,7 +5,7 @@ import { z } from 'zod'
 
 import { workPlanEditBatchSchema, applyWorkPlanEdits } from '@/lib/services/planning-tools'
 import { buildWorkPlanRefinementPrompt } from '@/lib/services/prompt-builder-work-plan'
-import { callLLMWithTools, sanitizeError } from '@/lib/services/llm-client'
+import { callLLMWithTools, resolveAIProvider, sanitizeError } from '@/lib/services/llm-client'
 import { validatePlanCoverage } from '@/lib/services/work-plan-generator'
 import type { ArchitectureReadinessDecision } from '@/lib/services/architecture-readiness'
 import type { CompletePlanningArtifactVersion } from '@/lib/services/planning-artifact-service'
@@ -129,7 +129,7 @@ export async function refineWorkPlan(
           }
         },
         {
-          provider: 'codex',
+          provider: resolveAIProvider(),
           reasoningEffort: 'low',
           continuationReasoningEffort: 'low',
           sessionKey: input.workPlanVersion.project_id,

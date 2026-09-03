@@ -7,7 +7,7 @@ import {
   captureArchitectureMapInputSchema,
   type CaptureArchitectureMapInput,
 } from '@/lib/services/architecture-service'
-import { callLLMWithTools, sanitizeError } from '@/lib/services/llm-client'
+import { callLLMWithTools, resolveAIProvider, sanitizeError } from '@/lib/services/llm-client'
 
 const boundedText = z.string().max(16_000)
 
@@ -179,7 +179,7 @@ Call submit_architecture_capture exactly once with the complete result.`
         }
       },
       {
-        provider: 'codex',
+        provider: resolveAIProvider(),
         reasoningEffort: 'low',
         continuationReasoningEffort: 'low',
         sessionKey: input.projectId,
