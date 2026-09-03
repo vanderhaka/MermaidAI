@@ -23,9 +23,9 @@ export type { ToolResult, ToolExecutor, ToolEventCallback, CallLLMWithToolsOptio
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001'
 const MAX_TOKENS = 4096
 const DEFAULT_CEREBRAS_MODEL = 'gpt-oss-120b'
-// 1200 routinely truncated multi-field tool-call JSON mid-string, leaving
-// unparseable arguments in history (and breaking the Anthropic fallback).
-const DEFAULT_CEREBRAS_MAX_COMPLETION_TOKENS = 2048
+// Complete Work Plans routinely exceed 2048 tokens. Truncating a named tool
+// call drops the call entirely, so leave enough room for the validated artifact.
+const DEFAULT_CEREBRAS_MAX_COMPLETION_TOKENS = 12_000
 const CEREBRAS_CHAT_COMPLETIONS_URL = 'https://api.cerebras.ai/v1/chat/completions'
 const MAX_CEREBRAS_TOOL_ROUNDS = 16
 

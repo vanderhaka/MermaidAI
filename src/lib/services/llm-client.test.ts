@@ -340,7 +340,7 @@ describe('llm-client', () => {
           tool_choice: 'auto',
           parallel_tool_calls: false,
           reasoning_effort: 'medium',
-          max_completion_tokens: 2048,
+          max_completion_tokens: 12000,
         }),
       )
       expect(body.messages).toEqual([
