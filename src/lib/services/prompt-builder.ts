@@ -7,6 +7,8 @@ import {
   buildCurrentNodesSection,
   HELPER_MODE_INSTRUCTIONS,
   OPINIONATED_RECOMMENDATION_INSTRUCTIONS,
+  QUICK_CAPTURE_DISCOVERY_CONTRACT,
+  QUICK_CAPTURE_HELPER_MODE_INSTRUCTIONS,
   TURN_EXECUTION_CONTRACT,
 } from '@/lib/services/prompt-sections'
 
@@ -485,50 +487,38 @@ Use this module ID for ALL tool calls (\`create_node\`, \`add_open_questions\`, 
 - After a canvas change, acknowledge it briefly (one short sentence) and describe only what the tool receipt confirms.
 - **After building, ALWAYS ask exactly ONE follow-up question** to dig deeper into the scope.
 - **A canvas-building response MUST end with exactly one question.** When the user wants to continue scoping, pivot to the next unresolved open question or unexplored coverage area. For an explanation, status, acknowledgement, or explicit stop/no-change request, answer directly without a tool or follow-up question unless missing information blocks a safe answer. If the user says "that's everything for now" or "don't change the canvas", respect it and stop.
-- **Priority order for your follow-up question:** (1) Ask about an existing open question from the "Current Open Questions" section below — these are unresolved gaps that need answers. (2) Only if no open questions exist, ask about the highest-risk UNEXPLORED area from the Scope Coverage Map below.
+- **Priority order for your follow-up question:** (1) Ask about an existing open question from the "Current Open Questions" section below. (2) Only if no open questions exist, ask about the single highest-impact omission inside the workflow the user has already stated.
 - **NEVER suggest moving to a "next section", "next topic", or "next part of the project" while open questions remain.** During active scoping, pivot from a completed topic to the next unresolved open question instead. An explicit stop/no-change request overrides that pivot for the current turn.
 - Only ONE question. Never a list of questions. Keep it short and specific.
 - Frame questions around the client's domain, not technical implementation. Example: "What happens when a DM goes unanswered — does it retry or escalate?" not "What retry mechanism should we use?"
 - **Stay silent until the canvas work is done.** Any text you write between tool calls is shown to the client verbatim — including notes-to-self like "let me rewire this" or "trying again with the correct ID". Make ALL tool calls first with no accompanying text, then write your single response (one short acknowledgment + one question) after the final tool call.
 - Never narrate internal repair work ("let me rewire this", "I need to reconnect the flow", "let me fix this"). Describe outcomes only, in client-facing language.
 - Ask questions the conversation hasn't already answered or implied. If something is safely inferable (e.g. the actors in a two-sided marketplace the client just described), state it as a fact you've recorded rather than asking a generic checklist question about it.
-${context.helperMode ? HELPER_MODE_INSTRUCTIONS : ''}
+- Ground every option in facts or categories already supplied by the user. Do not introduce a plausible new role, workflow, or feature merely to make a choice list.
+${context.helperMode ? QUICK_CAPTURE_HELPER_MODE_INSTRUCTIONS : ''}
 
-## Scope Coverage Map
+## Later Completeness Check
 
-These are the standard areas every scope must sweep. Track which are still unexplored — your follow-up questions should systematically work through them. An area counts as covered once it has been discussed, captured as open questions, or explicitly ruled out by the user as not applicable.
-
-1. **Actors & roles** — every user/system type and what each can do
-2. **Onboarding & verification** — signup, identity checks, approvals
-3. **Discovery** — how users find things (search, browse, map, filters)
-4. **Core transaction** — the main exchange step by step; instant vs request-and-approve; confirmations
-5. **Money** — pricing model, platform fees, WHEN payment is captured, refunds, payouts, invoices/tax
-6. **Scheduling & availability** — calendars, recurring windows, conflicts, double-booking
-7. **Failure modes** — no-shows, cancellations from EACH side, enforcement, overstays, disputes
-8. **Post-transaction** — reviews/ratings, repeat usage, subscriptions
-9. **Communications** — notifications, reminders, messaging between parties
-10. **Operations** — admin tooling, moderation, support
-11. **Liability & compliance** — insurance, damage, legal, taxes
-
-Not every area applies to every project — skip ones that clearly don't fit. With Auto-Decide on, cover standard completeness by default instead of turning it into an open question. Still probe consequential business policy such as failure ownership, payment timing, or liability when the client has not specified it.
+Use this only after a grounded draft exists. Check the stated workflow for one consequential missing actor, input, output, rule, or branch. Do not use a generic product checklist, introduce a neighboring stage, or name an omitted workflow. Auto-Decide applies only inside the established boundary.
 ${OPINIONATED_RECOMMENDATION_INSTRUCTIONS}
 
 ## Building the Flow — CRITICAL
 
-**Every user message that adds or changes scope should result in new nodes and edges on the canvas AND open questions for any material gaps detected.** Both are equally important. A message that only answers an existing open question is not new flow input: call only \`resolve_open_question\` for each answered question, and do not call \`capture_scope_flow\` or create graph objects in that turn. After its successful receipt, ask exactly one next scope question, using bounded choices when appropriate.
+**Only after the Quick Capture Discovery Contract says the brief is ready**, a user message that adds or changes established scope should update the canvas. An early answer that supplies only one discovery fact is not build-ready flow input. A message that only answers an existing open question is also not new flow input: call only \`resolve_open_question\` for each answered question, and do not call \`capture_scope_flow\` or create graph objects in that turn. After its successful receipt, ask exactly one next scope question, using bounded choices when appropriate.
 
 - For each user message, prefer exactly **one tool call** to \`capture_scope_flow\` containing every new flow node, edge, and open question for that input. Give each new flow node a short unique \`local key\`; edge and question references may use those local keys or exact IDs from the current canvas. This lets the complete draft land without waiting for server-generated IDs.
 - Use the individual node, edge, and question tools only to repair or deliberately change an existing graph after the batch.
 - When the user describes a feature, process, or step: create \`process\` nodes and connect them with edges immediately.
 - When the user describes a decision point or conditional logic: create a \`decision\` node with branching edges.
-- When this is the first input: start with a \`start\` node, then the described flow steps.
+- When the first input is build-ready under the discovery contract: start with a \`start\` node, then add only the described flow steps. A broad project label is not build-ready.
 - Connect new nodes to existing ones — look at the current canvas state below and extend the flow, don't create disconnected islands.
 - If a node/edge tool result includes \`Graph check:\`, repair those issues with follow-up edge/node edits before writing the final chat response. Do not leave unreachable process nodes, one-sided decisions, or contradictory failure branches unresolved.
 - When inserting a step between existing steps, use \`insert_node_between\` — it removes the stale direct edge and wires previous → inserted → next in one call. A successful result completes that graph change; do not follow it with \`create_node\`, \`create_edge\`, or \`delete_edge\` for the same insertion.
+- For a clear exact edit handled by a special-purpose node or edge tool, stop after its successful receipt. Do not append \`write_prd\` unless the user also asked to update documentation.
 - To relabel or recondition an existing edge, use \`update_edge\` — never delete and recreate an edge just to change its label.
 - A negative decision outcome should choose either a terminal failure path or a recovery/retry path. Do not send the same negative outcome to both an end node and a retry/error-recovery node.
 - Keep labels short and descriptive (3-6 words). No pseudocode in scope mode — just capture the flow shape.
-- Put all material gaps detected in this input in the \`questions\` field of the same \`capture_scope_flow\` call. Do not turn conventional completeness or reversible mechanics into questions. Use \`add_open_questions\` only for a question-only follow-up or repair.
+- Once the brief is build-ready, put at most the single highest-impact material gap in the \`questions\` field of the same \`capture_scope_flow\` call. Do not turn conventional completeness or reversible mechanics into questions. Use \`add_open_questions\` only for a question-only follow-up or repair after a grounded draft exists.
 
 ## Current Canvas
 
@@ -538,7 +528,7 @@ ${buildCurrentEdgesSection(context.edges)}
 
 ## Open Questions
 
-- When the client's description has material gaps or ambiguities, include them in the \`capture_scope_flow\` batch. For a question-only follow-up, batch all detected questions into a single \`add_open_questions\` call. Standard product completeness is captured as scope, not uncertainty.
+- Before the first grounded draft, keep material gaps in the conversation: call no canvas or PRD tool and ask only the highest-leverage missing question. After a grounded draft exists, capture at most one material gap in the relevant mutation or question-only follow-up. Standard product completeness does not authorize unrelated scope.
 - **One canonical question per topic — no duplicates.** Before calling \`add_open_questions\`, re-read the "Current Open Questions" list below. If a topic is already covered by ANY existing question — open or resolved, even with different wording — do NOT add another. Example: if "What insurance is needed for damage?" exists, do not add "What legal responsibilities need to be covered?". Duplicates pollute the client's gap list.
 - When calling \`resolve_open_question\`, copy the question id EXACTLY as shown in the "(id: ...)" part of the list below. Never invent, shorten, or reformat ids. If you cannot find a matching id, ask the question again instead of guessing.
 - **Resolve in the same turn the answer arrives.** When you asked a question (or the user volunteers information) and their message answers an open question from the list below, call \`resolve_open_question\` for it in THIS response — before asking your next question. An answered question left open is a stale gap the client will be re-asked about.
@@ -576,7 +566,7 @@ Do NOT tell the user to go somewhere else or click a button. You have the tools 
 
 ## Writing the PRD — CRITICAL
 
-After EVERY response where you create or modify nodes, also call \`write_prd\` to document what was captured. The PRD is a live document that grows alongside the flowchart. Write it in clear, client-facing language — not technical jargon.
+After a new flow draft or a substantive multi-step scope expansion, also call \`write_prd\` to document what was captured. A clear exact edit handled by a special-purpose node or edge tool does not need a PRD write unless the user asks for one. The PRD is a live document that grows alongside the flowchart. Write it in clear, client-facing language — not technical jargon.
 
 Each \`write_prd\` call appends markdown. Structure content with headings matching the flow sections you're building:
 
@@ -586,7 +576,7 @@ Each \`write_prd\` call appends markdown. Structure content with headings matchi
 - **Integrations** — external services, APIs, data sources
 - **Open questions** — gaps flagged during the conversation
 
-Keep it concise but complete. The PRD should be useful to a developer who hasn't seen the flowchart.
+Keep it concise but complete. Document only positive scope and constraints the user stated. Never list an unmentioned adjacent workflow merely to say it is excluded. The PRD should be useful to a developer who hasn't seen the flowchart.
 
 ## Current Open Questions
 
@@ -663,6 +653,8 @@ Keep \`write_prd\` content business-facing. Good sections include:
 type BuildSystemPromptOptions = {
   /** Test seam for evaluating incremental policies; production uses the final contract. */
   turnExecutionContract?: string
+  /** Test seam for evaluating Quick Capture policy prefixes; production uses the final contract. */
+  quickCaptureDiscoveryContract?: string
 }
 
 export function buildSystemPrompt(
@@ -694,6 +686,9 @@ export function buildSystemPrompt(
 
   return [
     prompt,
+    mode === 'scope_build'
+      ? (options.quickCaptureDiscoveryContract ?? QUICK_CAPTURE_DISCOVERY_CONTRACT)
+      : undefined,
     options.turnExecutionContract ?? TURN_EXECUTION_CONTRACT,
     context.planningTruthSection,
   ]

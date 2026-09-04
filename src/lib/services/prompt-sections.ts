@@ -8,6 +8,34 @@ import type { PlanningDecisionState, PlanningReadinessState } from '@/types/plan
 
 const MAX_PSEUDOCODE_PER_NODE = 450
 
+export const QUICK_CAPTURE_DISCOVERY_RULES = [
+  'On a new or empty Quick Capture, treat a broad project label as discovery input, not build-ready scope. Ask first and call no tool.',
+  'Learn the intended outcome or output before probing secondary actors, features, or implementation.',
+  'Never infer adjacent workflows, roles, portals, credentials, scheduling, integrations, or compliance that the user did not mention.',
+  'Ask exactly one highest-leverage discovery question per turn and keep it about the product, not technical implementation.',
+  'When the discovery question has a bounded answer, offer 2-3 short options and mark one Recommended.',
+  'A short answer such as a role fills only that fact. Do not turn it into a system draft; ask for the next missing core fact.',
+  'Treat corrections and rejections as scope boundaries. Do not revive the rejected concept or build around it.',
+  'Delay the first draft until the purpose or output, primary operator, scope boundary, and core input or business rule are known, unless the user already supplied an equally concrete sequence.',
+  'If any readiness anchor is missing, call no tool. When ready, create only the smallest stated flow, capture at most one material open question, and omit adjacent lifecycle even as out-of-scope narration.',
+  'Final gate: on an empty canvas, actor plus output without the core pricing or input rule is still discovery, so call no tool and ask that missing rule with an Options heading, 2-3 numbered lines, and exactly one Recommended. Never mention omitted adjacent lifecycle, even to say it is excluded. Concrete actor-input-output sequences and clear established canvas changes still execute immediately.',
+] as const
+
+export function buildQuickCaptureDiscoveryContract(rules: readonly string[]): string {
+  if (rules.length === 0) return ''
+  const numberedRules = rules.map((rule, index) => `${index + 1}. ${rule}`).join('\n')
+
+  return `## Quick Capture Discovery Contract
+
+This overrides scope coverage and "every message builds" rules until the first grounded draft is ready.
+
+${numberedRules}`
+}
+
+export const QUICK_CAPTURE_DISCOVERY_CONTRACT = buildQuickCaptureDiscoveryContract(
+  QUICK_CAPTURE_DISCOVERY_RULES,
+)
+
 export const TURN_EXECUTION_POLICY_RULES = [
   'Classify the latest user message: mutation, existing-question answer, explanation/status/no-change, or ambiguity. Use app state.',
   'For an explanation, status, acknowledgement, or no-change request, answer directly with no tool. Ask only if blocked.',
@@ -72,6 +100,15 @@ Record only non-obvious choices that materially constrain product behavior, secu
 Never announce recorded assumptions or proposed decisions in the normal chat reply; the review panel surfaces them later. Never both record a choice and ask the user about that same choice in one turn. Either decide and record it, or ask once. If you record it, use the question budget for a different material unknown or stop when the mode allows.
 
 Reserve questions for facts only the user knows and consequential choices such as money or payment timing, permission authority, destructive deletion or retention, legal or liability exposure, user-facing policy, and external provider or business contracts. Use the 2-3 option format when the choice is genuinely bounded.`
+
+export const QUICK_CAPTURE_HELPER_MODE_INSTRUCTIONS = `
+## Auto-Decide Mode — inside the stated scope only
+
+Auto-decide is ON for routine, reversible mechanics inside an established scope. It does not supply missing product facts, introduce an actor or workflow the user did not name, or treat a likely adjacent feature as included.
+
+During early discovery, ask for the missing core product rule instead of deciding it. When 2 or 3 credible answer categories can be grounded in what the user already said, this is a bounded decision: use the Useful Decision Questions format rather than a bare question. Ask plainly only when the answer is a fact only the user can know.
+
+After the first grounded draft, quietly choose conventional mechanics needed by the stated steps. Record only a non-obvious decision that materially changes those steps; do not enumerate routine defaults in chat.`
 
 type PlanningTruthDecision = {
   id: string

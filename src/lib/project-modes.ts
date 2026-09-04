@@ -48,8 +48,8 @@ export const PROJECT_MODE_CONFIG: Record<ProjectMode, ProjectModeConfig> = {
     },
     workspaceLabel: 'Quick Capture',
     welcomeMessage:
-      'Welcome to Quick Capture! Describe what your client needs and I\'ll build a flowchart on the canvas in real-time.\n\nAs I work, hold **⌥ Option** to peek at your flowchart behind this chat.\n\nTry something like: *"The client needs a checkout flow with guest checkout and payment options."*',
-    chatSubtitle: "Describe what the client needs — I'll build the flowchart.",
+      'Welcome to Quick Capture! Describe what your client needs. I\'ll clarify the goal first, then build the smallest useful flowchart on the canvas.\n\nAs I work, hold **⌥ Option** to peek at your flowchart behind this chat.\n\nTry something like: *"The client needs a checkout flow with guest checkout and payment options."*',
+    chatSubtitle: "Describe what the client needs — I'll clarify, then build the flowchart.",
     examplePrompts: [
       'Client needs an invoicing system with approvals',
       'Map out a returns and refunds process',

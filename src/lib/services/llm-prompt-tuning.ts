@@ -1,9 +1,12 @@
 import {
+  buildQuickCaptureDiscoveryContract,
   buildTurnExecutionContract,
+  QUICK_CAPTURE_DISCOVERY_RULES,
   TURN_EXECUTION_POLICY_RULES,
 } from '@/lib/services/prompt-sections'
 
 export const PROMPT_TUNING_MAX_ITERATION = TURN_EXECUTION_POLICY_RULES.length
+export const SCOPE_DISCOVERY_TUNING_MAX_ITERATION = QUICK_CAPTURE_DISCOVERY_RULES.length
 
 export function buildPromptTuningPolicy(iteration: number): string {
   if (
@@ -18,6 +21,21 @@ export function buildPromptTuningPolicy(iteration: number): string {
   if (iteration === 0) return ''
 
   return buildTurnExecutionContract(TURN_EXECUTION_POLICY_RULES.slice(0, iteration))
+}
+
+export function buildScopeDiscoveryTuningPolicy(iteration: number): string {
+  if (
+    !Number.isSafeInteger(iteration) ||
+    iteration < 0 ||
+    iteration > SCOPE_DISCOVERY_TUNING_MAX_ITERATION
+  ) {
+    throw new Error(
+      `Scope discovery tuning iteration must be an integer from 0 through ${SCOPE_DISCOVERY_TUNING_MAX_ITERATION}`,
+    )
+  }
+  if (iteration === 0) return ''
+
+  return buildQuickCaptureDiscoveryContract(QUICK_CAPTURE_DISCOVERY_RULES.slice(0, iteration))
 }
 
 export type PromptSimulationObservation = {
@@ -36,9 +54,30 @@ export type PromptSimulationCriterionScores = {
   C5: number
 }
 
+export type ScopeDiscoverySimulationObservation = {
+  id: string
+  earlyDiscoveryCorrect: boolean | null
+  groundedCorrect: boolean
+  buildTimingCorrect: boolean | null
+  conversationCorrect: boolean | null
+  preservationCorrect: boolean | null
+}
+
+export type ScopeDiscoveryCriterionScores = {
+  C1: number
+  C2: number
+  C3: number
+  C4: number
+  C5: number
+}
+
 function percentage(values: boolean[]): number {
   if (values.length === 0) return 0
   return Number(((values.filter(Boolean).length / values.length) * 100).toFixed(2))
+}
+
+function applicablePercentage(values: Array<boolean | null>): number {
+  return percentage(values.filter((value): value is boolean => value !== null))
 }
 
 function policyStructureScore(policy: string): number {
@@ -96,6 +135,29 @@ export function evaluatePromptSimulation(
     (
       criteria.C1 * 0.25 +
       criteria.C2 * 0.3 +
+      criteria.C3 * 0.2 +
+      criteria.C4 * 0.15 +
+      criteria.C5 * 0.1
+    ).toFixed(2),
+  )
+
+  return { criteria, weightedScore }
+}
+
+export function evaluateScopeDiscoverySimulation(
+  observations: ScopeDiscoverySimulationObservation[],
+): { criteria: ScopeDiscoveryCriterionScores; weightedScore: number } {
+  const criteria: ScopeDiscoveryCriterionScores = {
+    C1: applicablePercentage(observations.map((observation) => observation.earlyDiscoveryCorrect)),
+    C2: percentage(observations.map((observation) => observation.groundedCorrect)),
+    C3: applicablePercentage(observations.map((observation) => observation.buildTimingCorrect)),
+    C4: applicablePercentage(observations.map((observation) => observation.conversationCorrect)),
+    C5: applicablePercentage(observations.map((observation) => observation.preservationCorrect)),
+  }
+  const weightedScore = Number(
+    (
+      criteria.C1 * 0.3 +
+      criteria.C2 * 0.25 +
       criteria.C3 * 0.2 +
       criteria.C4 * 0.15 +
       criteria.C5 * 0.1

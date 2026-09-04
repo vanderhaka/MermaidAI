@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import {
   buildPromptTuningPolicy,
+  buildScopeDiscoveryTuningPolicy,
   evaluatePromptSimulation,
+  evaluateScopeDiscoverySimulation,
   PROMPT_TUNING_MAX_ITERATION,
+  SCOPE_DISCOVERY_TUNING_MAX_ITERATION,
   type PromptSimulationObservation,
+  type ScopeDiscoverySimulationObservation,
 } from '@/lib/services/llm-prompt-tuning'
 
 describe('prompt tuning evaluator', () => {
@@ -65,5 +69,66 @@ describe('prompt tuning evaluator', () => {
   it('rejects iterations outside the frozen range', () => {
     expect(() => buildPromptTuningPolicy(-1)).toThrow(/0 through 20/)
     expect(() => buildPromptTuningPolicy(21)).toThrow(/0 through 20/)
+  })
+})
+
+describe('Quick Capture discovery tuning evaluator', () => {
+  const knownPass: ScopeDiscoverySimulationObservation = {
+    id: 'known-pass',
+    earlyDiscoveryCorrect: true,
+    groundedCorrect: true,
+    buildTimingCorrect: true,
+    conversationCorrect: true,
+    preservationCorrect: true,
+  }
+
+  it('calibrates a known pass to 100', () => {
+    expect(evaluateScopeDiscoverySimulation([knownPass])).toEqual({
+      criteria: { C1: 100, C2: 100, C3: 100, C4: 100, C5: 100 },
+      weightedScore: 100,
+    })
+  })
+
+  it('separates the known failure pattern from a passing response', () => {
+    const knownFailure: ScopeDiscoverySimulationObservation = {
+      id: 'known-failure',
+      earlyDiscoveryCorrect: false,
+      groundedCorrect: false,
+      buildTimingCorrect: false,
+      conversationCorrect: false,
+      preservationCorrect: false,
+    }
+
+    expect(evaluateScopeDiscoverySimulation([knownFailure])).toEqual({
+      criteria: { C1: 0, C2: 0, C3: 0, C4: 0, C5: 0 },
+      weightedScore: 0,
+    })
+  })
+
+  it('excludes non-applicable checks from criterion denominators', () => {
+    expect(
+      evaluateScopeDiscoverySimulation([
+        knownPass,
+        {
+          ...knownPass,
+          id: 'discovery-only',
+          buildTimingCorrect: null,
+          preservationCorrect: null,
+        },
+      ]),
+    ).toEqual({
+      criteria: { C1: 100, C2: 100, C3: 100, C4: 100, C5: 100 },
+      weightedScore: 100,
+    })
+  })
+
+  it('builds exactly ten cumulative policy candidates', () => {
+    expect(buildScopeDiscoveryTuningPolicy(0)).toBe('')
+    expect(buildScopeDiscoveryTuningPolicy(1)).toContain('broad project label')
+    expect(buildScopeDiscoveryTuningPolicy(SCOPE_DISCOVERY_TUNING_MAX_ITERATION)).toContain(
+      'established canvas',
+    )
+    expect(() => buildScopeDiscoveryTuningPolicy(-1)).toThrow(/0 through 10/)
+    expect(() => buildScopeDiscoveryTuningPolicy(11)).toThrow(/0 through 10/)
   })
 })

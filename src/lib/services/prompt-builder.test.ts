@@ -473,6 +473,43 @@ describe('buildSystemPrompt', () => {
       expect(prompt.toLowerCase()).toContain('scope')
     })
 
+    it('discovers a vague purpose before building the first draft', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+
+      expect(prompt).toContain('Quick Capture Discovery Contract')
+      expect(prompt).toContain('broad project label as discovery input')
+      expect(prompt).toContain('call no tool')
+      expect(prompt).toContain('purpose or output')
+      expect(prompt).toContain('primary operator')
+      expect(prompt).toContain('core pricing or input rule')
+      expect(prompt).toContain('omit adjacent lifecycle')
+    })
+
+    it('allows the discovery contract to be isolated for sequential evaluation', () => {
+      const prompt = buildSystemPrompt(mode, baseContext, {
+        quickCaptureDiscoveryContract: '',
+      })
+
+      expect(prompt).not.toContain('## Quick Capture Discovery Contract')
+      expect(prompt).not.toContain('broad project label as discovery input')
+    })
+
+    it('keeps concrete and established-flow changes directly executable', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+
+      expect(prompt).toContain('Concrete actor-input-output sequences')
+      expect(prompt).toContain('clear established canvas changes still execute immediately')
+      expect(prompt).toContain('A broad project label is not build-ready')
+      expect(prompt).toContain('Do not append `write_prd`')
+    })
+
+    it('keeps discovery options and PRD content inside stated scope', () => {
+      const prompt = buildSystemPrompt(mode, baseContext)
+
+      expect(prompt).toContain('Ground every option in facts or categories already supplied')
+      expect(prompt).toContain('Never list an unmentioned adjacent workflow')
+    })
+
     it('mentions open questions', () => {
       const prompt = buildSystemPrompt(mode, baseContext)
       expect(prompt.toLowerCase()).toContain('open question')
@@ -675,16 +712,17 @@ describe('buildSystemPrompt', () => {
       expect(prompt.toLowerCase()).toContain('never ask the user for a module id')
     })
 
-    it('tells the AI to decide and record routine points when auto-decide is on', () => {
+    it('keeps auto-decisions inside established Quick Capture scope', () => {
       const prompt = buildSystemPrompt(mode, { ...baseContext, helperMode: true })
       expect(prompt).toContain('Auto-Decide Mode')
-      expect(prompt).toContain('do not create an open question for it')
-      expect(prompt).toContain('password reset')
-      expect(prompt).toContain('Do not enumerate these defaults in chat')
-      expect(prompt).toContain('Record only non-obvious choices')
-      expect(prompt).toContain('Never both record a choice and ask the user about that same choice')
-      expect(prompt).toContain('the review panel surfaces them later')
-      expect(prompt).toContain('"## Assumed defaults" heading')
+      expect(prompt).toContain('inside the stated scope only')
+      expect(prompt).toContain('does not supply missing product facts')
+      expect(prompt).toContain(
+        'use the Useful Decision Questions format rather than a bare question',
+      )
+      expect(prompt).toContain('quietly choose conventional mechanics needed by the stated steps')
+      expect(prompt).not.toContain('password reset')
+      expect(prompt).not.toContain('Scope Coverage Map')
     })
 
     it('omits the auto-decide section when the flag is off or absent', () => {
@@ -1003,9 +1041,9 @@ describe('buildSystemPrompt', () => {
 
     it('reserves questions for the points the client has to own', () => {
       const prompt = buildSystemPrompt('scope_build', { ...baseContext, helperMode: true })
-      expect(prompt).toContain('money or payment timing')
-      expect(prompt).toContain('legal or liability exposure')
-      expect(prompt).toContain('external provider or business contracts')
+      expect(prompt).toContain('does not supply missing product facts')
+      expect(prompt).toContain('ask for the missing core product rule')
+      expect(prompt).toContain('a fact only the user can know')
     })
   })
 })

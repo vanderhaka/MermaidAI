@@ -37,4 +37,12 @@ describe('project mode config', () => {
     expect(getProjectModeConfig('architecture').chatMode).toBeUndefined()
     expect(getSingleCanvasModuleDefaults('architecture')).toBeNull()
   })
+
+  it('sets the Quick Capture expectation to clarify before drawing', () => {
+    const quickCapture = getProjectModeConfig('scope')
+
+    expect(quickCapture.welcomeMessage).toContain('clarify the goal first')
+    expect(quickCapture.welcomeMessage).toContain('smallest useful flowchart')
+    expect(quickCapture.chatSubtitle).toContain("I'll clarify, then build")
+  })
 })

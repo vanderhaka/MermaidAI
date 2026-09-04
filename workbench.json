@@ -1,0 +1,275 @@
+{
+  "schema_version": "1.0",
+  "mission": "Make a new Quick Capture discover the user's purpose, operator, scope boundary, and core business rule before drawing, without inventing adjacent systems, while preserving immediate execution for concrete or established-flow changes.",
+  "persistence": {
+    "mode": "ACTIVE_TURN_ONLY",
+    "goal_ref": null
+  },
+  "quality_bar": {
+    "name": "A senior product-minded developer who clarifies a vague brief before drawing and then builds only the smallest grounded flow",
+    "comparable": true,
+    "pass_score": 95,
+    "evaluator": {
+      "id": "quick-capture-discovery-rubric",
+      "version": "1",
+      "validated": true,
+      "validation_evidence": [
+        "src/lib/services/llm-prompt-tuning.test.ts calibrates a known pass at 100 and the known build-too-early failure at 0",
+        "The dry-run proved eight fixed training scenarios, a 20-request ceiling, and zero application mutations",
+        "The corrected baseline reproduced the reported behavior across vague, partial, correction, ready, concrete, and established-flow cases"
+      ]
+    },
+    "comparison": {
+      "blinding_possible": false,
+      "mode": "UNBLINDED",
+      "evidence": [
+        "Each cumulative candidate is a named prefix of the production policy, so the source-level comparison cannot be honestly blinded"
+      ]
+    }
+  },
+  "budget": {
+    "minimum_iterations": 10,
+    "max_iterations": 10,
+    "iterations_used": 10,
+    "live_provider_request_cap": 220
+  },
+  "plateau": {
+    "window": 5,
+    "min_delta": 1,
+    "strategy_changes": 1,
+    "last_strategy_change_iteration": 10
+  },
+  "criteria": [
+    {
+      "id": "C1",
+      "text": "Vague or partial early Quick Capture turns stay in discovery and make no canvas or PRD tool calls.",
+      "required": true,
+      "hard_gate": true,
+      "weight": 30,
+      "pass_threshold": 100,
+      "verdict": "PASS",
+      "score": 100,
+      "evidence": [
+        "Fresh production holdout and final eight-case painting replay: every applicable vague, role-only, correction, and purpose-without-pricing case stayed in discovery with zero tool calls"
+      ],
+      "builder_id": "quick-capture-policy-builder",
+      "critic_id": "scope-discovery-holdout-critic"
+    },
+    {
+      "id": "C2",
+      "text": "Responses and tool inputs remain grounded in user-stated facts and do not invent adjacent actors, credentials, scheduling, portals, payments, or other lifecycle scope.",
+      "required": true,
+      "hard_gate": true,
+      "weight": 25,
+      "pass_threshold": 100,
+      "verdict": "PASS",
+      "score": 100,
+      "evidence": [
+        "Fresh production holdout and final painting replay: all thirteen responses and tool inputs avoided the frozen adjacent-scope terms, including both ready-draft PRDs"
+      ],
+      "builder_id": "quick-capture-policy-builder",
+      "critic_id": "scope-discovery-holdout-critic"
+    },
+    {
+      "id": "C3",
+      "text": "The first draft waits for sufficient discovery, then uses the canonical tools to create a small grounded flow; concrete requests still build immediately.",
+      "required": true,
+      "hard_gate": true,
+      "weight": 20,
+      "pass_threshold": 100,
+      "verdict": "PASS",
+      "score": 100,
+      "evidence": [
+        "Fresh production holdout and final painting replay: ready quotes used capture_scope_flow then write_prd, while established GST changes used insert_node_between only"
+      ],
+      "builder_id": "quick-capture-policy-builder",
+      "critic_id": "scope-discovery-holdout-critic"
+    },
+    {
+      "id": "C4",
+      "text": "Discovery replies are concise, ask exactly one highest-leverage product question, and use 2-3 choices with one Recommended answer when bounded.",
+      "required": true,
+      "hard_gate": false,
+      "weight": 15,
+      "pass_threshold": 90,
+      "verdict": "PASS",
+      "score": 100,
+      "evidence": [
+        "Fresh production holdout and final painting replay: all applicable discovery replies were concise and asked one grounded question; every bounded case used 2-3 options with one Recommended"
+      ],
+      "builder_id": "quick-capture-policy-builder",
+      "critic_id": "scope-discovery-holdout-critic"
+    },
+    {
+      "id": "C5",
+      "text": "Clear concrete first turns and precise established-canvas changes preserve their existing direct execution behavior.",
+      "required": true,
+      "hard_gate": true,
+      "weight": 10,
+      "pass_threshold": 100,
+      "verdict": "PASS",
+      "score": 100,
+      "evidence": [
+        "Fresh production holdout and final painting replay: detailed first-turn builds and exact established insertions preserved their expected direct execution behavior"
+      ],
+      "builder_id": "quick-capture-policy-builder",
+      "critic_id": "scope-discovery-holdout-critic"
+    }
+  ],
+  "integration": {
+    "verdict": "PASS",
+    "evidence": [
+      "Fresh five-scenario production Luna holdout scored 100 across C1-C5 using 6 of 20 allowed provider requests and zero application mutations",
+      "The final eight-scenario production replay of the reported house-painting behavior also scored 100 across C1-C5 using 9 of 20 allowed requests and zero application mutations",
+      "Full repository verification passed: 1576 tests passed with 3 explicitly skipped, ESLint passed, TypeScript passed, and the Next.js production build completed",
+      "The revised visible Quick Capture expectation is locked by the project-mode test; the in-app browser rendered the local app shell, while the protected workspace remained unavailable because the configured Supabase hostname did not resolve"
+    ],
+    "builder_ids": ["quick-capture-policy-builder"],
+    "critic_id": "scope-discovery-integration-critic"
+  },
+  "human_gates": [
+    {
+      "id": "capped-live-luna-simulation",
+      "required": true,
+      "blocking": false,
+      "state": "APPROVED"
+    },
+    {
+      "id": "deploy-or-provider-change",
+      "required": false,
+      "blocking": false,
+      "state": "NOT_REQUIRED"
+    }
+  ],
+  "iterations": [
+    {
+      "number": 0,
+      "score": 32.71,
+      "artifact_ref": "src/lib/services/prompt-builder.ts@c783a0f-baseline",
+      "evidence": [
+        "Live Luna training matrix: C1 0, C2 37.5, C3 66.67, C4 0, C5 100; 9 of 20 allowed provider requests used",
+        "The broad painting prompt immediately produced 11 nodes and three questions, including approval and scheduling scope the user had not requested"
+      ],
+      "builder_id": null,
+      "critic_id": "scope-discovery-baseline-critic"
+    },
+    {
+      "number": 1,
+      "score": 57.96,
+      "artifact_ref": "src/lib/services/llm-prompt-tuning.ts#scope-discovery-iteration-1",
+      "evidence": [
+        "Live Luna training matrix: C1 60, C2 62.5, C3 66.67, C4 40, C5 50; 10 of 20 allowed provider requests used",
+        "The broad first turn and one-word admin answer both stayed off the canvas; partial pricing and explicit quote-only correction still built too early"
+      ],
+      "builder_id": "quick-capture-policy-builder",
+      "critic_id": "scope-discovery-critic-1"
+    },
+    {
+      "number": 2,
+      "score": 30.5,
+      "artifact_ref": "src/lib/services/llm-prompt-tuning.ts#scope-discovery-iteration-2",
+      "evidence": [
+        "Live Luna training matrix: C1 60, C2 50, C3 0, C4 0, C5 0; 9 of 20 allowed provider requests used",
+        "Outcome-first wording remained discovery-first in three cases but omitted structured options, mentioned contractor review once, and regressed both build controls; iteration 1 stayed active"
+      ],
+      "builder_id": "quick-capture-policy-builder",
+      "critic_id": "scope-discovery-critic-2"
+    },
+    {
+      "number": 3,
+      "score": 54.54,
+      "artifact_ref": "src/lib/services/llm-prompt-tuning.ts#scope-discovery-iteration-3",
+      "evidence": [
+        "Live Luna training matrix: C1 60, C2 87.5, C3 33.33, C4 20, C5 50; 9 of 20 allowed provider requests used",
+        "The explicit non-invention rule lifted groundedness from 50 to 87.5, but two partial briefs still built and the concrete draft remained too broad; iteration 1 stayed active"
+      ],
+      "builder_id": "quick-capture-policy-builder",
+      "critic_id": "scope-discovery-critic-3"
+    },
+    {
+      "number": 4,
+      "score": 48.83,
+      "artifact_ref": "src/lib/services/llm-prompt-tuning.ts#scope-discovery-iteration-4",
+      "evidence": [
+        "Live Luna training matrix: C1 60, C2 50, C3 66.67, C4 0, C5 50; 9 of 20 allowed provider requests used",
+        "The one-question rule did not overcome the old universal build instruction for partial briefs and replies still omitted structured options; iteration 1 stayed active"
+      ],
+      "builder_id": "quick-capture-policy-builder",
+      "critic_id": "scope-discovery-critic-4"
+    },
+    {
+      "number": 5,
+      "score": 54.29,
+      "artifact_ref": "src/lib/services/llm-prompt-tuning.ts#scope-discovery-iteration-5",
+      "evidence": [
+        "Live Luna training matrix: C1 60, C2 62.5, C3 33.33, C4 60, C5 50; 9 of 20 allowed provider requests used",
+        "The explicit option format raised discovery conversation quality to 60, but partial briefs still built and one correction reply repeated the rejected contractor term; iteration 1 stayed active"
+      ],
+      "builder_id": "quick-capture-policy-builder",
+      "critic_id": "scope-discovery-critic-5"
+    },
+    {
+      "number": 6,
+      "score": 76.21,
+      "artifact_ref": "src/lib/services/llm-prompt-tuning.ts#scope-discovery-iteration-6",
+      "evidence": [
+        "Live Luna training matrix: C1 80, C2 87.5, C3 66.67, C4 80, C5 50; 9 of 20 allowed provider requests used",
+        "Short roles and explicit scope corrections now fill one fact without triggering a draft; the remaining discovery miss is the purpose-without-pricing case"
+      ],
+      "builder_id": "quick-capture-policy-builder",
+      "critic_id": "scope-discovery-critic-6"
+    },
+    {
+      "number": 7,
+      "score": 66.54,
+      "artifact_ref": "src/lib/services/llm-prompt-tuning.ts#scope-discovery-iteration-7",
+      "evidence": [
+        "Live Luna training matrix: C1 80, C2 87.5, C3 33.33, C4 60, C5 50; 9 of 20 allowed provider requests used",
+        "Rejected scope stayed rejected and the quote-only correction remained discovery-only, but first drafts expanded again and one explicit request captured two questions; iteration 6 stayed active"
+      ],
+      "builder_id": "quick-capture-policy-builder",
+      "critic_id": "scope-discovery-critic-7"
+    },
+    {
+      "number": 8,
+      "score": 78.75,
+      "artifact_ref": "src/lib/services/llm-prompt-tuning.ts#scope-discovery-iteration-8",
+      "evidence": [
+        "Live Luna training matrix: C1 80, C2 75, C3 100, C4 40, C5 100; 9 of 20 allowed provider requests used",
+        "Readiness anchors produced exact minimal builds and preserved mature edits; one partial brief still built, two drafts narrated excluded lifecycle, and two questions lacked structured options"
+      ],
+      "builder_id": "quick-capture-policy-builder",
+      "critic_id": "scope-discovery-critic-8"
+    },
+    {
+      "number": 9,
+      "score": 84.88,
+      "artifact_ref": "src/lib/services/llm-prompt-tuning.ts#scope-discovery-iteration-9",
+      "evidence": [
+        "Live Luna training matrix: C1 80, C2 87.5, C3 100, C4 60, C5 100; 9 of 20 allowed provider requests used",
+        "The minimal-draft gate passed every build control and removed adjacent scope from seven of eight cases; one partial brief still built and two discovery replies lacked the required form"
+      ],
+      "builder_id": "quick-capture-policy-builder",
+      "critic_id": "scope-discovery-critic-9"
+    },
+    {
+      "number": 10,
+      "score": 100,
+      "artifact_ref": "src/lib/services/prompt-builder.ts#quick-capture-discovery-final",
+      "evidence": [
+        "Initial cumulative Luna matrix: C1 100, C2 75, C3 100, C4 100, C5 100; the remaining failures were both adjacent-scope wording",
+        "The integrated iteration removed the conflicting generic coverage and broad auto-decide prompts, then a fresh untouched holdout scored C1 100, C2 100, C3 100, C4 100, C5 100 using 6 of 20 allowed requests",
+        "A final replay of all eight reported house-painting scenarios scored C1 100, C2 100, C3 100, C4 100, C5 100 using 9 of 20 allowed requests"
+      ],
+      "builder_id": "quick-capture-policy-builder",
+      "critic_id": "scope-discovery-critic-10"
+    }
+  ],
+  "best": {
+    "iteration": 10,
+    "score": 100,
+    "artifact_ref": "src/lib/services/prompt-builder.ts#quick-capture-discovery-final"
+  },
+  "active_artifact_ref": "src/lib/services/prompt-builder.ts#quick-capture-discovery-final",
+  "blockers": []
+}
